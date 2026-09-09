@@ -1,0 +1,124 @@
+package com.gios.brightmailbox.sort
+
+/**
+ * Tier 0 — did a human write this to a human?
+ *
+ * Answered entirely from headers, in microseconds, offline, with no model. This is not a
+ * fallback for the learned model; it is the primary classifier, because for THIS question
+ * headers beat inference. A machine that sends mail in bulk is required by convention and
+ * often by law to say so, and it does: RFC 2369 List-Unsubscribe, RFC 2076 Precedence,
+ * RFC 3834 Auto-Submitted. A language model reading the body would be slower, less
+ * accurate, and unable to explain itself.
+ *
+ * The learned half ([Learner]) does the thing headers cannot: rank what is left.
+ */
+object Headers {
+
+    /** RFC 3834 and friends. Presence alone is a declaration of automation. */
+    private val BULK_HEADERS = listOf(
+        "list-unsubscribe" to "has an unsubscribe link",
+        "list-id" to "comes from a mailing list",
+        "list-post" to "comes from a mailing list",
+        "x-auto-response-suppress" to "asks not to be replied to",
+        "feedback-id" to "carries a bulk-sender tracking id",
+        "x-campaign-id" to "is part of a campaign",
+        "x-mailchimp-id" to "was sent by Mailchimp",
+        "x-ses-outgoing" to "was sent by Amazon SES",
+        "x-sg-eid" to "was sent by SendGrid",
+        "x-pm-message-id" to "was sent by Postmark",
+        "x-mandrill-user" to "was sent by Mandrill",
+    )
+
+    private val BULK_PRECEDENCE = setOf("bulk", "list", "junk", "auto_reply")
+
+    /**
+     * Sender local-parts that are mailboxes nobody reads.
+     *
+     * Kept narrow on purpose. `hello@`, `team@`, `hi@` and `contact@` are omitted even
+     * though they look automated, because at a small company those are exactly where a
+     * real person writes from — and a false NOTICE is far worse than a false LETTER. One
+     * missed reply from a client costs more than five receipts in the wrong pile.
+     */
+    private val ROBOT_LOCALPARTS = Regex(
+        "^(" +
+            "no-?reply|do-?not-?reply|donotreply|" +
+            "notifications?|notify|alerts?|" +
+            "mailer(-daemon)?|postmaster|bounces?|" +
+            "automated|automailer|auto-confirm|" +
+            "receipts?|invoices?|billing|statements?|" +
+            "newsletters?|digest|updates|mailing" +
+            ")([-+.].*)?$",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** Variable-envelope return paths: `bounce-1234-abcd@`. Only bulk senders do this. */
+    private val VERP = Regex("^(bounces?|bnc|msys|sb|return)[-+._][a-z0-9._=-]{6,}$", RegexOption.IGNORE_CASE)
+
+    /**
+     * Classify, given what we know about the user's history with this sender.
+     *
+     * @param repliedTo how many times the user has replied to this exact address
+     * @param override  a stored per-sender decision, which always wins
+     */
+    fun classify(e: Envelope, repliedTo: Int = 0, override: Pile? = null): Verdict {
+        if (override != null) {
+            return Verdict(
+                override,
+                if (override == Pile.LETTER) "you moved this sender to Letters"
+                else "you moved this sender to Notices",
+                "override",
+                fromOverride = true,
+            )
+        }
+
+        // A correspondence outranks every header. Someone you have written back to is a
+        // person, even when their company sends through a platform that stamps bulk
+        // headers on everything. This is the single most reliable signal in the app and
+        // it is the reason the app gets better the longer it is used.
+        if (repliedTo > 0) {
+            val times = if (repliedTo == 1) "once" else "$repliedTo times"
+            return Verdict(Pile.LETTER, "you've replied to this address $times", "replied-before")
+        }
+
+        // Auto-Submitted: no means "a human sent this"; anything else means it didn't.
+        e.header("auto-submitted")?.let {
+            if (!it.trim().startsWith("no", ignoreCase = true)) {
+                return Verdict(Pile.NOTICE, "was generated automatically", "auto-submitted")
+            }
+        }
+
+        e.header("precedence")?.let {
+            if (it.trim().lowercase() in BULK_PRECEDENCE) {
+                return Verdict(Pile.NOTICE, "is marked bulk mail", "precedence")
+            }
+        }
+
+        for ((name, reason) in BULK_HEADERS) {
+            if (e.has(name)) return Verdict(Pile.NOTICE, reason, name)
+        }
+
+        if (ROBOT_LOCALPARTS.matches(e.localPart)) {
+            return Verdict(Pile.NOTICE, "comes from ${e.localPart}@, which nobody reads", "robot-sender")
+        }
+
+        e.header("return-path")?.let { rp ->
+            val local = rp.trim().trim('<', '>').substringBefore('@')
+            if (VERP.matches(local)) {
+                return Verdict(Pile.NOTICE, "was sent through a bulk mail system", "verp")
+            }
+        }
+
+        // A large visible recipient list is an announcement, not a letter.
+        if (e.otherRecipients >= 12) {
+            return Verdict(Pile.NOTICE, "went to ${e.otherRecipients} other people", "many-recipients")
+        }
+
+        // Nothing claimed it was automated, so treat it as a person. Defaulting the other
+        // way would bury real mail, which is the one failure this app cannot afford.
+        return if (e.addressedToMe) {
+            Verdict(Pile.LETTER, "was addressed to you directly", "addressed-to-me")
+        } else {
+            Verdict(Pile.LETTER, "carries no sign of being automated", "no-bulk-markers")
+        }
+    }
+}

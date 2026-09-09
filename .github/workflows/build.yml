@@ -1,0 +1,113 @@
+name: Build & Release APK
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'signing-fingerprint.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The notification sounds are synthesized at build time, so the build needs
+      # numpy. Nothing audio is committed — see scripts/README.md.
+      - name: Sound toolchain
+        run: python3 -m pip install --quiet numpy
+
+      # versionCode is the run number, so every push is newer than the last and
+      # `adb install -r` upgrades in place instead of erroring.
+      - name: Stamp version
+        id: ver
+        run: |
+          RUN=${{ github.run_number }}
+          BASE=$(grep 'versionName' app/build.gradle.kts | head -1 | sed -E 's/.*"([0-9]+\.[0-9]+).*"/\1/')
+          VERSION="${BASE}.${RUN}"
+          sed -i -E "s/versionCode = .*/versionCode = ${RUN}/" app/build.gradle.kts
+          sed -i -E "s/versionName = \".*\"/versionName = \"${VERSION}\"/" app/build.gradle.kts
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          grep -E 'versionCode|versionName' app/build.gradle.kts
+
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      # Installed-app OAuth clients have no secret, but keeping the ids in repository
+      # secrets means a fork cannot authorise against this project by accident. With
+      # both unset the build still succeeds; the app shows the setup screen and asks
+      # for a client id by QR.
+      #
+      # NOTE: one env block. Two `env:` keys on the same step is legal YAML and the
+      # second silently wins, which is how an earlier project lost its client id.
+      - name: Build APKs
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
+          REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
+        run: ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
+
+      - name: Collect APKs
+        run: |
+          V=${{ steps.ver.outputs.version }}
+          mkdir -p out debugout
+          cp app/build/outputs/apk/release/app-release.apk "out/BrightMailbox-v$V.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "debugout/BrightMailbox-v$V-debug.apk"
+          ls -la out debugout
+
+      # Android identifies an app by (packageName, signing cert). If the cert changes,
+      # Obtainium updates fail with an opaque "Failure: Invalid", so pin it.
+      - name: Verify signing certificate
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+          ACTUAL=$("$APKSIGNER" verify --print-certs out/*.apk \
+            | grep -i 'SHA-256 digest' | head -1 | sed -E 's/.*[Dd]igest:[[:space:]]*//' | tr -d ' ')
+          EXPECTED=$(tr -d ' :\n' < signing-fingerprint.txt | tr 'A-F' 'a-f')
+          echo "expected $EXPECTED"
+          echo "actual   $ACTUAL"
+          [ "$ACTUAL" = "$EXPECTED" ] || { echo '::error::signing certificate drifted'; exit 1; }
+
+      # AGP shortens resource paths in release builds, so ic_launcher.png becomes
+      # res/AB.png inside the zip. Ask the package what its icon is rather than
+      # grepping filenames — the same lookup Obtainium and the launcher do.
+      - name: Verify launcher icon is present
+        run: |
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -V | tail -1)
+          "$AAPT2" dump badging out/*.apk > badging.txt
+          grep -qE "^application:.*icon='[^']+'" badging.txt \
+            || { echo '::error::package declares no launcher icon'; exit 1; }
+
+      # The sounds are generated, so a build that quietly skipped them would ship an
+      # app whose sound picker has two dead entries.
+      - name: Verify generated sounds made it in
+        run: |
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -V | tail -1)
+          "$AAPT2" dump resources out/*.apk | grep -q 'snd_youve_got_mail' \
+            || { echo '::error::notification sounds were not generated'; exit 1; }
+
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrightMailbox-apk
+          path: out/*.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: Mailbox v${{ steps.ver.outputs.version }}
+          files: out/BrightMailbox-v${{ steps.ver.outputs.version }}.apk
+          body_path: RELEASE_NOTES.md
+          make_latest: true

@@ -1,0 +1,18 @@
+Mailbox (com.gios.brightmailbox)
+Copyright (c) 2026 Giovanni Lupo
+MIT licence — see LICENSE.
+
+Design system
+-------------
+The grid, type scale and interaction rules are ported from lightphone/light-sdk,
+which is MIT licensed. Icons in app/src/main/res/drawable are redrawn to match.
+
+Sounds
+------
+All notification sounds are generated at build time by scripts/. No sampled or
+recorded audio is included in this repository or in the built APK.
+
+scripts/ref_tracks.json contains measured articulation parameters — formant
+frequencies and bandwidths, pitch, level, voicing — derived by analysis from a
+reference recording. It is a description of articulation, not audio, and no part
+of any recording is reproduced by it or by the synthesizer it drives.

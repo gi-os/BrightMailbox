@@ -1,0 +1,83 @@
+package com.gios.brightmailbox.mail
+
+import com.gios.brightmailbox.sort.Envelope
+
+/** A message as both services can describe it. */
+data class Message(
+    /** Provider id, unique within the account. */
+    val id: String,
+    /** Thread/conversation id, so a reply lands in the right place. */
+    val threadId: String,
+    val accountId: String,
+    val from: String,
+    val fromName: String,
+    val to: List<String>,
+    val cc: List<String>,
+    val subject: String,
+    val snippet: String,
+    val receivedAt: Long,
+    val unread: Boolean,
+    val headers: Map<String, String>,
+    /** RFC 5322 Message-ID, needed to thread a reply correctly. */
+    val messageId: String? = null,
+    val references: String? = null,
+    val hasAttachments: Boolean = false,
+) {
+    fun envelope(mine: Set<String>, body: String = ""): Envelope = Envelope(
+        from = from.lowercase(),
+        fromName = fromName,
+        subject = subject,
+        headers = headers,
+        to = to.map { it.lowercase() },
+        cc = cc.map { it.lowercase() },
+        mine = mine,
+        body = body,
+    )
+}
+
+/** A fetched body, in whichever form the message actually had. */
+data class Content(val text: String?, val html: String?, val attachments: List<String> = emptyList())
+
+/** A message to send. */
+data class Outgoing(
+    val to: List<String>,
+    val cc: List<String> = emptyList(),
+    val subject: String,
+    val body: String,
+    /** Set when replying, so the thread stays intact on both services. */
+    val inReplyTo: String? = null,
+    val references: String? = null,
+    val threadId: String? = null,
+)
+
+/**
+ * What the app needs from a mail account, and nothing else.
+ *
+ * Gmail and Graph are shaped very differently — Gmail hands back base64url MIME and
+ * wants an RFC 5322 blob to send, Graph hands back JSON and takes JSON — so the
+ * differences are absorbed in the implementations rather than leaked into a lowest
+ * common denominator here.
+ */
+interface MailService {
+    val accountId: String
+
+    /** Newest first. [since] is a provider cursor, or null for a first sync. */
+    suspend fun list(limit: Int, pageToken: String?): Pair<List<Message>, String?>
+
+    suspend fun content(id: String): Content
+
+    suspend fun markRead(ids: List<String>)
+
+    suspend fun archive(ids: List<String>)
+
+    suspend fun send(msg: Outgoing)
+
+    /**
+     * Addresses this user has written TO, newest first.
+     *
+     * The single most valuable signal the app has: someone you have replied to is a
+     * person, whatever headers their mail carries. Read once at setup and refreshed on
+     * a slow schedule, because it changes slowly and costs a full folder scan.
+     */
+    suspend fun sentTo(limit: Int): List<String>
+}

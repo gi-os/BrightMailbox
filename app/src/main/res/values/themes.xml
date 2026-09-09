@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Black ground, white ink. The window background matters: without it the panel
+      flashes the platform's light background for a frame at launch, which on a matte
+      LCD reads as the app stuttering.
+    -->
+    <style name="Theme.Mailbox" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF000000</item>
+        <item name="android:navigationBarColor">#FF000000</item>
+        <item name="android:statusBarColor">#FF000000</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

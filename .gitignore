@@ -1,0 +1,17 @@
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+build/
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+__pycache__/
+# Notification sounds are generated at build time by scripts/, never committed.
+*.wav
+
+# stray probe file from setup
+.probe
+.kotlin/

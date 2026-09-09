@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Only ever used to scan an OAuth client id or a credential QR. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
+    <!--
+      Android 11+ hides other packages unless they are declared. Launching an implicit
+      intent never consults this, but resolveActivity() does — and that is what lets the
+      setup screen say "no browser here" instead of throwing.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".MailboxApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="Mailbox"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Mailbox">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="Mailbox"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Mailbox">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+              The OAuth redirect: com.gios.brightmailbox:/oauth2redirect. Scheme only,
+              no host and no path — Android will not match an android:path unless a host
+              is declared too, and a redirect with a host is not what either provider
+              issues for an installed app.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.gios.brightmailbox" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -1,0 +1,315 @@
+package com.gios.brightmailbox.ui
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gios.brightmailbox.R
+import com.gios.brightmailbox.data.Msg
+import com.gios.brightmailbox.data.Ration
+import com.gios.brightmailbox.ui.theme.LocalGrid
+import com.gios.brightmailbox.ui.theme.LocalType
+import com.gios.brightmailbox.ui.theme.Screen as Frame
+import com.gios.brightmailbox.ui.theme.Secondary
+import com.gios.brightmailbox.ui.theme.T
+import com.gios.brightmailbox.ui.theme.lightClickable
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+
+/**
+ * Home — the two piles.
+ *
+ * Not an inbox and it must not read as one. A Letter row puts roughly 2.3x the lit
+ * pixels on the panel that a Notice row does, and on a black ground that ratio is what
+ * reads as loudness. There is no rule between the sections: a label plus two units of
+ * black does the work, which is how the SDK does it (it ships no dividers at all).
+ */
+@Composable
+fun HomeScreen(vm: MailboxViewModel) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+
+    val all by vm.letters.collectAsStateWithLifecycle()
+    val notices by vm.notices.collectAsStateWithLifecycle()
+    val noticeCount by vm.noticeCount.collectAsStateWithLifecycle()
+    val waiting by vm.waiting.collectAsStateWithLifecycle()
+    val allowed by vm.allowed.collectAsStateWithLifecycle()
+
+    val unlimited = vm.repo.ration == Ration.UNLIMITED
+    val visible = vm.visibleLetters(all)
+
+    if (vm.dayDone && all.isNotEmpty()) {
+        DayDone(vm, waiting)
+        return
+    }
+
+    Frame {
+        TopBar(onSettings = { vm.go(Screen.Settings) })
+
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            T("LETTERS", t.subheading)
+            // Fixed-width box so switching to Unlimited cannot reflow the header.
+            Box(Modifier.width(g * 5f), contentAlignment = Alignment.CenterEnd) {
+                if (unlimited) {
+                    T("${all.size} today", t.copy, Secondary)
+                } else {
+                    Row {
+                        T("${visible.size}", t.copy)
+                        T(" of ${Ration.FIVE.perDay}", t.copy, Secondary)
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(g * 1.3f))
+
+        if (all.isEmpty()) {
+            Nothing(vm)
+            return@Frame
+        }
+
+        LazyColumn(
+            Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(g * 1.1f),
+        ) {
+            items(visible, key = { it.key }) { m -> LetterRow(m) { vm.open(m) } }
+
+            if (!unlimited && notices.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(g * 1.1f))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        T("NOTICES", t.detail, Secondary)
+                        T("$noticeCount", t.detail, Secondary)
+                    }
+                    Spacer(Modifier.height(g * 0.6f))
+                }
+                items(notices.take(4), key = { "n" + it.key }) { m ->
+                    NoticeRow(m) { vm.open(m) }
+                }
+                item {
+                    T(
+                        "see all $noticeCount →",
+                        t.detail,
+                        Secondary,
+                        Modifier
+                            .fillMaxWidth()
+                            .lightClickable { vm.go(Screen.Notices) }
+                            .padding(top = g * 0.3f),
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+
+        ActionBar(
+            left = "WRITE" to { vm.go(Screen.Write()) },
+            right = if (unlimited) {
+                "NOTICES $noticeCount" to { vm.go(Screen.Notices) }
+            } else {
+                "MARK ALL READ" to { vm.markAllNoticesRead() }
+            },
+        )
+    }
+}
+
+/**
+ * Day done. Variant C from the design board.
+ *
+ * Left-aligned to the same x as every other screen, no bars, and one fact about what
+ * happens next instead of a count. A tells the user nothing about tomorrow and B is
+ * still an inbox with a hole in it; this is the only one that reads as a closed mail
+ * slot rather than an empty list. There is deliberately no button here — the whole point
+ * is that there is nothing to do.
+ */
+@Composable
+private fun DayDone(vm: MailboxViewModel, waiting: Int) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    Frame {
+        Spacer(Modifier.height(g.topBar))
+        Spacer(Modifier.height(g * 9f))
+        T("Five of five.", t.title)
+        Spacer(Modifier.height(g * 1f))
+        T(
+            if (waiting > 0) "More tomorrow at 7am." else "Nothing else waiting.",
+            t.detail,
+            Secondary,
+        )
+        Spacer(Modifier.weight(1f))
+        // The override is a line, not a button. It should not sit there tempting you.
+        T(
+            "Hold the wheel to read a sixth",
+            t.detail,
+            Secondary,
+            Modifier
+                .fillMaxWidth()
+                .lightClickable { vm.unlockOneMore() }
+                .padding(bottom = g * 1.7f),
+        )
+    }
+}
+
+/** Empty of everything. Heading scale — an empty morning is smaller news than a finished day. */
+@Composable
+private fun Nothing(vm: MailboxViewModel) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    Column(Modifier.fillMaxSize()) {
+        Spacer(Modifier.height(g * 8f))
+        T("Nothing yet.", t.heading)
+        Spacer(Modifier.height(g * 0.8f))
+        T("Last checked ${clock(vm.repo.lastSync)}.", t.detail, Secondary)
+        Spacer(Modifier.weight(1f))
+        ActionBar(left = "WRITE" to { vm.go(Screen.Write()) }, right = null)
+    }
+}
+
+/* ------------------------------------------------------------------------- rows */
+
+/**
+ * A Letter: sender at copy, account as a superfine secondary word after it, subject at
+ * detail with the time pushed right. Four grid units tall.
+ */
+@Composable
+fun LetterRow(m: Msg, onClick: () -> Unit) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    Column(Modifier.fillMaxWidth().lightClickable(onClick = onClick)) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            T(m.senderName, t.copy, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+            Spacer(Modifier.width(g * 0.45f))
+            T(accountWord(m.accountId), t.superfine, Secondary, maxLines = 1)
+        }
+        Spacer(Modifier.height(g * 0.25f))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            T(m.subject.ifBlank { "(no subject)" }, t.detail, maxLines = 1, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(g * 0.5f))
+            T(stamp(m.receivedAt), t.detail, Secondary, maxLines = 1)
+        }
+    }
+}
+
+/**
+ * A Notice: one line, sender locked to a fixed column so the eye can run straight down
+ * it, subject hard-truncated. No time — none of these are urgent.
+ */
+@Composable
+fun NoticeRow(m: Msg, onClick: () -> Unit) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    Row(
+        Modifier.fillMaxWidth().lightClickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        T(m.senderName, t.detail, Secondary, Modifier.width(g * 6.5f), maxLines = 1)
+        Spacer(Modifier.width(g * 0.6f))
+        T(
+            com.gios.brightmailbox.text.Clean.noticeLine(m.subject),
+            t.detail,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+        )
+    }
+}
+
+/* ------------------------------------------------------------------------- bars */
+
+@Composable
+fun TopBar(title: String = "MAILBOX", onSettings: (() -> Unit)? = null) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    Row(
+        Modifier.fillMaxWidth().height(g.topBar),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        T(title, t.subheading, maxLines = 1)
+        if (onSettings != null) {
+            androidx.compose.foundation.Image(
+                painter = painterResource(R.drawable.ic_settings_white),
+                contentDescription = "Settings",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.size(g.icon).lightClickable(onClick = onSettings),
+            )
+        }
+    }
+}
+
+/**
+ * The action bar. LightOS allows at most three items, and at most three when any item
+ * carries text — which is every bar in this app.
+ */
+@Composable
+fun ActionBar(
+    left: Pair<String, () -> Unit>?,
+    right: Pair<String, () -> Unit>? = null,
+    middle: Pair<String, () -> Unit>? = null,
+) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    Row(
+        Modifier.fillMaxWidth().height(g.actionBar),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        left?.let { (label, f) -> T(label, t.button, modifier = Modifier.lightClickable(onClick = f), maxLines = 1) }
+        middle?.let { (label, f) -> T(label, t.button, Secondary, Modifier.lightClickable(onClick = f), maxLines = 1) }
+        right?.let { (label, f) -> T(label, t.button, Secondary, Modifier.lightClickable(onClick = f), maxLines = 1) }
+    }
+}
+
+/* ----------------------------------------------------------------------- format */
+
+/** "9:12a" today, "Mon" this week, "3 Sep" beyond. A date column of noise helps nobody. */
+fun stamp(at: Long): String {
+    val now = Calendar.getInstance()
+    val then = Calendar.getInstance().apply { timeInMillis = at }
+    return when {
+        now.get(Calendar.YEAR) == then.get(Calendar.YEAR) &&
+            now.get(Calendar.DAY_OF_YEAR) == then.get(Calendar.DAY_OF_YEAR) ->
+            SimpleDateFormat("h:mma", Locale.getDefault()).format(Date(at))
+                .lowercase().removeSuffix("m")
+        now.timeInMillis - at < 6L * 24 * 3600 * 1000 ->
+            SimpleDateFormat("EEE", Locale.getDefault()).format(Date(at))
+        else -> SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(at))
+    }
+}
+
+fun clock(at: Long): String =
+    if (at == 0L) "never" else SimpleDateFormat("h:mma", Locale.getDefault())
+        .format(Date(at)).lowercase()
+
+/** "google:gio@x.com" -> "gmail". */
+fun accountWord(accountId: String): String =
+    when (accountId.substringBefore(':')) {
+        "google" -> "gmail"
+        "microsoft" -> "outlook"
+        else -> ""
+    }

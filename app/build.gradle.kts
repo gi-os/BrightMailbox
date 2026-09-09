@@ -7,13 +7,17 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-fun localOrEnv(key: String, env: String): String {
-    System.getenv(env)?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
-    val f = rootProject.file("local.properties")
-    if (!f.exists()) return ""
-    return Properties().apply { f.inputStream().use { load(it) } }
-        .getProperty(key)?.trim().orEmpty()
-}
+/*
+ * NOTE: no top-level `fun` in this file, deliberately.
+ *
+ * A build script that declares top-level functions is compiled into a different shape by
+ * the Kotlin DSL, and AGP then fails at afterEvaluate with "compileSdkVersion is not
+ * specified" even though the android block plainly sets it — the block never ran. Cost
+ * three CI rounds to find, because the error names the one thing that is not wrong.
+ *
+ * The `val x: String = run { }` idiom below does the same job and keeps the script a
+ * plain sequence of statements.
+ */
 
 /*
  * OAuth client ids. Both optional at build time and both enterable in the app by QR
@@ -21,8 +25,20 @@ fun localOrEnv(key: String, env: String): String {
  * by anyone: an installed-app client has no secret to leak, and the redirect scheme is
  * fixed by the package name rather than by the id.
  */
-val googleClientId = localOrEnv("googleClientId", "GOOGLE_CLIENT_ID")
-val microsoftClientId = localOrEnv("microsoftClientId", "MICROSOFT_CLIENT_ID")
+val googleClientId: String = run {
+    System.getenv("GOOGLE_CLIENT_ID")?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
+    val f = rootProject.file("local.properties")
+    if (!f.exists()) return@run ""
+    Properties().apply { f.inputStream().use { load(it) } }
+        .getProperty("googleClientId")?.trim().orEmpty()
+}
+val microsoftClientId: String = run {
+    System.getenv("MICROSOFT_CLIENT_ID")?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
+    val f = rootProject.file("local.properties")
+    if (!f.exists()) return@run ""
+    Properties().apply { f.inputStream().use { load(it) } }
+        .getProperty("microsoftClientId")?.trim().orEmpty()
+}
 
 /*
  * Notification sounds are GENERATED, never committed.
@@ -31,16 +47,19 @@ val microsoftClientId = localOrEnv("microsoftClientId", "MICROSOFT_CLIENT_ID")
  * see .github/workflows/*.yml and scripts/README.md. That directory is gitignored, so
  * the repository holds no audio at all.
  *
- * This deliberately is NOT a Gradle task. It was one, and registering an Exec task plus
- * an extra res srcDir plus a MergeResources hook made AGP fail with the very unhelpful
- * "compileSdkVersion is not specified" — the android block evaluates, and then
- * createAndroidTasks finds nothing. A build step in CI does the same job with none of
- * that, and Notifier looks its resources up by name so a build with no python still
- * compiles and just falls back to the system sound.
+ * Deliberately a build step rather than a Gradle task: Notifier looks its resources up
+ * by name, so a checkout with no python3 still compiles and simply falls back to the
+ * system sound at runtime.
  */
 
 /** Shake-to-report key. Never committed; CI passes it from a repository secret. */
-val reportToken = localOrEnv("reportToken", "REPORT_TOKEN")
+val reportToken: String = run {
+    System.getenv("REPORT_TOKEN")?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
+    val f = rootProject.file("local.properties")
+    if (!f.exists()) return@run ""
+    Properties().apply { f.inputStream().use { load(it) } }
+        .getProperty("reportToken")?.trim().orEmpty()
+}
 
 /*
  * The OAuth redirect. Google validates an Android client by package name and signing
@@ -101,7 +120,6 @@ android {
         compose = true
         buildConfig = true
     }
-    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
 dependencies {

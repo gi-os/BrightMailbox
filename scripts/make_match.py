@@ -25,7 +25,9 @@ import numpy as np
 from make_sounds import SR, PEAK, bandpass, finish, write, phone_speaker
 from make_voice import glottal, resonator, vocal_rolloff
 
-TR = "ref_tracks.json"
+# Beside this file, not beside the caller. build_sounds.py is invoked from the repo
+# root by CI, and a bare relative name silently resolved to nothing there.
+TR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ref_tracks.json")
 # Path to the reference, used ONLY to fit one static tilt curve (see
 # tilt_curve). Set to None to synthesize with no reference present at all.
 REF_AUDIO = os.environ.get("MAILBOX_REF") or None

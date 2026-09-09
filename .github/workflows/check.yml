@@ -26,7 +26,7 @@ jobs:
 
       - name: Generate sounds
         run: |
-          cd scripts && python3 build_sounds.py "$GITHUB_WORKSPACE/app/src/main/res/raw"
+          python3 scripts/build_sounds.py app/src/main/res/raw
           ls -la app/src/main/res/raw
 
       - name: Unit tests

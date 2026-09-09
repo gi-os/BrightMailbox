@@ -60,6 +60,10 @@ class AuthManager(context: Context) {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    /** The scheme is the package name; the shape after it differs per service. */
+    private fun redirectFor(s: Service): String =
+        s.redirectUri(BuildConfig.OAUTH_REDIRECT.substringBefore(':'))
+
     /* --------------------------------------------------------------- client ids */
 
     fun clientId(s: Service): String =
@@ -136,7 +140,7 @@ class AuthManager(context: Context) {
 
         val b = Uri.parse(s.authEndpoint).buildUpon()
             .appendQueryParameter("client_id", clientId(s))
-            .appendQueryParameter("redirect_uri", BuildConfig.OAUTH_REDIRECT)
+            .appendQueryParameter("redirect_uri", redirectFor(s))
             .appendQueryParameter("response_type", "code")
             .appendQueryParameter("scope", s.scopes)
             .appendQueryParameter("code_challenge", challengeOf(verifier))
@@ -171,7 +175,7 @@ class AuthManager(context: Context) {
             .add("grant_type", "authorization_code")
             .add("code", code)
             .add("client_id", clientId(service))
-            .add("redirect_uri", BuildConfig.OAUTH_REDIRECT)
+            .add("redirect_uri", redirectFor(service))
             .add("code_verifier", verifier)
         if (service == Service.MICROSOFT) form.add("scope", service.scopes)
 

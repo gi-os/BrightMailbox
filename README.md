@@ -110,7 +110,8 @@ succeeds and the app falls back to the system notification sound.
 
 ### OAuth client ids
 
-Neither id is required at build time. Both can be scanned into the app as a QR at
+**[SETUP.md](SETUP.md) is the full procedure**, including the two steps that reliably
+go wrong. Short version: neither id is required at build time. Both can be scanned into the app as a QR at
 Settings → Accounts, which is what makes a plain release APK usable by anyone — an
 installed-app client has no secret, and the redirect scheme is fixed by the package name
 rather than by the id.

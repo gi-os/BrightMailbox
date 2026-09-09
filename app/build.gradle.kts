@@ -44,7 +44,7 @@ val microsoftClientId: String = run {
  * Notification sounds are GENERATED, never committed.
  *
  * scripts/build_sounds.py writes them into app/src/main/res/raw before Gradle runs —
- * see .github/workflows/*.yml and scripts/README.md. That directory is gitignored, so
+ * see the workflows under .github and scripts/README.md. That directory is gitignored, so
  * the repository holds no audio at all.
  *
  * Deliberately a build step rather than a Gradle task: Notifier looks its resources up
@@ -69,13 +69,9 @@ val reportToken: String = run {
  */
 val redirectScheme = "com.gios.brightmailbox"
 
-logger.lifecycle("BMX-DIAG: script reached the android block")
-
 android {
-    logger.lifecycle("BMX-DIAG: inside android {}")
     namespace = "com.gios.brightmailbox"
     compileSdk = 35
-    logger.lifecycle("BMX-DIAG: compileSdk is now " + compileSdk)
     buildToolsVersion = "35.0.0"
 
     defaultConfig {
@@ -164,5 +160,3 @@ dependencies {
     // The sort/ and text/ packages have no Android imports, so they test on the JVM.
     testImplementation("junit:junit:4.13.2")
 }
-
-logger.lifecycle("BMX-DIAG: end of script, android.compileSdk = " + android.compileSdk)

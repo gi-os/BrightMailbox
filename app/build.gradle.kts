@@ -69,9 +69,13 @@ val reportToken: String = run {
  */
 val redirectScheme = "com.gios.brightmailbox"
 
+logger.lifecycle("BMX-DIAG: script reached the android block")
+
 android {
+    logger.lifecycle("BMX-DIAG: inside android {}")
     namespace = "com.gios.brightmailbox"
     compileSdk = 35
+    logger.lifecycle("BMX-DIAG: compileSdk is now " + compileSdk)
     buildToolsVersion = "35.0.0"
 
     defaultConfig {
@@ -160,3 +164,5 @@ dependencies {
     // The sort/ and text/ packages have no Android imports, so they test on the JVM.
     testImplementation("junit:junit:4.13.2")
 }
+
+logger.lifecycle("BMX-DIAG: end of script, android.compileSdk = " + android.compileSdk)

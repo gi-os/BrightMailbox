@@ -30,7 +30,7 @@ jobs:
           ls -la app/src/main/res/raw
 
       - name: Unit tests
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :app:testDebugUnitTest --stacktrace --info 2>&1 | grep -E 'BMX-DIAG|What went wrong|compileSdk|^> ' | head -40; exit ${PIPESTATUS[0]}
 
       - name: Compile
         run: ./gradlew :app:assembleDebug --stacktrace

@@ -28,6 +28,12 @@ jobs:
       - name: Sound toolchain
         run: python3 -m pip install --quiet numpy
 
+      # Synthesized into res/raw before Gradle runs. Nothing audio is committed.
+      - name: Generate sounds
+        run: |
+          cd scripts && python3 build_sounds.py "$GITHUB_WORKSPACE/app/src/main/res/raw"
+          ls -la app/src/main/res/raw
+
       # versionCode is the run number, so every push is newer than the last and
       # `adb install -r` upgrades in place instead of erroring.
       - name: Stamp version

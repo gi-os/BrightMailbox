@@ -78,13 +78,24 @@ class Notifier(private val context: Context) {
 
     private fun soundFor(chime: Chime, customUri: String?): Uri? = when (chime) {
         Chime.DEFAULT -> Settings.System.DEFAULT_NOTIFICATION_URI
-        Chime.MAIL -> res(R.raw.snd_youve_got_mail)
-        Chime.MUSIC_BOX -> res(R.raw.snd_music_box)
+        Chime.MAIL -> raw("snd_youve_got_mail")
+        Chime.MUSIC_BOX -> raw("snd_music_box")
         Chime.CUSTOM -> customUri?.let(Uri::parse) ?: Settings.System.DEFAULT_NOTIFICATION_URI
     }
 
-    private fun res(id: Int): Uri =
-        Uri.parse("android.resource://${context.packageName}/$id")
+    /**
+     * Look the sound up by NAME, not by an R.raw constant.
+     *
+     * The sounds are synthesized by scripts/build_sounds.py before the Gradle build, so
+     * res/raw is empty in a fresh checkout. Referencing R.raw.snd_* directly would make
+     * the app fail to COMPILE on a machine without python3 — this way it compiles, and a
+     * missing sound simply falls back to the system default at runtime.
+     */
+    private fun raw(name: String): Uri? {
+        val id = context.resources.getIdentifier(name, "raw", context.packageName)
+        if (id == 0) return Settings.System.DEFAULT_NOTIFICATION_URI
+        return Uri.parse("android.resource://${context.packageName}/$id")
+    }
 
     /**
      * The id encodes the sound, so switching chimes forces a fresh channel. The custom

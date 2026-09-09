@@ -24,6 +24,21 @@ fun localOrEnv(key: String, env: String): String {
 val googleClientId = localOrEnv("googleClientId", "GOOGLE_CLIENT_ID")
 val microsoftClientId = localOrEnv("microsoftClientId", "MICROSOFT_CLIENT_ID")
 
+/*
+ * Notification sounds are GENERATED, never committed.
+ *
+ * scripts/build_sounds.py writes them into app/src/main/res/raw before Gradle runs —
+ * see .github/workflows/*.yml and scripts/README.md. That directory is gitignored, so
+ * the repository holds no audio at all.
+ *
+ * This deliberately is NOT a Gradle task. It was one, and registering an Exec task plus
+ * an extra res srcDir plus a MergeResources hook made AGP fail with the very unhelpful
+ * "compileSdkVersion is not specified" — the android block evaluates, and then
+ * createAndroidTasks finds nothing. A build step in CI does the same job with none of
+ * that, and Notifier looks its resources up by name so a build with no python still
+ * compiles and just falls back to the system sound.
+ */
+
 /** Shake-to-report key. Never committed; CI passes it from a repository secret. */
 val reportToken = localOrEnv("reportToken", "REPORT_TOKEN")
 
@@ -34,24 +49,6 @@ val reportToken = localOrEnv("reportToken", "REPORT_TOKEN")
  * the manifest can declare it without knowing which id is in use.
  */
 val redirectScheme = "com.gios.brightmailbox"
-
-/**
- * Notification sounds are GENERATED, not committed.
- *
- * scripts/*.py synthesize every chime from arithmetic at build time, so the repository
- * contains no audio at all — about 15 KB of Python instead of a folder of WAVs, and
- * nothing anyone else owns. See scripts/README.md.
- */
-val genSounds by tasks.registering(Exec::class) {
-    val out = layout.buildDirectory.dir("generated/res/sounds/raw")
-    outputs.dir(out)
-    inputs.files(fileTree(rootProject.file("scripts")) { include("*.py", "*.json") })
-    doFirst { out.get().asFile.mkdirs() }
-    workingDir = rootProject.file("scripts")
-    commandLine("python3", "build_sounds.py", out.get().asFile.absolutePath)
-    // A machine with no python3 still builds; the app falls back to the system sound.
-    isIgnoreExitValue = true
-}
 
 android {
     namespace = "com.gios.brightmailbox"
@@ -75,8 +72,6 @@ android {
         buildConfigField("String", "REPORT_TOKEN", "\"$reportToken\"")
         buildConfigField("String", "REPORT_REPO", "\"gi-os/light-reports\"")
     }
-
-    sourceSets["main"].res.srcDir(layout.buildDirectory.dir("generated/res/sounds"))
 
     signingConfigs {
         getByName("debug") {
@@ -107,10 +102,6 @@ android {
         buildConfig = true
     }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
-}
-
-tasks.withType<com.android.build.gradle.tasks.MergeResources>().configureEach {
-    dependsOn(genSounds)
 }
 
 dependencies {

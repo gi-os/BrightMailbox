@@ -26,7 +26,8 @@ jobs:
 
       - name: Generate sounds
         run: |
-          cd scripts && python3 build_sounds.py /tmp/sndcheck && ls -la /tmp/sndcheck
+          cd scripts && python3 build_sounds.py "$GITHUB_WORKSPACE/app/src/main/res/raw"
+          ls -la app/src/main/res/raw
 
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace

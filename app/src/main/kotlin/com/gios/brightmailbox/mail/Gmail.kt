@@ -49,7 +49,8 @@ class Gmail(
 
         val out = ArrayList<Message>(ids.length())
         for (i in 0 until ids.length()) {
-            val id = ids.getJSONObject(i).optString("id").ifBlank { continue }
+            val id = ids.getJSONObject(i).optString("id")
+            if (id.isBlank()) continue
             val m = runCatching {
                 getJson("$base/messages/$id?format=metadata$wanted")
             }.getOrNull() ?: continue
@@ -163,7 +164,8 @@ class Gmail(
         val ids = page.optJSONArray("messages") ?: return emptyList()
         val out = LinkedHashSet<String>()
         for (i in 0 until ids.length()) {
-            val id = ids.getJSONObject(i).optString("id").ifBlank { continue }
+            val id = ids.getJSONObject(i).optString("id")
+            if (id.isBlank()) continue
             val m = runCatching {
                 getJson("$base/messages/$id?format=metadata&metadataHeaders=To&metadataHeaders=Cc")
             }.getOrNull() ?: continue

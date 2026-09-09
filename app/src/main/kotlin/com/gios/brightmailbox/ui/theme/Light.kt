@@ -1,6 +1,5 @@
 package com.gios.brightmailbox.ui.theme
 
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -110,24 +109,20 @@ fun LightTheme(content: @Composable () -> Unit) {
         LocalType provides type,
         LocalContentColor provides Content,
         LocalTextStyle provides type.copy.copy(color = Content),
-        LocalIndication provides NoIndication,
     ) {
         Box(Modifier.fillMaxSize().background(Background)) { content() }
     }
 }
 
-/** No ripple, no pressed state, no hover. LightOS has none of them. */
-private object NoIndication : androidx.compose.foundation.Indication {
-    @Deprecated("Indication#rememberUpdatedInstance is deprecated")
-    @Composable
-    override fun rememberUpdatedInstance(
-        interactionSource: androidx.compose.foundation.interaction.InteractionSource,
-    ): androidx.compose.foundation.IndicationInstance =
-        object : androidx.compose.foundation.IndicationInstance {
-            override fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.drawIndication() =
-                drawContent()
-        }
-}
+/*
+ * There is no custom Indication here on purpose.
+ *
+ * The obvious way to kill ripples globally is a no-op Indication provided through
+ * LocalIndication, but Indication.rememberUpdatedInstance and IndicationInstance are
+ * deprecated at ERROR level in current Compose. Every tap target in this app goes
+ * through lightClickable, which passes indication = null directly, so nothing needs to
+ * be provided globally and there is no deprecated API to carry.
+ */
 
 /**
  * A tap target the LightOS way: fires on finger-down with a 45 ms buzz, and draws

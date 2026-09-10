@@ -11,17 +11,44 @@ each and never make a sound.
 You set a daily ration. Five Letters a day, or unlimited. At five, when you have read
 them, the app says so and there is nothing left to scroll.
 
-Gmail and Outlook, over OAuth.
+Gmail with an app password. Outlook with one tap. Nothing to register.
 
 ---
 
-## Why this rather than an IMAP client
+## Signing in
 
-The other mail client for this phone speaks IMAP with plain LOGIN auth, which means most
-Gmail and Outlook accounts cannot sign in at all. Mailbox uses the Gmail REST API and
-Microsoft Graph with a hand-rolled PKCE flow, so ordinary accounts work.
+**Gmail** takes a sixteen-character app password from
+`myaccount.google.com/apppasswords`. No Google Cloud project, no consent screen, no
+"Google hasn't verified this app" warning.
 
-But the point is not the protocol. The point is the sorting.
+**Outlook** takes one tap. Microsoft finished retiring Basic auth for IMAP in April
+2026, so it has to be OAuth — but Microsoft caps nothing, so the one client id is
+already in the APK.
+
+The asymmetry is not an accident and it is worth knowing, because it reverses what most
+people assume. Every Google scope that can read mail is **restricted**: capped at 100
+users until the app passes a CASA Tier 2 audit, which costs four figures a year. Version
+1 dodged the cap by making each user register their own Cloud project — eleven steps,
+ten minutes, and the step people missed produced a sign-in that worked and then returned
+403 on every request. An app password has no cap, no console and no audit.
+
+So the older mechanism is the one that scales, and **Outlook is now the easy one**.
+
+[SETUP.md](SETUP.md) has both procedures.
+
+## Why IMAP rather than the REST APIs
+
+The point is not the protocol — it is the sorting — but the protocol decided who could
+use the app.
+
+There is a second reason: it is faster. Gmail's REST API has no batch metadata read, so
+version 1 issued one HTTP GET per message and a first sync was four hundred round trips.
+One IMAP FETCH with a HEADERS profile pulls four hundred headers in a couple of round
+trips on a single connection.
+
+MIME parsing comes from [Angus Mail](https://eclipse-ee4j.github.io/angus-mail/), which
+publishes a supported Android build. IMAP is simple enough to write by hand; MIME is
+not, and MIME is what breaks a mail client on one message in twenty.
 
 ## How the sorting works
 
@@ -108,37 +135,36 @@ false claim to anyone who forks it. So the bundled one is synthesized, and there
 Needs `python3` with `numpy` for the sound generation. Without it the build still
 succeeds and the app falls back to the system notification sound.
 
-### OAuth client ids
+### The Microsoft client id
 
-**[SETUP.md](SETUP.md) is the full procedure**, including the two steps that reliably
-go wrong. Short version: neither id is required at build time. Both can be scanned into the app as a QR at
-Settings → Accounts, which is what makes a plain release APK usable by anyone — an
-installed-app client has no secret, and the redirect scheme is fixed by the package name
-rather than by the id.
+One id, for Outlook only — Gmail has none any more. It is not required at build time and
+can be scanned in as a QR at Settings → Accounts, which is what makes a plain release
+APK usable by anyone: a public client has no secret to leak, and the redirect scheme is
+fixed by the package name rather than by the id.
 
-To bake them in for your own device, put them in `local.properties`:
+To bake it in, put it in `local.properties`:
 
 ```
-googleClientId=…apps.googleusercontent.com
 microsoftClientId=00000000-0000-0000-0000-000000000000
 ```
 
+Register it as a **multi-tenant public client** with the redirect
+`com.gios.brightmailbox://oauth2redirect`, and grant the delegated permissions
+`IMAP.AccessAsUser.All` and `SMTP.Send` — not the Graph `Mail.*` ones. A token minted
+for Graph scopes is refused by the IMAP server with a bare AUTHENTICATE failure and no
+explanation, which is a long afternoon if you do not know it.
+
 The signing certificate is committed and pinned (`signing-fingerprint.txt`), so debug
-and release APKs upgrade over each other and the SHA-1 registered on the OAuth clients
-keeps matching. Register this one:
+and release APKs upgrade over each other:
 
 ```
 SHA1: F0:BD:D0:0C:DE:1B:A6:FD:0F:CD:93:C6:6F:9A:86:52:18:73:A9:D9
 ```
 
-Google also needs **Clients → Advanced settings → Custom URI scheme → Enable**, or
-consent fails with a bare `Error 400: invalid_request`. The real reason is hidden: base64
--decode the `authError` query parameter on Google's error page to see it.
-
 ### If the browser eats the redirect
 
 `scripts/authorize.py` runs consent on a computer and hands the phone a refresh token by
-QR. Same trick the other apps here use for API keys.
+QR. Gmail no longer needs it — an app password is typed straight in.
 
 ## Testing
 

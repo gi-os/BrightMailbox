@@ -129,14 +129,18 @@ fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?) {
 /**
  * The only field style in the app: a label, then an 80%-width rule three design pixels
  * thick. No floating label, no filled container, no focus colour.
+ *
+ * Internal rather than private because the sign-in screen needs the same field, and two
+ * field styles in one app is how an app stops looking like one thing.
  */
 @Composable
-private fun Field(
+internal fun Field(
     label: String,
     value: TextFieldValue,
     onChange: (TextFieldValue) -> Unit,
     g: com.gios.brightmailbox.ui.theme.Grid,
     t: com.gios.brightmailbox.ui.theme.Type,
+    mask: Boolean = false,
 ) {
     Column(Modifier.fillMaxWidth()) {
         T(label, t.detail, Secondary)
@@ -147,6 +151,11 @@ private fun Field(
             singleLine = true,
             textStyle = t.copy.copy(color = Content),
             cursorBrush = SolidColor(Content),
+            visualTransformation = if (mask) {
+                androidx.compose.ui.text.input.PasswordVisualTransformation()
+            } else {
+                androidx.compose.ui.text.input.VisualTransformation.None
+            },
             modifier = Modifier.fillMaxWidth(0.8f),
         )
         Spacer(Modifier.height(g * 0.25f))

@@ -3,10 +3,8 @@ package com.gios.brightmailbox.data
 import android.content.Context
 import androidx.room.Room
 import com.gios.brightmailbox.auth.AuthManager
-import com.gios.brightmailbox.auth.Service
 import com.gios.brightmailbox.mail.Content
-import com.gios.brightmailbox.mail.Gmail
-import com.gios.brightmailbox.mail.Graph
+import com.gios.brightmailbox.mail.Imap
 import com.gios.brightmailbox.mail.MailService
 import com.gios.brightmailbox.mail.Message
 import com.gios.brightmailbox.mail.Outgoing
@@ -104,12 +102,16 @@ class Repo private constructor(private val app: Context) {
 
     /* ------------------------------------------------------------------- syncing */
 
+    /**
+     * One transport for both providers now.
+     *
+     * v1 had a Gmail REST implementation and a Microsoft Graph one; v2 has IMAP, which
+     * both speak. The instance is cheap — the expensive part, the authenticated
+     * connection, is pooled inside [Imap] and survives across these.
+     */
     private fun serviceFor(id: String): MailService? {
         val acct = auth.accounts().firstOrNull { it.id == id } ?: return null
-        return when (acct.service) {
-            Service.GOOGLE -> Gmail(id, auth, http)
-            Service.MICROSOFT -> Graph(id, auth, http)
-        }
+        return Imap(id, auth, acct.service)
     }
 
     /** Every address the user owns, so "was this addressed to me" can be answered. */
@@ -238,6 +240,14 @@ class Repo private constructor(private val app: Context) {
 
     private fun bodyFile(key: String) = File(bodies, key.replace('/', '_') + ".txt")
 
+    /**
+     * The sender's own HTML, kept beside the cleaned text.
+     *
+     * v1 threw this away after flattening it, which made "SHOW ORIGINAL" impossible
+     * without a second network round trip for a message already read.
+     */
+    private fun htmlFile(key: String) = File(bodies, key.replace('/', '_') + ".html")
+
     /** The cleaned reading text, fetched and cached on first open. */
     suspend fun body(msg: Msg): Clean.Body = withContext(Dispatchers.IO) {
         val f = bodyFile(msg.key)
@@ -246,11 +256,20 @@ class Repo private constructor(private val app: Context) {
         val svc = serviceFor(msg.accountId) ?: return@withContext Clean.Body(msg.snippet, 0)
         val c: Content = runCatching { svc.content(msg.providerId) }
             .getOrElse { return@withContext Clean.Body(msg.snippet, 0) }
+        c.html?.takeIf { it.isNotBlank() }?.let { runCatching { htmlFile(msg.key).writeText(it) } }
         val raw = c.text?.takeIf { it.isNotBlank() }
             ?: c.html?.let { Clean.fromHtml(it) }
             ?: msg.snippet
         runCatching { f.writeText(raw) }
         Clean.body(raw)
+    }
+
+    /** The sender's HTML, or null for a plain-text message. Fetched if not cached. */
+    suspend fun original(msg: Msg): String? = withContext(Dispatchers.IO) {
+        htmlFile(msg.key).takeIf { it.exists() }?.let { return@withContext it.readText() }
+        val svc = serviceFor(msg.accountId) ?: return@withContext null
+        val c = runCatching { svc.content(msg.providerId) }.getOrNull() ?: return@withContext null
+        c.html?.takeIf { it.isNotBlank() }?.also { runCatching { htmlFile(msg.key).writeText(it) } }
     }
 
     /* -------------------------------------------------------------------- verbs */

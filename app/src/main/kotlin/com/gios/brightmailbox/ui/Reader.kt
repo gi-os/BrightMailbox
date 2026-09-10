@@ -152,7 +152,13 @@ private fun WhySheet(vm: MailboxViewModel, msg: Msg, onClose: () -> Unit) {
                 .padding(vertical = g * 0.4f),
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            T("SHOW ORIGINAL", t.button, Secondary, Modifier.lightClickable { }, maxLines = 1)
+            T(
+                "SHOW ORIGINAL",
+                t.button,
+                Secondary,
+                Modifier.lightClickable { vm.go(Screen.Original(msg.key)) },
+                maxLines = 1,
+            )
             T("CLOSE", t.button, Secondary, Modifier.lightClickable(onClick = onClose), maxLines = 1)
         }
     }

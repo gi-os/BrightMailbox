@@ -20,9 +20,13 @@ import kotlinx.coroutines.launch
 /** Where the app is. Flat on purpose — LightOS supplies the back button. */
 sealed interface Screen {
     data object Setup : Screen
+    /** Typing an app password for a service that uses one. */
+    data class Password(val service: com.gios.brightmailbox.auth.Service) : Screen
     data object FirstSync : Screen
     data object Home : Screen
     data class Read(val key: String) : Screen
+    /** The message as its sender built it, rendered offline. */
+    data class Original(val key: String) : Screen
     data object Notices : Screen
     data class Write(val replyTo: Msg? = null) : Screen
     data object Settings : Screen
@@ -138,6 +142,29 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * triggers walks a whole mailbox and must not die if the activity is recreated when
      * the browser hands control back.
      */
+    /**
+     * Sign in with an app password.
+     *
+     * The credential is checked against the IMAP server before it is stored, so the
+     * failure the user sees is "that is not an app password" at the moment they typed
+     * it — not a sync that silently never runs. [onDone] carries the error sentence, or
+     * null when the account was added and the first sync has started.
+     */
+    fun signInWithPassword(
+        service: com.gios.brightmailbox.auth.Service,
+        email: String,
+        password: String,
+        onDone: (String?) -> Unit,
+    ) = viewModelScope.launch {
+        _busy.value = true
+        val result = repo.auth.signInWithPassword(service, email, password)
+        _busy.value = false
+        result.fold(
+            onSuccess = { onDone(null); firstSync() },
+            onFailure = { onDone(it.message ?: "That did not work.") },
+        )
+    }
+
     fun completeSignIn(uri: android.net.Uri) = viewModelScope.launch {
         val account = runCatching { repo.auth.onRedirect(uri) }.getOrNull()
         if (account == null) {

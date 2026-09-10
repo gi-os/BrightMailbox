@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
 
                 when (val s = screen) {
                     Screen.Setup -> SetupScreen(vm)
+                    is Screen.Password -> PasswordScreen(vm, s.service)
                     Screen.FirstSync -> FirstSyncScreen(vm)
                     Screen.Home -> HomeScreen(vm)
                     Screen.Notices -> NoticesScreen(vm)
@@ -74,6 +75,10 @@ class MainActivity : ComponentActivity() {
                     is Screen.Read -> {
                         val msg = (letters + notices).firstOrNull { it.key == s.key }
                         if (msg == null) HomeScreen(vm) else ReaderScreen(vm, msg)
+                    }
+                    is Screen.Original -> {
+                        val msg = (letters + notices).firstOrNull { it.key == s.key }
+                        if (msg == null) HomeScreen(vm) else OriginalScreen(vm, msg)
                     }
                 }
             }

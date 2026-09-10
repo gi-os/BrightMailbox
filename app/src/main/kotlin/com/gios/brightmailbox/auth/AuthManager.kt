@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Base64
 import com.gios.brightmailbox.BuildConfig
+import com.gios.brightmailbox.mail.Imap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -30,7 +31,11 @@ data class Account(
 }
 
 /**
- * OAuth against Google and Microsoft, by hand.
+ * Credentials for both mailboxes: an app password for Gmail, OAuth for Outlook.
+ *
+ * Only Microsoft reaches the OAuth code below. Gmail lost its OAuth path in v2 because
+ * every Google scope that can read mail is restricted and capped at 100 users — see
+ * [Service]. What remains here for Google is a stored app password and nothing else.
  *
  * Hand-rolled because AppAuth cannot sign in on a Light Phone III — confirmed on
  * hardware. Its BrowserSelector enumerates browsers through PackageManager and keeps
@@ -66,14 +71,22 @@ class AuthManager(context: Context) {
 
     /* --------------------------------------------------------------- client ids */
 
-    fun clientId(s: Service): String =
-        prefs.getString("client_${s.key}", null)?.takeIf { it.isNotBlank() }
-            ?: when (s) {
-                Service.GOOGLE -> BuildConfig.GOOGLE_CLIENT_ID
-                Service.MICROSOFT -> BuildConfig.MICROSOFT_CLIENT_ID
-            }
+    /**
+     * Only Microsoft has one.
+     *
+     * Gmail signs in with an app password now, so there is no Google client id, no
+     * consent screen and no Cloud project — see [Service] for why. Microsoft's id is
+     * one multi-tenant registration shipped in the APK: a public client has no secret
+     * to leak, and Microsoft imposes no user cap, so the same id serves everybody.
+     */
+    fun clientId(s: Service): String = when (s) {
+        Service.GOOGLE -> ""
+        Service.MICROSOFT -> prefs.getString("client_${s.key}", null)?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.MICROSOFT_CLIENT_ID
+    }
 
-    fun isConfigured(s: Service): Boolean = clientId(s).isNotEmpty()
+    /** An app-password service needs no configuration at all. */
+    fun isConfigured(s: Service): Boolean = !s.usesOAuth || clientId(s).isNotEmpty()
 
     /**
      * A Desktop-type client secret, present only when credentials came from
@@ -88,13 +101,10 @@ class AuthManager(context: Context) {
      * the flow fail later with an opaque `invalid_client`.
      */
     suspend fun setClientId(s: Service, raw: String): Boolean {
+        if (!s.usesOAuth) return false
         val cleaned = raw.trim().removePrefix("brightmailbox:")
             .substringAfter('=', raw.trim()).trim().trim('"')
-        val ok = when (s) {
-            Service.GOOGLE -> cleaned.endsWith(GOOGLE_SUFFIX) && cleaned.length > GOOGLE_SUFFIX.length
-            Service.MICROSOFT -> UUID_RE.matches(cleaned)
-        }
-        if (!ok) return false
+        if (!UUID_RE.matches(cleaned)) return false
         if (cleaned == clientId(s)) return true
         lock.withLock {
             prefs.edit().putString("client_${s.key}", cleaned).apply()
@@ -127,34 +137,83 @@ class AuthManager(context: Context) {
             .putStringSet(KEY_ACCOUNTS, set)
             .remove("svc_$id").remove("email_$id").remove("secret_$id")
             .remove("refresh_$id").remove("access_$id").remove("expiry_$id")
+            .remove("pass_$id")
             .apply()
+        // Leave no open IMAP connection authenticated as an account we just forgot.
+        Imap.disconnect(id)
+    }
+
+    /* ------------------------------------------------------------- app passwords */
+
+    /**
+     * Sign in with an app password. The credential is verified against the server before
+     * it is stored, so a mistyped character is an error at the keyboard rather than a
+     * sync that quietly never runs.
+     *
+     * Returns the account, or a sentence explaining what went wrong.
+     */
+    suspend fun signInWithPassword(
+        service: Service,
+        rawEmail: String,
+        rawPassword: String,
+    ): Result<Account> {
+        val email = Imap.emailOf(rawEmail)
+            ?: return Result.failure(IOException("That does not look like an email address."))
+        // Google prints app passwords in four groups of four. People paste them that
+        // way, and the spaces are not part of the secret.
+        val password = rawPassword.filterNot { it.isWhitespace() }
+        if (password.isEmpty()) return Result.failure(IOException("Enter the app password."))
+
+        Imap.verify(service, email, password)?.let { return Result.failure(IOException(it)) }
+
+        val id = service.key + ":" + email
+        lock.withLock {
+            val set = (prefs.getStringSet(KEY_ACCOUNTS, emptySet()) ?: emptySet()).toMutableSet()
+            set.add(id)
+            prefs.edit()
+                .putStringSet(KEY_ACCOUNTS, set)
+                .putString("svc_$id", service.key)
+                .putString("email_$id", email)
+                .putString("pass_$id", password)
+                .apply()
+        }
+        return Result.success(Account(id, service, email))
+    }
+
+    /**
+     * What the IMAP and SMTP layers authenticate with: an app password for Gmail, a
+     * fresh OAuth access token for Outlook. Both go in the password field — XOAUTH2
+     * passes the token there and encodes it itself.
+     */
+    suspend fun credential(accountId: String): String {
+        val service = Service.of(prefs.getString("svc_$accountId", null))
+            ?: throw ReauthRequired(accountId, "unknown account")
+        if (!service.usesOAuth) {
+            return prefs.getString("pass_$accountId", null)?.takeIf { it.isNotBlank() }
+                ?: throw ReauthRequired(accountId, "no app password stored")
+        }
+        return token(accountId)
     }
 
     /* ------------------------------------------------------------- authorization */
 
     /** The consent URL, with a fresh PKCE verifier and state kept for the redirect. */
     fun authorizationUri(s: Service): Uri {
+        val endpoint = s.authEndpoint
+            ?: throw IllegalStateException("${s.key} does not use OAuth")
         val verifier = randomUrlSafe(64)
         val state = s.key + "." + randomUrlSafe(12)
         prefs.edit().putString(KEY_VERIFIER, verifier).putString(KEY_STATE, state).apply()
 
-        val b = Uri.parse(s.authEndpoint).buildUpon()
+        return Uri.parse(endpoint).buildUpon()
             .appendQueryParameter("client_id", clientId(s))
             .appendQueryParameter("redirect_uri", redirectFor(s))
             .appendQueryParameter("response_type", "code")
-            .appendQueryParameter("scope", s.scopes)
+            .appendQueryParameter("scope", s.scopes.orEmpty())
             .appendQueryParameter("code_challenge", challengeOf(verifier))
             .appendQueryParameter("code_challenge_method", "S256")
             .appendQueryParameter("state", state)
-
-        if (s == Service.GOOGLE) {
-            // offline for a refresh token, and prompt=consent every time: Google issues
-            // a refresh token only on the FIRST grant, so a re-authorisation without it
-            // returns an access token and no way to renew it.
-            b.appendQueryParameter("access_type", "offline")
-            b.appendQueryParameter("prompt", "consent")
-        }
-        return b.build()
+            .build()
     }
 
     /**
@@ -177,7 +236,7 @@ class AuthManager(context: Context) {
             .add("client_id", clientId(service))
             .add("redirect_uri", redirectFor(service))
             .add("code_verifier", verifier)
-        if (service == Service.MICROSOFT) form.add("scope", service.scopes)
+        service.scopes?.let { form.add("scope", it) }
 
         val body = runCatching { post(service, form.build()) }.getOrNull() ?: return null
         val refresh = body.optString("refresh_token").takeIf { it.isNotBlank() } ?: return null
@@ -253,14 +312,14 @@ class AuthManager(context: Context) {
             .add("refresh_token", refresh)
             .add("client_id", clientId(service))
         clientSecret(accountId)?.let { form.add("client_secret", it) }
-        if (service == Service.MICROSOFT) form.add("scope", service.scopes)
+        service.scopes?.let { form.add("scope", it) }
 
         val body = try {
             post(service, form.build())
         } catch (e: TokenError) {
             if (e.error == "invalid_grant") {
                 forgetLocked(accountId)
-                throw ReauthRequired(accountId, "authorisation expired")
+                throw ReauthRequired(accountId, "authorization expired")
             }
             throw e
         }
@@ -287,7 +346,8 @@ class AuthManager(context: Context) {
     private class TokenError(val error: String, message: String) : IOException(message)
 
     private suspend fun post(s: Service, form: FormBody): JSONObject = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url(s.tokenEndpoint).post(form).build()
+        val endpoint = s.tokenEndpoint ?: throw IOException("${s.key} does not use OAuth")
+        val request = Request.Builder().url(endpoint).post(form).build()
         http.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
             val json = runCatching { JSONObject(text) }.getOrNull() ?: JSONObject()
@@ -333,7 +393,6 @@ class AuthManager(context: Context) {
         const val KEY_ACCOUNTS = "accounts"
         const val KEY_VERIFIER = "pkce_verifier"
         const val KEY_STATE = "auth_state"
-        const val GOOGLE_SUFFIX = ".apps.googleusercontent.com"
         val UUID_RE = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
     }
 }

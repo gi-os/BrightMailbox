@@ -1,7 +1,6 @@
 package com.gios.brightmailbox.ui
 
 import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,14 +10,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gios.brightmailbox.auth.AuthKind
 import com.gios.brightmailbox.auth.Service
 import com.gios.brightmailbox.ui.theme.Content
 import com.gios.brightmailbox.ui.theme.LocalGrid
@@ -30,6 +33,11 @@ import com.gios.brightmailbox.ui.theme.lightClickable
 
 /**
  * Fresh install. One line of what the app is, two ways in, nothing else.
+ *
+ * The two doors are no longer the same door twice. Gmail asks for an app password and
+ * never leaves the app; Outlook opens the browser for OAuth, which Microsoft requires
+ * since Basic auth for IMAP finished retiring in April 2026. Neither asks the user to
+ * register anything, which is the whole point of v2 — see [Service].
  */
 @Composable
 fun SetupScreen(vm: MailboxViewModel) {
@@ -51,42 +59,119 @@ fun SetupScreen(vm: MailboxViewModel) {
         Spacer(Modifier.weight(1f))
 
         for (s in Service.entries) {
-            val configured = vm.repo.auth.isConfigured(s)
+            val ready = vm.repo.auth.isConfigured(s)
             Column(
                 Modifier
                     .fillMaxWidth(0.8f)
-                    .lightClickable(enabled = configured) {
-                        /*
-                         * A plain ACTION_VIEW, deliberately. AppAuth cannot sign in on
-                         * this device: its BrowserSelector keeps only browsers whose
-                         * intent filter claims both CATEGORY_BROWSABLE and the bare http
-                         * scheme with no host, LightOS's browser fails that test, and
-                         * the library throws before making a request. An implicit intent
-                         * consults neither package visibility nor "full browser"-ness.
-                         */
-                        runCatching {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, vm.repo.auth.authorizationUri(s))
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                            )
-                        }.onFailure { vm.said("No browser here. Use the QR route below.") }
+                    .lightClickable(enabled = ready) {
+                        when (s.authKind) {
+                            AuthKind.APP_PASSWORD -> vm.go(Screen.Password(s))
+                            /*
+                             * A plain ACTION_VIEW, deliberately. AppAuth cannot sign in
+                             * on this device: its BrowserSelector keeps only browsers
+                             * whose intent filter claims both CATEGORY_BROWSABLE and the
+                             * bare http scheme with no host, LightOS's browser fails that
+                             * test, and the library throws before making a request. An
+                             * implicit intent consults neither package visibility nor
+                             * "full browser"-ness.
+                             */
+                            AuthKind.OAUTH -> runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, vm.repo.auth.authorizationUri(s))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                            }.onFailure { vm.said("No browser here to sign in with.") }
+                        }
                     }
                     .padding(bottom = g * 1.1f),
             ) {
-                T(
-                    "ADD ${s.label.uppercase()}",
-                    t.button,
-                    if (configured) Content else Secondary,
-                )
+                T("ADD ${s.label.uppercase()}", t.button, if (ready) Content else Secondary)
                 Spacer(Modifier.height(g * 0.35f))
                 Box(Modifier.fillMaxWidth().height(2.dp).background(Content))
-                if (!configured) {
-                    Spacer(Modifier.height(g * 0.25f))
-                    T("needs a client id — scan one in Settings", t.superfine, Secondary)
-                }
+                Spacer(Modifier.height(g * 0.25f))
+                T(
+                    when {
+                        !ready -> "not set up in this build"
+                        s.authKind == AuthKind.APP_PASSWORD -> "an app password, no browser"
+                        else -> "opens the browser once"
+                    },
+                    t.superfine,
+                    Secondary,
+                )
             }
         }
         Spacer(Modifier.height(g * 1.4f))
+    }
+}
+
+/**
+ * Type an app password.
+ *
+ * Sixteen characters is a lot on a 3.9" keyboard, so the field forgives the shape Google
+ * actually prints them in — four groups of four with spaces — and strips the whitespace
+ * before it goes anywhere. The credential is tried against the IMAP server before it is
+ * stored, because the alternative is an app that says "added" and then silently never
+ * syncs.
+ */
+@Composable
+fun PasswordScreen(vm: MailboxViewModel, service: Service) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    val busy by vm.busy.collectAsStateWithLifecycle()
+
+    var email by remember { mutableStateOf(TextFieldValue("")) }
+    var password by remember { mutableStateOf(TextFieldValue("")) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    Frame {
+        TopBar(service.label.uppercase())
+        Spacer(Modifier.height(g * 2.2f))
+        T("An app password.", t.title)
+        Spacer(Modifier.height(g * 1f))
+        T(
+            "Not your Google password — a separate sixteen-character one you make at " +
+                "myaccount.google.com/apppasswords. It needs 2-Step Verification " +
+                "switched on first.",
+            t.detail,
+            Secondary,
+        )
+
+        Spacer(Modifier.height(g * 2f))
+        Field("ADDRESS", email, { email = it; error = null }, g, t)
+        Spacer(Modifier.height(g * 1.4f))
+        Field("APP PASSWORD", password, { password = it; error = null }, g, t, mask = true)
+
+        error?.let {
+            Spacer(Modifier.height(g * 0.9f))
+            T(it, t.detail)
+        }
+
+        Spacer(Modifier.weight(1f))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            T(
+                "BACK",
+                t.button,
+                Secondary,
+                Modifier
+                    .align(Alignment.CenterVertically)
+                    .lightClickable(enabled = !busy) { vm.go(Screen.Setup) },
+            )
+            T(
+                if (busy) "CHECKING" else "CONNECT",
+                t.button,
+                if (busy) Secondary else Content,
+                Modifier
+                    .align(Alignment.CenterVertically)
+                    .lightClickable(enabled = !busy) {
+                        vm.signInWithPassword(
+                            service,
+                            email.text,
+                            password.text,
+                        ) { failure -> error = failure }
+                    },
+            )
+        }
+        Spacer(Modifier.height(g * 0.6f))
     }
 }
 

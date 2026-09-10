@@ -20,18 +20,14 @@ plugins {
  */
 
 /*
- * OAuth client ids. Both optional at build time and both enterable in the app by QR
- * (Settings -> Accounts -> Client IDs), which is what makes a plain release APK usable
- * by anyone: an installed-app client has no secret to leak, and the redirect scheme is
- * fixed by the package name rather than by the id.
+ * The Microsoft OAuth client id — the only one left.
+ *
+ * Gmail signs in with an app password in v2, so there is no Google client here and no
+ * Cloud project for the user to build. Microsoft imposes no user cap on a multi-tenant
+ * public client, so ONE registration shipped in the APK serves everybody: a public
+ * client has no secret to leak, and the redirect scheme is fixed by the package name
+ * rather than by the id. Overridable at runtime by QR for anyone running their own.
  */
-val googleClientId: String = run {
-    System.getenv("GOOGLE_CLIENT_ID")?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
-    val f = rootProject.file("local.properties")
-    if (!f.exists()) return@run ""
-    Properties().apply { f.inputStream().use { load(it) } }
-        .getProperty("googleClientId")?.trim().orEmpty()
-}
 val microsoftClientId: String = run {
     System.getenv("MICROSOFT_CLIENT_ID")?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
     val f = rootProject.file("local.properties")
@@ -80,12 +76,11 @@ android {
         targetSdk = 35
         // CI overwrites both from the run number; see .github/workflows/build.yml
         versionCode = 1
-        versionName = "1.0.0"
+        versionName = "2.0.0"
 
         // The LPIII is arm64 only. Four ABIs tripled an earlier APK for nothing.
         ndk { abiFilters += "arm64-v8a" }
 
-        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"$googleClientId\"")
         buildConfigField("String", "MICROSOFT_CLIENT_ID", "\"$microsoftClientId\"")
         buildConfigField("String", "OAUTH_REDIRECT", "\"$redirectScheme:/oauth2redirect\"")
         buildConfigField("String", "REPORT_TOKEN", "\"$reportToken\"")
@@ -120,6 +115,23 @@ android {
         compose = true
         buildConfig = true
     }
+
+    /*
+     * Angus Mail ships its license and notice files at the same archive paths that other
+     * dependencies use, and the merger treats a collision as an error. Picking the first
+     * is what the Angus Android page prescribes.
+     *
+     * module-info.class is a JPMS descriptor D8 has no use for; excluding it keeps the
+     * dexer quiet rather than relying on it to skip the file.
+     */
+    packaging {
+        resources {
+            pickFirsts += "META-INF/LICENSE.md"
+            pickFirsts += "META-INF/NOTICE.md"
+            excludes += "module-info.class"
+            excludes += "META-INF/versions/**/module-info.class"
+        }
+    }
 }
 
 dependencies {
@@ -144,10 +156,30 @@ dependencies {
     // which is the whole reason it can run on LightOS.
     implementation("androidx.work:work-runtime-ktx:2.10.0")
 
-    // Gmail REST and Microsoft Graph over plain HTTP. The official client libraries drag
-    // in half of GAX and MSAL respectively, and MSAL wants a browser abstraction that
-    // does not work on this device anyway.
+    // Microsoft's OAuth token exchange over plain HTTP. MSAL wants a browser
+    // abstraction that does not work on this device, for four form posts.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    /*
+     * IMAP, SMTP and — the part that matters — MIME.
+     *
+     * Angus Mail is Jakarta Mail's continuation at Eclipse, and it publishes a supported
+     * Android build (min API 19). The comment this replaces claimed JavaMail could not
+     * run here, which was true in 2017 and is not now. Its one documented Android gap is
+     * SASL, which used to be how OAuth2 was done; XOAUTH2 is a built-in mechanism today,
+     * so the gap does not bite.
+     *
+     * `org.eclipse.angus:jakarta.mail` is the single fat artifact carrying both the
+     * jakarta.mail API and the org.eclipse.angus.mail providers — 727 KB. Do not also
+     * add jakarta.mail-api or angus-mail: two copies of the API on the classpath is a
+     * duplicate-class build failure.
+     *
+     * IMAP is simple enough to hand-roll. MIME is not, and MIME is what breaks a mail
+     * client on one message in twenty.
+     */
+    implementation("org.eclipse.angus:jakarta.mail:2.0.5")
+    implementation("org.eclipse.angus:angus-activation:2.0.3")
+    implementation("jakarta.activation:jakarta.activation-api:2.1.3")
 
     // QR scanning, so a client id never has to be typed on a 3.9" keyboard.
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")

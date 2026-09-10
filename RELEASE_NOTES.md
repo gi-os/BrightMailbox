@@ -1,3 +1,54 @@
+## v2.0 — One protocol, no setup
+
+Signing in used to take ten minutes and a Google Cloud project. Now it takes sixteen
+characters.
+
+**Gmail signs in with an app password.** Make one at `myaccount.google.com/apppasswords`
+and type it in. No Cloud project, no consent screen, no "Google hasn't verified this
+app" warning, no eleven-step procedure with a step that quietly breaks everything.
+
+**Outlook signs in with one tap.** It still uses OAuth, because Microsoft finished
+retiring Basic auth for IMAP in April 2026 and will refuse a password. But Microsoft
+caps nothing, so the one client id ships in the app and nobody registers anything.
+
+Why the reversal: every Google scope that can read mail is *restricted* — capped at 100
+users until the app passes a CASA Tier 2 security audit, roughly a thousand dollars a
+year. v1 worked around the cap by giving every user their own Cloud project so each
+install had exactly one user. It worked and it was miserable. An app password is plain
+IMAP: no cap, no console, no audit. The older mechanism is the one that scales, and
+**Outlook is now the easy one.**
+
+**Both mailboxes go over IMAP.** The Gmail REST and Microsoft Graph transports are gone,
+replaced by one code path. It is also faster: Gmail's REST API has no batch metadata
+read, so v1 made one HTTP request per message and a first sync was four hundred round
+trips. One IMAP FETCH pulls four hundred headers at once.
+
+**SHOW ORIGINAL works.** The button in the why-sheet was dead. It now renders the
+sender's own HTML — with JavaScript off and remote images blocked, so opening a
+marketing email does not fire its tracking pixel and tell the sender when you read it.
+Links still open in the browser. There is a SHOW IMAGES toggle for the message that
+needs it.
+
+**Archive moves, it does not delete.** IMAP MOVE (RFC 6851) to the folder the server
+marks `\All` or `\Archive`. The obvious implementation — flag `\Deleted` and expunge —
+puts Gmail messages in Trash on a thirty-day timer, which is not what an archive button
+should do.
+
+**Attachments are detected**, which the Gmail transport never did.
+
+### Known gaps
+
+- **List rows have no preview line.** IMAP has no snippet, and fetching one costs a
+  round trip per message, which would undo the speed. Rows show sender and subject; the
+  body arrives when you open it.
+- **Conversations are threaded by `References`**, not by a provider thread id, since
+  IMAP has none. Standard and cross-provider, but it disagrees with Gmail's grouping on
+  mail that has been forwarded around.
+- Advanced Protection accounts cannot use Gmail here — Google disables app passwords for
+  them, and there is no alternative.
+
+---
+
 ## v1.0 — Letters and Notices
 
 First build.

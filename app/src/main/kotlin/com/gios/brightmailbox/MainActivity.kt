@@ -17,6 +17,8 @@ import com.gios.brightmailbox.ui.FirstSyncScreen
 import com.gios.brightmailbox.ui.HomeScreen
 import com.gios.brightmailbox.ui.MailboxViewModel
 import com.gios.brightmailbox.ui.NoticesScreen
+import com.gios.brightmailbox.ui.OriginalScreen
+import com.gios.brightmailbox.ui.PasswordScreen
 import com.gios.brightmailbox.ui.ReaderScreen
 import com.gios.brightmailbox.ui.RulesScreen
 import com.gios.brightmailbox.ui.Screen

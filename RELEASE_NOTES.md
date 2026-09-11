@@ -1,3 +1,26 @@
+## v2.13 — A proper sheet
+
+**The letter is a slide-up sheet now.** White, from the bottom edge, rounded at the top
+corners, decelerating into place rather than moving at a constant speed — which is what
+made the last one feel mechanical. Putting it away runs the same motion backwards, so the
+swipe down is the gesture that opened it, undone.
+
+**A gutter down both sides**, so text no longer runs into the edge of the sheet. Horizontal
+only: a message that ends in a full-width image or a coloured footer band still touches
+both sides, because that is how it was built.
+
+**Horizontal overflow is properly fixed this time, and the earlier attempts were treating
+the symptom.** The page was being laid out at `width=device-width` — about 390 pixels —
+while a bulk-mail message is built on a 600-pixel grid. It overflowed because it genuinely
+did not fit, and no amount of overflow juggling makes a 600-pixel table narrower; it only
+decides who does the scrolling. First that was the whole document sliding sideways, then it
+was content spilling out of its box.
+
+Messages that declare their width — most bulk mail says `width="600"` on the outer table —
+are now laid out at that width and scaled down to the screen, so the whole thing fits and
+there is nothing to scroll sideways at all. This is why mail looks zoomed out on a phone
+rather than clipped, in every other client. Personal mail declares no width and stays full
+size.
 ## v2.12 — The letter comes up past the list
 
 The list now fades to black *while* the letter rides up from below it, instead of being

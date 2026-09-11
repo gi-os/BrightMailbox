@@ -76,7 +76,7 @@ android {
         targetSdk = 35
         // CI overwrites both from the run number; see .github/workflows/build.yml
         versionCode = 1
-        versionName = "2.12.0"
+        versionName = "2.13.0"
 
         // The LPIII is arm64 only. Four ABIs tripled an earlier APK for nothing.
         ndk { abiFilters += "arm64-v8a" }

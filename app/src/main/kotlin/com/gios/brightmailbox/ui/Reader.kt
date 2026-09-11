@@ -408,6 +408,30 @@ private fun HtmlBody(
  * the same leniency every other mail client relies on, and it is safer than trying to cut
  * them out with a regular expression.
  */
+/**
+ * The width a message was built for, if it says so.
+ *
+ * Bulk mail is laid out on a fixed grid and declares it — `width="600"` on the outer
+ * table, or `width:600px` in a style — and 600 or 640 covers most of what exists.
+ *
+ * Finding that number is the real fix for horizontal overflow. Forcing such a message
+ * into a `width=device-width` viewport asks a 600-pixel layout to fit in 390 and it
+ * simply will not: it overflows, and no amount of `overflow` juggling makes the content
+ * narrower, it only decides who does the scrolling. Laying the page out at the width it
+ * expects and letting the WebView scale the result to the screen is what actually makes
+ * it fit — which is what every mail client does, and why mail looks zoomed-out on a
+ * phone rather than clipped.
+ *
+ * Only large, plausible values count. A `width="1"` spacer gif and a `width:100%` are
+ * both extremely common and neither says anything about the layout.
+ */
+private fun declaredWidth(html: String): Int? =
+    Regex("width\\s*[:=]\\s*[\"']?\\s*(\\d{3,4})\\s*(?:px)?", RegexOption.IGNORE_CASE)
+        .findAll(html)
+        .mapNotNull { it.groupValues[1].toIntOrNull() }
+        .filter { it in 480..1280 }
+        .maxOrNull()
+
 private fun document(
     html: String,
     msg: Msg,
@@ -475,16 +499,33 @@ private fun document(
      * The style block sits BEFORE the message so a sender who really means to override
      * it still can; only the inline `overflow-x` is non-negotiable.
      */
+    /*
+     * Lay the page out at the width the message was built for, and let the WebView scale
+     * it down to the screen.
+     *
+     * `width=device-width` was the mistake. It pins the layout to 390-odd pixels, and a
+     * message designed on a 600-pixel grid then overflows — which is the overflow that
+     * kept coming back, first as the whole document sliding sideways and then as content
+     * spilling out of its box. `overflow` rules only decide who scrolls; they cannot make
+     * a 600-pixel table narrower.
+     *
+     * With `width=600` here and `loadWithOverviewMode` on the view, the page is laid out
+     * at 600 and zoomed to fit, so the whole message is on screen and there is nothing to
+     * scroll sideways at all. Mail with no declared width keeps `device-width` and stays
+     * full size, which is most personal mail.
+     */
+    val viewport = declaredWidth(html)?.let { "width=$it" } ?: "width=device-width,initial-scale=1"
+
     return """<!doctype html><html style="background:transparent;overflow-x:hidden"><head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="$viewport">
 <style>
   img { max-width: 100%; height: auto; }
   pre, code { white-space: pre-wrap; word-break: break-word; }
   td, th, p, div, a { word-break: break-word; overflow-wrap: anywhere; }
 </style>
 </head><body style="margin:0;background:transparent;overflow-x:hidden;-webkit-text-size-adjust:100%">
-<div style="margin-top:14px;background:#fff">
+<div style="margin-top:14px;background:#fff;border-radius:14px 14px 0 0;overflow:hidden">
 <div style="padding:22px 20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#000">
   <div style="font-size:25px;line-height:1.2;font-weight:400;color:#000">$sender</div>
   <div style="font-size:13px;line-height:1.5;color:#777;margin-top:5px">$stamp</div>
@@ -492,9 +533,17 @@ private fun document(
 $files
 </div>
 <div style="height:1px;background:#e2e2e2;margin:20px 20px 0"></div>
-<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+<!--
+  A gutter, so text does not run into the edge of the sheet.
+
+  Horizontal only, and none at the bottom: a message that ends with a full-width image
+  or a coloured footer band should keep touching both sides, the way it was designed to.
+  Padding all the way round would put a white frame under every newsletter footer.
+-->
+<div style="padding:16px 18px 0;overflow-x:auto;-webkit-overflow-scrolling:touch">
 $html
 </div>
+<div style="height:24px"></div>
 </div>
 </body></html>"""
 }

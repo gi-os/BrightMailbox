@@ -10,8 +10,11 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +47,21 @@ import com.gios.brightmailbox.ui.WriteScreen
 import com.gios.brightmailbox.ui.theme.LightTheme
 import com.gios.light.common.report.ReportContext
 import com.gios.light.common.report.ReportOverlay
+
+/*
+ * The slide-up sheet.
+ *
+ * A letter arrives the way a sheet arrives on a phone: white, from the bottom edge,
+ * decelerating into place — never at a constant speed, which is what a plain tween gives
+ * and what made the first version feel mechanical. The curve is the one iOS uses for a
+ * presented sheet: fast at the start, long slow settle, no overshoot.
+ *
+ * Out is quicker than in, which is the usual asymmetry — arriving is an event worth
+ * watching, leaving is not.
+ */
+private val SheetEasing = CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
+private const val SHEET_IN = 380
+private const val SHEET_OUT = 280
 
 /**
  * singleTask, so the OAuth redirect comes back into the running activity through
@@ -152,13 +170,24 @@ class MainActivity : ComponentActivity() {
                 AnimatedContent(
                     targetState = screen,
                     transitionSpec = {
-                        if (targetState is Screen.Read && initialState is Screen.Home) {
-                            slideInVertically(
-                                animationSpec = tween(300),
+                        val opening = targetState is Screen.Read && initialState is Screen.Home
+                        val closing = targetState is Screen.Home && initialState is Screen.Read
+                        when {
+                            opening -> slideInVertically(
+                                animationSpec = tween(SHEET_IN, easing = SheetEasing),
                                 initialOffsetY = { it },
-                            ) togetherWith fadeOut(animationSpec = tween(300))
-                        } else {
-                            EnterTransition.None togetherWith ExitTransition.None
+                            ) togetherWith fadeOut(animationSpec = tween(SHEET_IN))
+
+                            // The same motion backwards, so putting a letter away is the
+                            // gesture that opened it, undone — not a different animation
+                            // that happens to end in the same place.
+                            closing -> fadeIn(animationSpec = tween(SHEET_OUT)) togetherWith
+                                slideOutVertically(
+                                    animationSpec = tween(SHEET_OUT, easing = SheetEasing),
+                                    targetOffsetY = { it },
+                                )
+
+                            else -> EnterTransition.None togetherWith ExitTransition.None
                         }
                     },
                     label = "screen",

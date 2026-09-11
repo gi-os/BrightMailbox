@@ -557,8 +557,38 @@ private fun document(
      * back for exactly the users least likely to be able to report why.
      */
     val openZoom = if (zoom == null) "" else
-        """<div style="zoom:${String.format(java.util.Locale.US, "%.4f", zoom)};width:${declared}px">"""
+        """<div style="zoom:${String.format(java.util.Locale.US, "%.4f", zoom)};width:${declared}px;margin:0 auto">"""
     val closeZoom = if (zoom == null) "" else "</div>"
+
+    /*
+     * When there is no declared width, let wide tables shrink.
+     *
+     * A centered message is the case that shows this up. `<center>` and `align="center"`
+     * center a block INSIDE its container, and a block wider than its container is not
+     * centered by anything — it starts at the left edge and hangs off the right. So the
+     * one layout whose whole point is to be centered is the one that most obviously is
+     * not, which is exactly what Gio saw.
+     *
+     * With a declared width there is a real answer: lay it out at that width and zoom, so
+     * the centering is preserved exactly as built. Without one there is no number to scale
+     * by — the width is whatever the content happens to compute to, and reading that needs
+     * JavaScript, which this view will never have. `max-width:100%` is the honest fallback:
+     * the table reflows to fit, which can loosen a fixed grid, and a loosened grid that
+     * fits beats a faithful one you can only see the left third of.
+     *
+     * Scoped to the no-zoom case for that reason. A message we CAN scale is never reflowed.
+     */
+    /*
+     * `!important` because the width being fought is almost always an inline
+     * `style="width:600px"` or a `width="600"` attribute, and an important author rule is
+     * the one thing that outranks an inline declaration. `max-width` and not `width`, so
+     * a table narrower than the screen is left exactly as it is.
+     *
+     * Tables only. Not `div`, which would catch our own wrapper, and not a blanket rule on
+     * everything, which mangles more mail than it saves.
+     */
+    val shrink = if (zoom != null) "" else
+        "  table { max-width: 100% !important; }\n"
 
     return """<!doctype html><html style="background:transparent;overflow-x:hidden"><head>
 <meta charset="utf-8">
@@ -567,7 +597,7 @@ private fun document(
   img { max-width: 100%; height: auto; }
   pre, code { white-space: pre-wrap; word-break: break-word; }
   td, th, p, div, a { word-break: break-word; overflow-wrap: anywhere; }
-</style>
+$shrink</style>
 </head><body style="margin:0;background:transparent;overflow-x:hidden;-webkit-text-size-adjust:100%">
 <div style="margin-top:14px;background:#fff;border-radius:14px 14px 0 0;overflow:hidden">
 <div style="padding:22px 20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#000">

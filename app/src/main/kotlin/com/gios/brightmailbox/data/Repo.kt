@@ -59,6 +59,26 @@ enum class Depth(val key: String, val label: String, val perAccount: Int) {
 }
 
 /**
+ * Which way a message opens.
+ *
+ * Not a preference about rendering so much as one about what mail is for. [FORMATTED]
+ * shows the message its sender built, images, columns and all. [PLAIN] shows the words
+ * and throws the rest away, which on a phone bought to be boring is a perfectly
+ * reasonable thing to want every time rather than to ask for message by message.
+ *
+ * Either way the other view is one tap away in the reader's ··· sheet — this decides
+ * where every message starts, not what is available.
+ */
+enum class Reading(val key: String, val label: String) {
+    FORMATTED("formatted", "As sent"),
+    PLAIN("plain", "Text only");
+
+    companion object {
+        fun of(k: String?) = entries.firstOrNull { it.key == k } ?: FORMATTED
+    }
+}
+
+/**
  * Everything above the network and below the UI.
  */
 class Repo private constructor(private val app: Context) {
@@ -113,6 +133,11 @@ class Repo private constructor(private val app: Context) {
      * column of grey boxes, which made the reader look broken rather than careful.
      * Switchable in Settings; the trade is named there rather than hidden.
      */
+    /** Which view a message opens in. The ··· sheet still switches the one on screen. */
+    var reading: Reading
+        get() = Reading.of(prefs.getString("reading", null))
+        set(v) = prefs.edit().putString("reading", v.key).apply()
+
     var showImages: Boolean
         get() = prefs.getBoolean("images", true)
         set(v) = prefs.edit().putBoolean("images", v).apply()

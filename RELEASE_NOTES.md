@@ -1,3 +1,29 @@
+## v2.16 — A default view, a swipe, and a screen worth looking at
+
+**Settings → READING now decides how messages open**, as sent or as text only. The ··· in
+the reader still switches whichever message is in front of you; it no longer quietly
+changes the setting, and the setting no longer gets overruled by something you did to one
+message an hour ago.
+
+**Swipe a letter or a notice to the left to archive it.** The row moves with your finger
+the whole way, with the word behind it, and springs back if you let go early. Archive is a
+move to All Mail, so nothing swiped away is gone. Vertical scrolling is untouched: the
+gesture only starts once your finger is clearly going sideways.
+
+**The empty screen has been redesigned.** It used to be two small lines in the top corner
+of a black rectangle, which reads as a screen that failed rather than a mailbox with
+nothing in it. It now says so at full size, with the state of the machine underneath —
+when it last looked, how many letters are waiting for tomorrow, and, if it could not reach
+your mail at all, what went wrong. That last line is new, and it is the one that matters:
+an unreachable mailbox used to produce a screen that looked exactly like an empty one.
+CHECK NOW sits on the bar there too, because on a screen with nothing on it that is the
+only thing anybody wants.
+
+**Centered messages stay centered.** A message that centers a fixed-width block was the
+worst case for a narrow screen: a block wider than the space it sits in is not centered by
+anything, so it started at the left edge and hung off the right. Messages that declare
+their width are laid out at it and scaled, centering intact. Messages that declare nothing
+now let their tables shrink to fit instead of running off the edge.
 ## v2.15 — The first letter animates too
 
 **The first message you opened never seemed to slide up.** Two separate reasons, both now

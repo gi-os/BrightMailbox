@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.gios.brightmailbox.data.Depth
 import com.gios.brightmailbox.data.Msg
 import com.gios.brightmailbox.data.Ration
+import com.gios.brightmailbox.data.Reading
 import com.gios.brightmailbox.data.Repo
 import com.gios.brightmailbox.data.SenderRule
 import com.gios.brightmailbox.mail.Outgoing
@@ -111,11 +112,23 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     val attachments: StateFlow<List<com.gios.brightmailbox.mail.Attachment>> =
         _attachments.asStateFlow()
 
-    /** Set from the reader's ··· sheet. Survives leaving and re-entering a message. */
-    private val _plainText = MutableStateFlow(false)
+    /**
+     * Which view the message on screen is in.
+     *
+     * Seeded from the setting and reset to it on every open, so the ··· sheet switches
+     * *this* message rather than quietly changing the default. A per-message choice that
+     * silently became permanent would be the worst of both.
+     */
+    private val _plainText = MutableStateFlow(repo.reading == Reading.PLAIN)
     val plainText: StateFlow<Boolean> = _plainText.asStateFlow()
 
     fun togglePlainText() { _plainText.value = !_plainText.value }
+
+    /** From Settings. Applies to the next message opened, and to every one after. */
+    fun setReading(r: Reading) {
+        repo.reading = r
+        _plainText.value = r == Reading.PLAIN
+    }
 
     /**
      * The message being read, held here rather than looked up in the lists.
@@ -222,6 +235,10 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         _html.value = null
         _attachments.value = emptyList()
         _opened.value = msg
+        // Back to the default. The ··· sheet switches the message you are reading, not
+        // the setting — leaving the last message's choice in place would make a one-off
+        // look permanent and a permanent choice look like it had stopped working.
+        _plainText.value = repo.reading == Reading.PLAIN
 
         /*
          * Read the cache BEFORE navigating, so the reader knows what it is drawing.
@@ -286,6 +303,20 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     fun archive(msg: Msg) = viewModelScope.launch {
         repo.archive(msg)
         go(Screen.Home)
+    }
+
+    /**
+     * Archive without going anywhere. The swipe on a row.
+     *
+     * [archive] is the reader's version and ends by leaving the message, which is right
+     * there and wrong here — a swipe on the Notices screen would throw you back to Home
+     * after every row. Says so afterwards, because the row simply disappearing is
+     * indistinguishable from the row having been deleted, and it has not been: archive is
+     * a move to All Mail.
+     */
+    fun archiveHere(msg: Msg) = viewModelScope.launch {
+        repo.archive(msg)
+        said("Archived.")
     }
 
     /**

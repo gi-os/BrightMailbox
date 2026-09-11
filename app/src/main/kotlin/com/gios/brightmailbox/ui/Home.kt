@@ -2,6 +2,7 @@ package com.gios.brightmailbox.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightmailbox.R
 import com.gios.brightmailbox.data.Msg
@@ -33,6 +35,7 @@ import com.gios.brightmailbox.ui.theme.Secondary
 import com.gios.brightmailbox.ui.theme.T
 import com.gios.brightmailbox.ui.theme.lightClickable
 import com.gios.brightmailbox.ui.theme.lightHoldable
+import com.gios.brightmailbox.ui.theme.swipeAway
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -163,7 +166,12 @@ fun HomeScreen(vm: MailboxViewModel) {
             verticalArrangement = Arrangement.spacedBy(g * 1.1f),
         ) {
             items(visible, key = { it.key }) { m ->
-                LetterRow(m, onClick = { vm.open(m) }, onHold = { vm.star(m) })
+                LetterRow(
+                    m,
+                    onClick = { vm.open(m) },
+                    onHold = { vm.star(m) },
+                    onSwipe = { vm.archiveHere(m) },
+                )
             }
 
             if (all.isEmpty()) {
@@ -218,7 +226,12 @@ fun HomeScreen(vm: MailboxViewModel) {
                     Spacer(Modifier.height(g * 0.6f))
                 }
                 items(notices.take(4), key = { "n" + it.key }) { m ->
-                    NoticeRow(m, onClick = { vm.open(m) }, onHold = { vm.star(m) })
+                    NoticeRow(
+                        m,
+                        onClick = { vm.open(m) },
+                        onHold = { vm.star(m) },
+                        onSwipe = { vm.archiveHere(m) },
+                    )
                 }
                 item {
                     T(
@@ -300,18 +313,80 @@ private fun DayDone(vm: MailboxViewModel, waiting: Int, notices: Int) {
     }
 }
 
-/** Empty of everything. Heading scale — an empty morning is smaller news than a finished day. */
+/**
+ * Empty of everything.
+ *
+ * The most-looked-at screen in the app and until now the least designed: two lines in the
+ * top-left corner of a black rectangle, which reads as a screen that failed to load rather
+ * than one with nothing on it. An empty mailbox is the good outcome and should look like a
+ * finished thing.
+ *
+ * So: the fact at title scale, sat at the optical centre rather than jammed under the bar,
+ * with a rule and the state of the machine under it — when it last looked, whether
+ * anything is waiting for tomorrow, and, when it could not look at all, why. That last
+ * line is the one that matters. An unreachable mailbox used to produce this exact screen,
+ * silently, which is how "it isn't populating" happens.
+ *
+ * Title scale, not heading, because on this panel a short sentence at 115 design px IS the
+ * design — it is what the SDK does with a screen that has one thing to say.
+ */
 @Composable
 private fun Nothing(vm: MailboxViewModel) {
     val g = LocalGrid.current
     val t = LocalType.current
+    val waiting by vm.waiting.collectAsStateWithLifecycle()
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    val error = vm.repo.lastError
+
     Column(Modifier.fillMaxSize()) {
-        Spacer(Modifier.height(g * 8f))
-        T("Nothing yet.", t.heading)
-        Spacer(Modifier.height(g * 0.8f))
-        T("Last checked ${clock(vm.repo.lastSync)}.", t.detail, Secondary)
+        // A third of the way down rather than centred: optically centred text sits above
+        // the true middle, and the action bar takes four units off the bottom anyway.
+        Spacer(Modifier.height(g * 6f))
+
+        T(if (error != null) "Can't reach\nyour mail." else "Nothing\nyet.", t.title)
+
+        Spacer(Modifier.height(g * 1.6f))
+        Box(Modifier.width(g * 6f).height(2.dp).background(Secondary))
+        Spacer(Modifier.height(g * 1.2f))
+
+        /*
+         * The state of the machine, one fact per line, quietest first. Every line is
+         * conditional — a screen that says "0 waiting" and "no errors" to say nothing is
+         * worse than a screen with one line on it.
+         */
+        T(
+            when {
+                busy -> "Looking now…"
+                else -> "Last looked ${clock(vm.repo.lastSync)}."
+            },
+            t.detail,
+            Secondary,
+        )
+        if (error != null) {
+            Spacer(Modifier.height(g * 0.5f))
+            T(error, t.detail, maxLines = 3)
+        }
+        if (waiting > 0) {
+            Spacer(Modifier.height(g * 0.5f))
+            T(
+                if (waiting == 1) "1 letter waiting for tomorrow."
+                else "$waiting letters waiting for tomorrow.",
+                t.detail,
+                Secondary,
+            )
+        }
+
         Spacer(Modifier.weight(1f))
-        ActionBar(left = "WRITE" to { vm.go(Screen.Write()) }, right = null)
+        /*
+         * CHECK NOW earns the second slot here and nowhere else. On a screen with mail on
+         * it the refresh icon in the header is enough; on a screen with nothing on it,
+         * "check again" is the only thing anybody wants to do, and hunting for an icon to
+         * do it is how you end up believing the app is broken.
+         */
+        ActionBar(
+            left = "WRITE" to { vm.go(Screen.Write()) },
+            right = if (busy) null else "CHECK NOW" to { vm.syncNow() },
+        )
     }
 }
 
@@ -331,12 +406,18 @@ private fun Nothing(vm: MailboxViewModel) {
  * monochrome LCD dithers into a texture, a flat grey does not.
  */
 @Composable
-fun LetterRow(m: Msg, onClick: () -> Unit, onHold: () -> Unit = {}) {
+fun LetterRow(
+    m: Msg,
+    onClick: () -> Unit,
+    onHold: () -> Unit = {},
+    onSwipe: (() -> Unit)? = null,
+) {
     val g = LocalGrid.current
     val t = LocalType.current
     val ink = if (m.readHere) Secondary else Content
+    SwipeRow(onSwipe) { rowModifier ->
     Column(
-        Modifier.fillMaxWidth().lightHoldable(onLongClick = onHold, onClick = onClick),
+        rowModifier.fillMaxWidth().lightHoldable(onLongClick = onHold, onClick = onClick),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             T(
@@ -366,6 +447,45 @@ fun LetterRow(m: Msg, onClick: () -> Unit, onHold: () -> Unit = {}) {
             T(stamp(m.receivedAt), t.detail, Secondary, maxLines = 1)
         }
     }
+    }
+}
+
+/**
+ * A row you can push off the left edge, with the word for what that does behind it.
+ *
+ * The label is underneath and the row paints its own black over it, so the word is
+ * uncovered by the row moving rather than faded in — the row is the shutter. That is also
+ * why the background belongs *inside* the swipe: a background applied outside the offset
+ * stays where it was and you get a black bar sitting still while its contents slide out
+ * from under it.
+ *
+ * With no [onSwipe] this is nothing at all — not a disabled gesture, just the row.
+ */
+@Composable
+private fun SwipeRow(
+    onSwipe: (() -> Unit)?,
+    content: @Composable (Modifier) -> Unit,
+) {
+    if (onSwipe == null) {
+        content(Modifier)
+        return
+    }
+    val g = LocalGrid.current
+    val t = LocalType.current
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth()) {
+        T(
+            "ARCHIVE",
+            t.detail,
+            Secondary,
+            Modifier.align(Alignment.CenterEnd),
+            maxLines = 1,
+        )
+        content(
+            Modifier
+                .swipeAway(threshold = g * 5f, onSwiped = onSwipe)
+                .background(com.gios.brightmailbox.ui.theme.Background),
+        )
+    }
 }
 
 /**
@@ -373,11 +493,17 @@ fun LetterRow(m: Msg, onClick: () -> Unit, onHold: () -> Unit = {}) {
  * it, subject hard-truncated. No time — none of these are urgent.
  */
 @Composable
-fun NoticeRow(m: Msg, onClick: () -> Unit, onHold: () -> Unit = {}) {
+fun NoticeRow(
+    m: Msg,
+    onClick: () -> Unit,
+    onHold: () -> Unit = {},
+    onSwipe: (() -> Unit)? = null,
+) {
     val g = LocalGrid.current
     val t = LocalType.current
+    SwipeRow(onSwipe) { rowModifier ->
     Row(
-        Modifier.fillMaxWidth().lightHoldable(onLongClick = onHold, onClick = onClick),
+        rowModifier.fillMaxWidth().lightHoldable(onLongClick = onHold, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         T(m.senderName, t.detail, Secondary, Modifier.width(g * 6.5f), maxLines = 1)
@@ -392,6 +518,7 @@ fun NoticeRow(m: Msg, onClick: () -> Unit, onHold: () -> Unit = {}) {
             Spacer(Modifier.width(g * 0.4f))
             Star()
         }
+    }
     }
 }
 

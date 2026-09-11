@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightmailbox.data.Depth
 import com.gios.brightmailbox.data.Ration
+import com.gios.brightmailbox.data.Reading
 import com.gios.brightmailbox.notify.Chime
 import com.gios.brightmailbox.ui.theme.Content
 import com.gios.brightmailbox.ui.theme.LocalGrid
@@ -167,6 +168,45 @@ fun SettingsScreen(vm: MailboxViewModel) {
             )
 
             Section("READING")
+            /*
+             * What a message opens as.
+             *
+             * The two-word switch again, the same control the ration uses — two options,
+             * one underlined. The ··· sheet in the reader still switches whichever message
+             * is on screen; this is only where they start.
+             */
+            var reading by remember { mutableStateOf(vm.repo.reading) }
+            Row(horizontalArrangement = Arrangement.spacedBy(g * 1.6f)) {
+                for (r in Reading.entries) {
+                    Column(Modifier.lightClickable {
+                        reading = r
+                        vm.setReading(r)
+                    }) {
+                        T(r.label, t.copy, if (r == reading) Content else Secondary, maxLines = 1)
+                        Spacer(Modifier.height(g * 0.2f))
+                        Box(
+                            Modifier
+                                .width(g * (if (r == Reading.FORMATTED) 2.9f else 3.4f))
+                                .height(2.dp)
+                                .background(
+                                    if (r == reading) Content
+                                    else androidx.compose.ui.graphics.Color.Transparent,
+                                ),
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(g * 0.7f))
+            T(
+                if (reading == Reading.FORMATTED)
+                    "Messages open the way their sender built them."
+                else
+                    "Messages open as text. No images, no columns, no typefaces.",
+                t.detail,
+                Secondary,
+            )
+            Spacer(Modifier.height(g * 1.1f))
+
             var images by remember { mutableStateOf(vm.repo.showImages) }
             T(
                 "Messages are shown the way their sender built them. Remote images are " +

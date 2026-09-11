@@ -1,19 +1,33 @@
 package com.gios.brightmailbox.ui.theme
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -178,6 +192,63 @@ fun Modifier.lightHoldable(
         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
         onClick()
     }
+}
+
+/**
+ * Slide a row sideways to do something to it, and let it go to change your mind.
+ *
+ * `detectHorizontalDragGestures` and not a drag on both axes, which matters more than it
+ * looks: it waits for HORIZONTAL touch slop before claiming the pointer, so a finger
+ * moving down the screen never reaches this and the list scrolls exactly as it did. A
+ * two-axis detector would win the race half the time and the list would feel sticky.
+ *
+ * The row moves under the finger the whole way, because a gesture that does nothing until
+ * it succeeds gives you no way to learn where the line is. Past [threshold] it commits and
+ * the row is gone; short of it the row goes back where it was.
+ *
+ * Left only. A row that goes both ways has to explain which way means what, and there is
+ * one verb here.
+ */
+@Composable
+fun Modifier.swipeAway(
+    threshold: Dp = 84.dp,
+    onSwiped: () -> Unit,
+): Modifier {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val limit = with(androidx.compose.ui.platform.LocalDensity.current) { threshold.toPx() }
+    val offset = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    var width by remember { mutableFloatStateOf(0f) }
+
+    return this
+        .onSizeChanged { width = it.width.toFloat() }
+        .offset { IntOffset(offset.value.toInt(), 0) }
+        .pointerInput(limit) {
+            detectHorizontalDragGestures(
+                onDragEnd = {
+                    scope.launch {
+                        if (offset.value <= -limit) {
+                            // Off the edge first, then the work — so the row leaves by
+                            // moving rather than by vanishing out from under the finger.
+                            offset.animateTo(-width, tween(140))
+                            onSwiped()
+                        } else {
+                            offset.animateTo(0f, tween(160))
+                        }
+                    }
+                },
+                onDragCancel = { scope.launch { offset.animateTo(0f, tween(160)) } },
+            ) { change, drag ->
+                change.consume()
+                val next = (offset.value + drag).coerceIn(-width, 0f)
+                // One buzz, crossing the line, so the finger knows it has armed before
+                // it lifts rather than after.
+                if (offset.value > -limit && next <= -limit) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+                scope.launch { offset.snapTo(next) }
+            }
+        }
 }
 
 /* ------------------------------------------------------------------ text helpers */

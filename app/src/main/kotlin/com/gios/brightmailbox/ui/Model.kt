@@ -81,6 +81,16 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val noticeCount = repo.unreadNotices()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /**
+     * How many notices there are, counted rather than measured.
+     *
+     * Every screen used `notices.value.size`, and that list is capped at 300 rows — so a
+     * busy mailbox said "NOTICES 300" permanently, and clearing a hundred of them changed
+     * nothing on screen. The list is a page of results; this is the number.
+     */
+    val noticeTotal = repo.noticeTotal()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val waiting = repo.waitingLetters()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val rules: StateFlow<List<SenderRule>> = repo.rules()
@@ -286,6 +296,20 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         val f = repo.attachmentFile(msg, att)
         if (f == null) said("Could not fetch that file.") else { said(null); onReady(f) }
     }
+
+    /**
+     * Keep a copy of an attachment in the phone's Downloads folder.
+     *
+     * The name it lands under is reported back rather than a bare "Saved", because the
+     * file has been renamed to something a filesystem will accept and the user has to be
+     * able to find it again.
+     */
+    fun saveAttachment(msg: Msg, att: com.gios.brightmailbox.mail.Attachment) =
+        viewModelScope.launch {
+            said("Saving ${att.name}…")
+            val name = repo.saveToDownloads(msg, att)
+            said(if (name == null) "Could not save that file." else "Saved to Downloads as $name.")
+        }
 
     /**
      * Hold a message on the screen, or let it go. The long press on any row.

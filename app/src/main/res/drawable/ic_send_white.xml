@@ -1,0 +1,19 @@
+<!--
+  Send.
+
+  A paper plane, which is what "send" looks like everywhere and therefore needs no
+  learning — the point of replacing the word WRITE with a glyph is only worth anything if
+  the glyph is more immediate than the word, and an invented mark would not be.
+
+  Solid, with the fold drawn as a notch in the silhouette rather than as a second stroke:
+  a hairline detail at this size dissolves into grey on a matte LCD.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M2.6,20.4L21.4,12L2.6,3.6L2.6,10.1L15.2,12L2.6,13.9Z" />
+</vector>

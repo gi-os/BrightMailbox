@@ -51,6 +51,28 @@ object Headers {
         RegexOption.IGNORE_CASE,
     )
 
+    /**
+     * "Do not reply", wherever it appears in the address.
+     *
+     * [ROBOT_LOCALPARTS] is anchored, which is right for the broad words in it —
+     * `updates@` is automation, `product-updates-team@` might be a person. But the
+     * no-reply family is not a guess about tone, it is the sender stating outright that
+     * the address accepts no mail. That fact holds anywhere it appears, and real senders
+     * put it everywhere the anchored form misses:
+     *
+     *     shopify-no-reply@…      not at the start
+     *     no_reply@…              underscore, not a hyphen
+     *     hello@noreply.brand.com in the DOMAIN, with a friendly local part
+     *
+     * All three were landing in Letters. Matched against the local part with separator
+     * boundaries, and against each domain label whole, so `replyto.com` and a person
+     * called `noreplymond` are both left alone.
+     */
+    private val NO_REPLY = Regex(
+        "(^|[-_.+])(no[-_.]?reply|do[-_.]?not[-_.]?reply|nepasrepondre|noresponse)([-_.+]|$)",
+        RegexOption.IGNORE_CASE,
+    )
+
     /** Variable-envelope return paths: `bounce-1234-abcd@`. Only bulk senders do this. */
     private val VERP = Regex("^(bounces?|bnc|msys|sb|return)[-+._][a-z0-9._=-]{6,}$", RegexOption.IGNORE_CASE)
 
@@ -99,6 +121,13 @@ object Headers {
 
         if (ROBOT_LOCALPARTS.matches(e.localPart)) {
             return Verdict(Pile.NOTICE, "comes from ${e.localPart}@, which nobody reads", "robot-sender")
+        }
+
+        // An address that refuses replies is not correspondence, by its own account.
+        if (NO_REPLY.containsMatchIn(e.localPart) ||
+            e.from.substringAfter('@', "").split('.').any { NO_REPLY.matches(it) }
+        ) {
+            return Verdict(Pile.NOTICE, "comes from an address that takes no replies", "no-reply")
         }
 
         e.header("return-path")?.let { rp ->

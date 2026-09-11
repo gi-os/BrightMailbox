@@ -29,7 +29,9 @@ fun NoticesScreen(vm: MailboxViewModel) {
     val g = LocalGrid.current
     val t = LocalType.current
     val notices by vm.notices.collectAsStateWithLifecycle()
-    val count by vm.noticeCount.collectAsStateWithLifecycle()
+    // The total, not the unread count: this screen lists every notice, so a header that
+    // counts only the unread ones describes a different list to the one underneath it.
+    val count by vm.noticeTotal.collectAsStateWithLifecycle()
 
     val groups: List<Pair<String, List<Msg>>> =
         androidx.compose.runtime.remember(notices) {

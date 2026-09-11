@@ -56,6 +56,8 @@ fun HomeScreen(vm: MailboxViewModel) {
 
     val all by vm.letters.collectAsStateWithLifecycle()
     val notices by vm.notices.collectAsStateWithLifecycle()
+    // The counted total, not `notices.size` — that list stops at 300 rows.
+    val noticeTotal by vm.noticeTotal.collectAsStateWithLifecycle()
     val waiting by vm.waiting.collectAsStateWithLifecycle()
     val allowed by vm.allowed.collectAsStateWithLifecycle()
 
@@ -75,7 +77,7 @@ fun HomeScreen(vm: MailboxViewModel) {
      * and then archived away, with more waiting for tomorrow.
      */
     if (vm.dayDone && visible.isEmpty() && all.isNotEmpty()) {
-        DayDone(vm, waiting, notices.size)
+        DayDone(vm, waiting, noticeTotal)
         return
     }
 
@@ -221,7 +223,7 @@ fun HomeScreen(vm: MailboxViewModel) {
                         verticalAlignment = Alignment.Bottom,
                     ) {
                         T("NOTICES", t.detail, Secondary)
-                        T("${notices.size}", t.detail, Secondary)
+                        T("$noticeTotal", t.detail, Secondary)
                     }
                     Spacer(Modifier.height(g * 0.6f))
                 }
@@ -235,7 +237,7 @@ fun HomeScreen(vm: MailboxViewModel) {
                 }
                 item {
                     T(
-                        "see all ${notices.size} →",
+                        "see all $noticeTotal →",
                         t.detail,
                         Secondary,
                         Modifier
@@ -257,9 +259,10 @@ fun HomeScreen(vm: MailboxViewModel) {
          * that says zero is a route nobody takes.
          */
         ActionBar(
-            left = "WRITE" to { vm.go(Screen.Write()) },
+            left = null,
+            leftIcon = Triple(R.drawable.ic_send_white, "Write") { vm.go(Screen.Write()) },
             right = if (unlimited || notices.isNotEmpty()) {
-                "NOTICES ${notices.size}" to { vm.go(Screen.Notices) }
+                "NOTICES $noticeTotal" to { vm.go(Screen.Notices) }
             } else {
                 "MARK ALL READ" to { vm.markAllNoticesRead() }
             },
@@ -384,7 +387,8 @@ private fun Nothing(vm: MailboxViewModel) {
          * do it is how you end up believing the app is broken.
          */
         ActionBar(
-            left = "WRITE" to { vm.go(Screen.Write()) },
+            left = null,
+            leftIcon = Triple(R.drawable.ic_send_white, "Write") { vm.go(Screen.Write()) },
             right = if (busy) null else "CHECK NOW" to { vm.syncNow() },
         )
     }
@@ -615,6 +619,14 @@ fun ActionBar(
     left: Pair<String, () -> Unit>?,
     right: Pair<String, () -> Unit>? = null,
     middle: Pair<String, () -> Unit>? = null,
+    /**
+     * An icon in the left slot instead of a word: drawable, description, action.
+     *
+     * Takes precedence over [left] when both are given. The SDK counts a bar with any
+     * text in it as a three-item bar, so trading a word for a glyph is also what buys
+     * room on the right — WRITE at `button` tracking was the widest thing on the bar.
+     */
+    leftIcon: Triple<Int, String, () -> Unit>? = null,
 ) {
     val g = LocalGrid.current
     val t = LocalType.current
@@ -623,7 +635,17 @@ fun ActionBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        left?.let { (label, f) -> T(label, t.button, modifier = Modifier.lightClickable(onClick = f), maxLines = 1) }
+        if (leftIcon != null) {
+            val (drawable, description, f) = leftIcon
+            androidx.compose.foundation.Image(
+                painter = painterResource(drawable),
+                contentDescription = description,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.size(g.icon).lightClickable(onClick = f),
+            )
+        } else {
+            left?.let { (label, f) -> T(label, t.button, modifier = Modifier.lightClickable(onClick = f), maxLines = 1) }
+        }
         middle?.let { (label, f) -> T(label, t.button, Secondary, Modifier.lightClickable(onClick = f), maxLines = 1) }
         right?.let { (label, f) -> T(label, t.button, Secondary, Modifier.lightClickable(onClick = f), maxLines = 1) }
     }

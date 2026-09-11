@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
@@ -26,7 +25,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.viewinterop.AndroidView
@@ -76,6 +78,15 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
     val body by vm.body.collectAsStateWithLifecycle()
     var showWhy by remember { mutableStateOf(false) }
 
+    /**
+     * The PDF currently being read, if any, as (file, name).
+     *
+     * Held here rather than made a [Screen] because it belongs to this message: leaving
+     * the letter should take the document with it, and a screen in the flat navigation
+     * would outlive the thing it came out of.
+     */
+    var reading by remember(msg.key) { mutableStateOf<Pair<java.io.File, Attachment>?>(null) }
+
     /*
      * `key(msg.key)` throws the whole reader away between messages.
      *
@@ -86,6 +97,25 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
      * can only start once this screen has replaced the last one, and the point is that
      * the list is still on screen, fading, while the letter comes up past it.
      */
+    /*
+     * A document takes over the whole screen while it is open.
+     *
+     * Returned before the reader rather than drawn over it, so the letter underneath is
+     * not composed at all — a WebView left alive behind a forty-page PDF is memory this
+     * device does not have spare. The system back gesture closes the document first,
+     * which is the only thing that makes a screen-within-a-screen safe on LightOS.
+     */
+    reading?.let { (file, att) ->
+        androidx.activity.compose.BackHandler { reading = null }
+        PdfScreen(
+            file = file,
+            name = att.name,
+            onSave = { vm.saveAttachment(msg, att) },
+            onClose = { reading = null },
+        )
+        return
+    }
+
     key(msg.key) {
     Frame {
         /*
@@ -105,21 +135,44 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
          * FileProvider plus the read grant, never a file:// path — that has thrown
          * FileUriExposedException on every Android since 7.
          */
+        /*
+         * A PDF opens here; anything else is handed to whatever opens that kind of file,
+         * and falls back to saving it.
+         *
+         * The old behaviour was ACTION_VIEW for everything, and on a phone with almost no
+         * apps on it that mostly resolved to "Nothing here opens pdf files" — a statement
+         * or a boarding pass arriving on the phone it was sent to and being unreadable on
+         * it. PDFs are the overwhelming majority of what anybody attaches, and Android can
+         * render them with no dependency at all, so they are worth handling ourselves.
+         *
+         * For a .docx there is no such answer, and inventing one is not the job of a mail
+         * client. Offer it to the system, and when nothing takes it, put the file where
+         * the person can reach it from a computer instead of telling them no.
+         */
         val openFile: (Attachment) -> Unit = { att ->
             vm.openAttachment(msg, att) { file ->
-                runCatching {
-                    val uri = FileProvider.getUriForFile(
-                        context, context.packageName + ".files", file,
-                    )
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW)
-                            .setDataAndType(uri, att.mime)
-                            .addFlags(
-                                Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                                    Intent.FLAG_ACTIVITY_NEW_TASK,
-                            ),
-                    )
-                }.onFailure { vm.said("Nothing here opens ${att.name.substringAfterLast('.')} files.") }
+                val isPdf = att.mime.equals("application/pdf", true) ||
+                    att.name.endsWith(".pdf", true)
+                if (isPdf) {
+                    reading = file to att
+                } else {
+                    runCatching {
+                        val uri = FileProvider.getUriForFile(
+                            context, context.packageName + ".files", file,
+                        )
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW)
+                                .setDataAndType(uri, att.mime)
+                                .addFlags(
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                        Intent.FLAG_ACTIVITY_NEW_TASK,
+                                ),
+                        )
+                    }.onFailure {
+                        vm.said("Nothing here opens that. Saving it instead…")
+                        vm.saveAttachment(msg, att)
+                    }
+                }
             }
         }
 
@@ -153,23 +206,52 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             }
         } else {
             val scroll = rememberScrollState()
+            /*
+             * Pull down to go home, WITHOUT eating the scroll.
+             *
+             * This was a `pointerInput { detectVerticalDragGestures { … } }` on the same
+             * element, and it broke reading entirely: that detector waits for vertical
+             * slop and then owns the gesture, and it sits inside the scrolling modifier,
+             * so it saw every drag first. The text could not be scrolled at all, and any
+             * downward drag — which is how you scroll UP — left the message. The guard
+             * inside it was right and never got the chance to matter.
+             *
+             * A nested-scroll connection is the correct tool because of what it is
+             * handed: `onPostScroll` only ever receives what the scroller could NOT
+             * consume. At the top of a message that is the whole downward drag; anywhere
+             * else it is zero. So the gesture cannot compete with scrolling by
+             * construction rather than by a condition.
+             *
+             * The leftover is accumulated rather than tested per event, since one drag
+             * arrives as a stream of small deltas and any single one of them is under any
+             * sane threshold.
+             */
+            var overscroll by remember(msg.key) { mutableStateOf(0f) }
+            val pull = remember(msg.key) {
+                object : NestedScrollConnection {
+                    override fun onPostScroll(
+                        consumed: Offset,
+                        available: Offset,
+                        source: NestedScrollSource,
+                    ): Offset {
+                        if (available.y > 0f) {
+                            overscroll += available.y
+                            if (overscroll > 140f) {
+                                overscroll = 0f
+                                vm.go(Screen.Home)
+                            }
+                        } else if (available.y < 0f) {
+                            overscroll = 0f
+                        }
+                        return Offset.Zero
+                    }
+                }
+            }
             Column(
                 Modifier
                     .weight(1f)
-                    .verticalScroll(scroll)
-                    /*
-                     * The same pull as the formatted view, where it is far easier: a
-                     * Compose scroll state says outright whether it is at the top, and
-                     * there is no WebView vetoing the parent's interest in the gesture.
-                     */
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures { change, dragAmount ->
-                            if (scroll.value == 0 && dragAmount > 14f) {
-                                change.consume()
-                                vm.go(Screen.Home)
-                            }
-                        }
-                    },
+                    .nestedScroll(pull)
+                    .verticalScroll(scroll),
             ) {
                 Spacer(Modifier.height(g * 1.4f))
                 Masthead(vm, msg)
@@ -549,7 +631,21 @@ private fun document(
     val gutter = 36
     val room = (viewDp - gutter).coerceAtLeast(240)
     val declared = declaredWidth(html)
-    val zoom = declared?.takeIf { it > room }?.let { (room.toFloat() / it).coerceAtLeast(0.55f) }
+    /*
+     * Three per cent of slack.
+     *
+     * The declared width is what the message says its grid is, not what it measures. A
+     * cell padding, a border, a nested table with a margin — any of them puts the real
+     * content a few pixels past the number, and at exactly 1.0 those few pixels are the
+     * sliver still clipped off the right edge. Nothing can measure the true width without
+     * JavaScript, so the honest move is to assume the declaration is slightly optimistic.
+     *
+     * Three per cent is under half a percent of a line of text at this size — invisible —
+     * and covers the ordinary case of a 600 px grid whose outer table actually renders at
+     * 616.
+     */
+    val zoom = declared?.takeIf { it > room }
+        ?.let { (room.toFloat() / it * 0.97f).coerceAtLeast(0.55f) }
     /*
      * Locale.US, and it is not a nicety. The default locale formats a decimal with a
      * comma in most of Europe, and `zoom:0,5900` is not a number CSS will parse — the
@@ -594,6 +690,23 @@ private fun document(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
+  /*
+   * The page's own geometry, pinned.
+   *
+   * An email arrives with its <style> block intact and that block lands in OUR document,
+   * so a sender who writes `body { width: 640px }` or `body { margin: 24px }` — and bulk
+   * senders write exactly that, because in a real mail client the body IS their message —
+   * resizes the whole page including our sheet. That was the last of the right-edge
+   * cropping: not the content overflowing its box, but the box itself being made wider
+   * than the screen by the message's own stylesheet.
+   *
+   * !important is what makes it stick: these have to beat a rule in a stylesheet that
+   * appears later in the document than this one does.
+   */
+  html, body {
+    margin: 0 !important; padding: 0 !important;
+    width: auto !important; min-width: 0 !important; max-width: none !important;
+  }
   img { max-width: 100%; height: auto; }
   pre, code { white-space: pre-wrap; word-break: break-word; }
   td, th, p, div, a { word-break: break-word; overflow-wrap: anywhere; }

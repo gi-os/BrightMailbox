@@ -60,6 +60,19 @@ data class Msg(
      */
     @ColumnInfo(defaultValue = "0") val rationDay: Int = 0,
     /**
+     * The day this message was read, by anyone, anywhere. yyyymmdd.
+     *
+     * Split from [rationDay] in v2.18, and the split is the whole point: a message read on
+     * a laptop should go grey here and leave tomorrow, exactly like one read on the phone,
+     * but it must NOT spend one of the day's five. Charging the ration for mail read
+     * somewhere else would let a morning at a desktop mailbox close the phone's day before
+     * it started — the app would be "five of five" every time it was opened, which is the
+     * opposite of what a ration is for.
+     *
+     * So: reading here stamps both. Reading elsewhere stamps only this one.
+     */
+    @ColumnInfo(defaultValue = "0") val readDay: Int = 0,
+    /**
      * Held by hand.
      *
      * The one thing in the app that overrides every rule about what is shown: a starred
@@ -140,7 +153,7 @@ interface MailDao {
         """
         SELECT * FROM messages
         WHERE pile = 'LETTER' AND NOT archived
-          AND (NOT readHere OR starred OR rationDay = :day)
+          AND (NOT readHere OR starred OR readDay = :day)
         ORDER BY receivedAt DESC
         """,
     )
@@ -159,6 +172,17 @@ interface MailDao {
     fun unreadNotices(): Flow<Int>
 
     /**
+     * How many notices there actually are.
+     *
+     * The screens were counting `notices().size`, and that query has `LIMIT 300` on it —
+     * so a mailbox with more than three hundred notices reported exactly "300", forever,
+     * no matter how many arrived or were cleared. A count has to be counted; it cannot be
+     * the length of a page of results.
+     */
+    @Query("SELECT COUNT(*) FROM messages WHERE pile = 'NOTICE' AND NOT archived")
+    fun noticeTotal(): Flow<Int>
+
+    /**
      * The same rows as a one-shot list.
      *
      * Needed because "mark all read" has to tell the SERVER which ids to mark, and a
@@ -175,7 +199,10 @@ interface MailDao {
     @Query("SELECT COUNT(*) FROM messages WHERE pile = 'LETTER' AND rationDay = :day")
     suspend fun readToday(day: Int): Int
 
-    @Query("UPDATE messages SET readHere = 1, unread = 0, rationDay = :day WHERE key = :key")
+    @Query(
+        "UPDATE messages SET readHere = 1, unread = 0, rationDay = :day, readDay = :day " +
+            "WHERE key = :key",
+    )
     suspend fun markRead(key: String, day: Int)
 
     @Query("UPDATE messages SET archived = 1 WHERE key = :key")
@@ -194,9 +221,19 @@ interface MailDao {
     @Query("UPDATE messages SET archived = 1 WHERE key IN (:keys)")
     suspend fun archiveAll(keys: List<String>)
 
-    /** The server's read state won. */
-    @Query("UPDATE messages SET unread = 0 WHERE key IN (:keys)")
-    suspend fun markSeen(keys: List<String>)
+    /**
+     * The server's read state won — it was read somewhere else.
+     *
+     * Sets `readHere` despite the name, because the name is now wrong: what it really
+     * means is "the user has read this", and they have, on another device. Without it a
+     * message read on a laptop stayed white and bold here forever, which made the one
+     * question the list is meant to answer — what have I not read — wrong on every
+     * account anybody also opens elsewhere.
+     *
+     * `rationDay` is deliberately untouched. See [Msg.readDay].
+     */
+    @Query("UPDATE messages SET unread = 0, readHere = 1, readDay = :day WHERE key IN (:keys)")
+    suspend fun markSeen(keys: List<String>, day: Int)
 
     /*
      * ARCHIVE ALL means all of them except the ones held by hand.
@@ -273,7 +310,7 @@ interface MailDao {
 
 @Database(
     entities = [Msg::class, SenderRule::class, Correspondent::class, Draft::class],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class MailDb : RoomDatabase() {
@@ -292,6 +329,21 @@ abstract class MailDb : RoomDatabase() {
         val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /**
+         * v2 → v3: `readDay`, split out of `rationDay`.
+         *
+         * Backfilled from `rationDay` rather than left at zero. Without the copy, every
+         * letter already read today would fall out of the Letters query the moment the
+         * app updated — the upgrade itself would look like the day's mail had been
+         * deleted.
+         */
+        val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN readDay INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE messages SET readDay = rationDay WHERE readHere != 0")
             }
         }
     }

@@ -91,7 +91,7 @@ class Repo private constructor(private val app: Context) {
         .build()
 
     private val db = Room.databaseBuilder(app, MailDb::class.java, "mailbox.db")
-        .addMigrations(MailDb.MIGRATION_1_2)
+        .addMigrations(MailDb.MIGRATION_1_2, MailDb.MIGRATION_2_3)
         .fallbackToDestructiveMigration()
         .build()
 
@@ -185,6 +185,7 @@ class Repo private constructor(private val app: Context) {
     fun letters(day: Int = today()): Flow<List<Msg>> = dao.letters(day)
     fun notices(): Flow<List<Msg>> = dao.notices()
     fun unreadNotices(): Flow<Int> = dao.unreadNotices()
+    fun noticeTotal(): Flow<Int> = dao.noticeTotal()
     fun waitingLetters(): Flow<Int> = dao.waitingLetters()
     fun rules(): Flow<List<SenderRule>> = dao.rules()
 
@@ -300,10 +301,18 @@ class Repo private constructor(private val app: Context) {
                     val states = svc.states(live.map { it.providerId })
                     val gone = live.filter { it.providerId !in states }.map { it.key }
                     if (gone.isNotEmpty()) dao.archiveAll(gone)
+                    /*
+                     * Read on another device, so read here.
+                     *
+                     * `m.unread` is the wrong test on its own — it only asks what the
+                     * server said last time. `!m.readHere` is what decides whether the
+                     * row still draws as unread, so both have to be considered or a
+                     * message marked seen by an earlier sync never picks up the grey.
+                     */
                     val readElsewhere = live.filter { m ->
-                        m.unread && states[m.providerId] == false
+                        (m.unread || !m.readHere) && states[m.providerId] == false
                     }.map { it.key }
-                    if (readElsewhere.isNotEmpty()) dao.markSeen(readElsewhere)
+                    if (readElsewhere.isNotEmpty()) dao.markSeen(readElsewhere, today())
                 }
             }
         }
@@ -574,6 +583,51 @@ class Repo private constructor(private val app: Context) {
         val bytes = runCatching { svc.attachment(msg.providerId, att.part) }.getOrNull()
             ?: return@withContext null
         runCatching { out.writeBytes(bytes); out }.getOrNull()
+    }
+
+    /**
+     * Copy an attachment into the phone's Downloads folder, to keep.
+     *
+     * The cached copy under [attachmentFile] is deliberately disposable — it lives in
+     * cacheDir and goes when the app does, because a cache of other people's mail should
+     * not quietly become permanent storage. This is the opposite intent, stated by the
+     * user, so it goes somewhere they can find it from any other app.
+     *
+     * MediaStore rather than a path. Since Android 10 an app cannot simply write into
+     * shared storage, but it can hand a file to the Downloads collection and the system
+     * files it — with no permission at all, which is why there is no runtime prompt here.
+     *
+     * `IS_PENDING` brackets the write so nothing else can see a half-copied file.
+     *
+     * @return the display name it was saved as, or null if it could not be written.
+     */
+    suspend fun saveToDownloads(msg: Msg, att: Attachment): String? = withContext(Dispatchers.IO) {
+        val source = attachmentFile(msg, att) ?: return@withContext null
+        val name = safeName(att.name)
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name)
+            put(android.provider.MediaStore.Downloads.MIME_TYPE, att.mime.ifBlank { "application/octet-stream" })
+            put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val resolver = app.contentResolver
+        val uri = runCatching {
+            resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        }.getOrNull() ?: return@withContext null
+
+        val ok = runCatching {
+            resolver.openOutputStream(uri)!!.use { out -> source.inputStream().use { it.copyTo(out) } }
+        }.isSuccess
+
+        if (!ok) {
+            runCatching { resolver.delete(uri, null, null) }
+            return@withContext null
+        }
+        runCatching {
+            values.clear()
+            values.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+        }
+        name
     }
 
     /** A filename a filesystem will accept, keeping the extension so the mime survives. */

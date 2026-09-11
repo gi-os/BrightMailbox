@@ -1,3 +1,33 @@
+## v2.18 — Plain text scrolls again, PDFs open, and counts tell the truth
+
+**Fixed: plain text could not be scrolled.** The pull-down-to-go-home gesture was taking
+every vertical drag before the text could have it, so the message never moved and dragging
+down — which is how you scroll up — left the message instead. It now only ever sees the
+part of a drag the text could not use, which at the top of a message is all of it and
+anywhere else is none of it. Reported by Bhughes, and it had made plain text unreadable.
+
+**PDFs open in the app.** Attachments used to be handed to whatever else was installed,
+and on a Light Phone that is usually nothing — so a statement or a boarding pass arrived on
+the phone it was sent to and could not be read on it. Pages render one at a time as you
+reach them, so a long document does not have to be held in memory all at once.
+
+**Any attachment can be saved to the phone**, into Downloads, where a computer can reach
+it. Anything the phone cannot open is offered there instead of refused.
+
+**Read one on a laptop and it is read here.** A message read in another mail client now
+goes grey in Mailbox on the next sync, exactly as if you had read it here — but it does
+*not* spend one of the day's five. A morning at a desktop mailbox should not close the
+phone's day before it starts.
+
+**The notices count is the real number.** It said 300 no matter what, because it was
+measuring the length of a list that stops at 300 rows rather than counting.
+
+**Addresses that refuse replies go to Notices**, wherever the no-reply sits — the middle of
+the address, spelled with an underscore, or in the domain with a friendly name in front of
+it. All three were landing in Letters.
+
+**Small:** WRITE is a send icon now. A message's own stylesheet can no longer resize the
+page around it, which was the last of the cropping on the right edge.
 ## v2.17 — Outlook works out of the box
 
 **Tap ADD OUTLOOK, sign in, done.** Until now that button was grey on every release ever

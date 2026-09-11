@@ -1,3 +1,16 @@
+## v2.9 — Newest first
+
+Letters are in time order now, newest at the top. Notices always were.
+
+They were ranked by the learned model — a coarse score bucket, with time only breaking
+ties inside it — so a letter from this morning could sit below one from Tuesday because
+the model liked it more, and nothing on screen said why. A reader cannot see a score, so
+a score should not be an order they are asked to make sense of.
+
+The ranking is not gone. On a five-a-day ration it still chooses *which* five letters are
+today's, because picking the five worth reading is the point of the ration. Those five are
+then shown newest first. On Unlimited the ranking does nothing at all and never did, which
+is where the shuffled look was worst.
 ## v2.8 — Attachments, and a setup screen you can reach the bottom of
 
 **Fixed: ADD OUTLOOK could not be reached.** The title and the paragraph above it filled a

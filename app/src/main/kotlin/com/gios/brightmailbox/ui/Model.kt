@@ -152,8 +152,27 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * tomorrow's, and the count of what waits is shown. The list is already ranked by
      * the DAO, so this only takes the top of it.
      */
-    fun visibleLetters(all: List<Msg>): List<Msg> =
-        if (repo.ration == Ration.UNLIMITED) all else all.take(_allowed.value)
+    fun visibleLetters(all: List<Msg>): List<Msg> {
+        if (repo.ration == Ration.UNLIMITED) return all
+        /*
+         * Score picks, time orders.
+         *
+         * [all] arrives newest first. The ration is meant to hand back the letters worth
+         * reading rather than merely the most recent, so the model still chooses WHICH
+         * ones — but the five it chooses are then put back in time order, because a list
+         * of five sorted by an invisible number is a list that looks shuffled.
+         *
+         * A coarse bucket, not the raw double: scores drift by thousandths on every sync
+         * and sorting on the exact value would reshuffle the day's five for no visible
+         * reason.
+         */
+        return all.sortedWith(
+            compareByDescending<Msg> { (it.score * 20).toInt() }
+                .thenByDescending { it.receivedAt },
+        )
+            .take(_allowed.value)
+            .sortedByDescending { it.receivedAt }
+    }
 
     val dayDone: Boolean
         get() = repo.ration == Ration.FIVE && _allowed.value == 0

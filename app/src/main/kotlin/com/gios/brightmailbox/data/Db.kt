@@ -95,17 +95,24 @@ interface MailDao {
     suspend fun get(key: String): Msg?
 
     /**
-     * Today's Letters, ranked.
+     * Today's Letters, newest first.
      *
-     * Ordered by a COARSE score bucket then recency. Sorting on the raw double would
-     * reshuffle the list every sync as scores drift by thousandths, and a mailbox that
-     * reorders itself for no visible reason reads as broken.
+     * **Score decides which letters are today's; time decides the order they are shown
+     * in.** This query used to rank by a coarse score bucket and use recency only to
+     * break ties inside it, which meant a mailbox that read as shuffled: a letter from
+     * this morning could sit below one from Tuesday because the model liked it more, and
+     * nothing on screen explained why. A reader cannot see a score, so a score cannot be
+     * an ordering they are asked to understand.
+     *
+     * The ranking is not gone — it moved to [MailboxViewModel.visibleLetters], which is
+     * where the ration picks the five worth reading. That picking is invisible and always
+     * was; the *order* is not.
      */
     @Query(
         """
         SELECT * FROM messages
         WHERE pile = 'LETTER' AND NOT archived AND NOT readHere
-        ORDER BY CAST(score * 20 AS INTEGER) DESC, receivedAt DESC
+        ORDER BY receivedAt DESC
         """,
     )
     fun letters(): Flow<List<Msg>>

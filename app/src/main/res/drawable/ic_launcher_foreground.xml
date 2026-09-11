@@ -1,10 +1,35 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <!-- An envelope flap, drawn on the 27-unit grid the rest of the app uses. -->
-    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.2"
-        android:fillColor="#00000000"
-        android:pathData="M32,42 L76,42 L76,68 L32,68 Z" />
-    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.2"
-        android:fillColor="#00000000" android:pathData="M32,42 L54,58 L76,42" />
+
+    <!--
+      An envelope with the mailbox flag up beside it.
+
+      Everything sits inside the adaptive-icon safe circle — radius 36 about (54,54) —
+      because a launcher is free to mask this to a circle and a flag tip outside it is a
+      flag tip the phone crops off. The furthest point is the flag at (86,46), which is
+      1088 from centre against the 1296 the circle allows.
+
+      Strokes, not fills, at 3.6 — the weight the light-sdk icons use, and the reason a
+      hand-drawn icon beside them always looks wrong. Pure white on the black background
+      layer: LightOS has three colours and an app icon does not get a fourth.
+    -->
+
+    <!-- Envelope body -->
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.6"
+        android:fillColor="#00000000" android:strokeLineJoin="round"
+        android:pathData="M24,42 L64,42 L64,70 L24,70 Z" />
+    <!-- Flap -->
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.6"
+        android:fillColor="#00000000" android:strokeLineJoin="round"
+        android:strokeLineCap="round"
+        android:pathData="M24,42 L44,57 L64,42" />
+
+    <!-- Flag post -->
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.6"
+        android:fillColor="#00000000" android:strokeLineCap="round"
+        android:pathData="M76,72 L76,42" />
+    <!-- Flag, up: there is mail -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M76,42 L86,46 L76,50 Z" />
 </vector>

@@ -1,3 +1,31 @@
+## v2.6 — Say when the mail did not arrive
+
+**A failed check used to look exactly like an empty inbox.** Every per-account error was
+swallowed, and the clock was stamped anyway — so Settings said "last checked a minute
+ago", the refresh button looked like it worked, and no mail appeared. That is the first
+field report this app got, and the bug was not the fetching. It was that nobody could see
+the fetching fail.
+
+Now: the reason is kept, shown in Settings under SYNC, and carried in a shake report.
+Refresh says what it did — "3 new", "Nothing new", or what went wrong. And the clock is
+only stamped when a mailbox was actually reached.
+
+This does not by itself fix a mailbox that will not sync. It makes the next report say
+why, which is the thing that was missing.
+
+**No more white flash when a message opens.** The view painted a white rectangle a frame
+or two before the page had anything in it. It is transparent now, and the message brings
+its own white when it is ready.
+
+**The sender and subject scroll with the message.** They were pinned above it and the mail
+slid underneath — they are drawn into the page itself now, the way every other mail
+client does it, with inline styles so a sender's own CSS cannot restyle them.
+
+**"today" is no longer cut off** in the home header. The count sat in a fixed-width box
+that was never wide enough for the word; the LETTERS label gives way instead.
+
+**A new icon** — an envelope with the mailbox flag up beside it, drawn inside the
+adaptive-icon safe circle so a round launcher mask cannot crop the flag.
 ## v2.5 — Mail looks like mail
 
 Messages render as their sender built them. Until now the app flattened every message to

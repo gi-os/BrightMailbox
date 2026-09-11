@@ -43,6 +43,10 @@ class MailboxApp : Application() {
                 val since = System.currentTimeMillis() - repo.lastSync
                 appendLine("last sync: " + if (repo.lastSync == 0L) "never"
                     else TimeUnit.MILLISECONDS.toMinutes(since).toString() + " min ago")
+                // The one line that made the first field report diagnosable. Never an
+                // address or a subject — see above — but the IMAP server's own complaint
+                // is about the connection, not about anyone's mail.
+                repo.lastError?.let { appendLine("last sync error: " + it.take(300)) }
                 appendLine("ration: " + repo.ration.key)
                 appendLine("remote images: " + if (repo.showImages) "on" else "off")
                 appendLine("chime: " + repo.chime.key)

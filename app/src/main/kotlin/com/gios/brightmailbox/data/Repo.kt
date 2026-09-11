@@ -119,6 +119,16 @@ class Repo private constructor(private val app: Context) {
         get() = prefs.getLong("last_sync", 0L)
         private set(v) = prefs.edit().putLong("last_sync", v).apply()
 
+    /**
+     * Why the last check did not work, or null if it did.
+     *
+     * Persisted rather than held in memory: the sync that fails is usually the background
+     * one, hours before anybody opens the app to wonder why there is no mail.
+     */
+    var lastError: String?
+        get() = prefs.getString("last_error", null)
+        private set(v) = prefs.edit().putString("last_error", v).apply()
+
     /** Letters read past the ration today, unlocked one at a time by a wheel hold. */
     var extraToday: Int
         get() = if (prefs.getInt("extra_day", 0) == today()) prefs.getInt("extra_n", 0) else 0
@@ -157,7 +167,13 @@ class Repo private constructor(private val app: Context) {
     private fun myAddresses(): Set<String> =
         auth.accounts().map { it.email.lowercase() }.toSet()
 
-    data class SyncResult(val fetched: Int, val newLetters: Int, val firstLetter: Msg?)
+    data class SyncResult(
+        val fetched: Int,
+        val newLetters: Int,
+        val firstLetter: Msg?,
+        /** One sentence per account that could not be read. Empty when all is well. */
+        val failures: List<String> = emptyList(),
+    )
 
     /**
      * Pull new mail and sort it.
@@ -174,11 +190,32 @@ class Repo private constructor(private val app: Context) {
         var fetched = 0
         var newLetters = 0
         var first: Msg? = null
+        var worked = 0
+        val failures = ArrayList<String>()
 
         for (account in auth.accounts()) {
-            val svc = serviceFor(account.id) ?: continue
+            val svc = serviceFor(account.id)
+            if (svc == null) {
+                failures.add("${account.word}: not signed in")
+                continue
+            }
             val newest = dao.newestFor(account.id) ?: 0L
-            val (messages, _) = runCatching { svc.list(limit, null) }.getOrNull() ?: continue
+
+            /*
+             * Every failure here used to be swallowed — `runCatching{}.getOrNull() ?: continue`
+             * — and `lastSync` was stamped afterwards regardless. An account that could not
+             * connect was therefore indistinguishable from an inbox with nothing new: the
+             * refresh appeared to work, Settings said "last checked just now", and no mail
+             * arrived. That is the shape of the first field report this app got, and the
+             * bug was not the fetch, it was that nobody could see the fetch failing.
+             */
+            val messages = try {
+                svc.list(limit, null).first
+            } catch (e: Exception) {
+                failures.add("${account.word}: ${reason(e)}")
+                continue
+            }
+            worked++
 
             val rows = ArrayList<Msg>(messages.size)
             for (m in messages) {
@@ -194,8 +231,38 @@ class Repo private constructor(private val app: Context) {
             }
             if (rows.isNotEmpty()) dao.put(rows)
         }
-        lastSync = System.currentTimeMillis()
-        SyncResult(fetched, newLetters, first)
+
+        // Only a check that actually reached a mailbox counts as a check. Stamping the
+        // clock on a total failure is what let "last checked a minute ago" sit above an
+        // inbox that had not been read in a day.
+        if (worked > 0) lastSync = System.currentTimeMillis()
+        lastError = failures.joinToString("; ").ifBlank { null }
+        SyncResult(fetched, newLetters, first, failures)
+    }
+
+    /**
+     * An IMAP failure in words a person can act on.
+     *
+     * The raw text is kept on the end whatever happens: it is what a shake report carries
+     * back, and a sentence that has been tidied into uselessness cannot be diagnosed.
+     */
+    private fun reason(e: Exception): String {
+        val raw = (e.message ?: e.javaClass.simpleName).replace('\n', ' ').take(160)
+        val lower = raw.lowercase()
+        return when {
+            e is com.gios.brightmailbox.auth.ReauthRequired ->
+                "sign in again"
+            lower.contains("authenticationfailed") || lower.contains("invalid credentials") ||
+                lower.contains("[authenticationfailed]") ->
+                "the password was refused — $raw"
+            lower.contains("too many simultaneous") || lower.contains("exceeded the rate") ||
+                lower.contains("limit exceeded") ->
+                "the server is rate-limiting this account — $raw"
+            lower.contains("unable to resolve host") || lower.contains("timed out") ||
+                lower.contains("timeout") || lower.contains("econnrefused") ->
+                "could not reach the server — $raw"
+            else -> raw
+        }
     }
 
     /**

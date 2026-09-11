@@ -6,7 +6,6 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,7 +23,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.viewinterop.AndroidView
@@ -87,20 +85,23 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
         val formatted = !plainText && !html.isNullOrBlank()
 
         /*
-         * The masthead does not scroll when the message is formatted.
+         * The masthead is part of the document, not a bar above it.
          *
-         * A WebView brings its own scrolling, and nesting that inside a scrollable Column
-         * gives a page where neither container knows who should move. So a formatted
-         * message is a fixed masthead with the sender's own page scrolling underneath it —
-         * which is also how it reads: a sheet of their paper on our ground. Plain text
-         * keeps the original single scroll, masthead and all, because that is the
-         * page-of-a-book layout the app was built around and it should not change.
+         * It was fixed above the WebView, because a WebView brings its own scrolling and
+         * nesting that in a scrollable Column gives a page where neither container knows
+         * who should move. That worked and read wrong: the sender and subject sat there
+         * anchored while the message slid under them. Rendering them *into* the page
+         * instead solves both — one scroller, and the header goes away with the content
+         * like it does in any other mail client.
          */
         if (formatted) {
-            Spacer(Modifier.height(g * 1.4f))
-            Masthead(vm, msg)
-            Spacer(Modifier.height(g * 1.2f))
-            HtmlBody(html.orEmpty(), vm.repo.showImages, Modifier.weight(1f)) { url ->
+            HtmlBody(
+                html = html.orEmpty(),
+                msg = msg,
+                account = accountWord(msg.accountId),
+                images = vm.repo.showImages,
+                modifier = Modifier.weight(1f),
+            ) { url ->
                 runCatching {
                     context.startActivity(
                         Intent(Intent.ACTION_VIEW, Uri.parse(url))
@@ -108,7 +109,6 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                     )
                 }.onFailure { vm.said("No browser here to open that.") }
             }
-            Spacer(Modifier.height(g * 0.6f))
         } else {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 Spacer(Modifier.height(g * 1.4f))
@@ -190,14 +190,22 @@ private fun Masthead(vm: MailboxViewModel, msg: Msg) {
 @Composable
 private fun HtmlBody(
     html: String,
+    msg: Msg,
+    account: String,
     images: Boolean,
     modifier: Modifier = Modifier,
     onLink: (String) -> Unit,
 ) {
+    val document = remember(html, msg.key, account) { document(html, msg, account) }
     AndroidView(
-        modifier = modifier.fillMaxWidth().background(Color.White),
+        // No background here, and the view itself is transparent below. Painting white
+        // under the WebView is what made opening a message flash: the rectangle was
+        // drawn a frame or two before the page had anything in it. The document brings
+        // its own white when it is ready, and until then the app's black shows through.
+        modifier = modifier.fillMaxWidth(),
         factory = { ctx ->
             WebView(ctx).apply {
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 settings.javaScriptEnabled = false
                 settings.domStorageEnabled = false
                 settings.allowFileAccess = false
@@ -210,7 +218,6 @@ private fun HtmlBody(
                 settings.loadWithOverviewMode = true
                 settings.builtInZoomControls = true
                 settings.displayZoomControls = false
-                setBackgroundColor(android.graphics.Color.WHITE)
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(
                         view: WebView,
@@ -224,8 +231,45 @@ private fun HtmlBody(
                 }
             }
         },
-        update = { it.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null) },
+        update = { it.loadDataWithBaseURL(null, document, "text/html", "UTF-8", null) },
     )
+}
+
+/**
+ * The sender's HTML with our masthead rendered into the top of it.
+ *
+ * Everything we add is **inline-styled**. An email brings its own `<style>` block, and a
+ * sender who writes `h1 { color: #fff }` or `body { font-family: … }` would otherwise
+ * restyle our header along with their own message. Inline declarations beat a stylesheet
+ * rule at every specificity short of `!important`, which no bulk sender emits for a
+ * selector this generic.
+ *
+ * The email's own markup goes in last and untouched — including its `<html>` and `<body>`
+ * tags if it has them, which every browser drops when it finds them mid-document. That is
+ * the same leniency every other mail client relies on, and it is safer than trying to cut
+ * them out with a regular expression.
+ */
+private fun document(html: String, msg: Msg, account: String): String {
+    fun esc(s: String) = s
+        .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        .replace("\"", "&quot;")
+
+    val sender = esc(msg.senderName.ifBlank { msg.sender })
+    val subject = esc(msg.subject.ifBlank { "(no subject)" })
+    val stamp = esc(longStamp(msg.receivedAt) + " · " + account)
+
+    return """<!doctype html><html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+</head><body style="margin:0;background:#fff;-webkit-text-size-adjust:100%">
+<div style="padding:22px 20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#000">
+  <div style="font-size:25px;line-height:1.2;font-weight:400;color:#000">$sender</div>
+  <div style="font-size:13px;line-height:1.5;color:#777;margin-top:5px">$stamp</div>
+  <div style="font-size:17px;line-height:1.35;color:#000;margin-top:14px">$subject</div>
+</div>
+<div style="height:1px;background:#e2e2e2;margin:20px 20px 0"></div>
+$html
+</body></html>"""
 }
 
 /**

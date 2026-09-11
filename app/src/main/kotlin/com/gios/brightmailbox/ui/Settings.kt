@@ -198,7 +198,18 @@ fun SettingsScreen(vm: MailboxViewModel) {
             T("SENDER RULES", t.button, modifier = Modifier.lightClickable { vm.go(Screen.Rules) })
 
             Section("SYNC")
-            T("Last checked ${clock(vm.repo.lastSync)}.", t.detail, Secondary)
+            T(
+                if (vm.repo.lastSync == 0L) "Not checked yet."
+                else "Last checked ${clock(vm.repo.lastSync)}.",
+                t.detail,
+                Secondary,
+            )
+            // White, not Secondary: this is the line that answers "why is there no mail",
+            // and it has to be the thing the eye lands on rather than more grey.
+            vm.repo.lastError?.let {
+                Spacer(Modifier.height(g * 0.4f))
+                T("Last check failed — $it", t.detail)
+            }
             Spacer(Modifier.height(g * 0.6f))
             T("CHECK NOW", t.button, modifier = Modifier.lightClickable { vm.syncNow() })
 

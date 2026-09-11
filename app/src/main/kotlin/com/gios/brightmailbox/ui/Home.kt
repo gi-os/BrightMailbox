@@ -1,7 +1,6 @@
 package com.gios.brightmailbox.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -78,17 +77,30 @@ fun HomeScreen(vm: MailboxViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            T("LETTERS", t.subheading, maxLines = 1)
+            /*
+             * LETTERS yields, the count does not.
+             *
+             * The count used to sit in a fixed five-unit Box so that switching to
+             * Unlimited could not reflow the header. Five units is not enough for
+             * "12 today" and the word was clipped at every ration — a fixed width is only
+             * safe when you know the widest string, and "today" made that false. The
+             * label gives way instead, which it can: LETTERS is the one word here that
+             * the screen does not need to finish reading.
+             */
+            T(
+                "LETTERS",
+                t.subheading,
+                maxLines = 1,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(g * 0.5f))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Fixed-width box so switching to Unlimited cannot reflow the header.
-                Box(Modifier.width(g * 5f), contentAlignment = Alignment.CenterEnd) {
-                    if (unlimited) {
-                        T("${all.size} today", t.copy, Secondary, maxLines = 1)
-                    } else {
-                        Row {
-                            T("${visible.size}", t.copy)
-                            T(" of ${Ration.FIVE.perDay}", t.copy, Secondary)
-                        }
+                if (unlimited) {
+                    T("${all.size} today", t.copy, Secondary, maxLines = 1)
+                } else {
+                    Row {
+                        T("${visible.size}", t.copy, maxLines = 1)
+                        T(" of ${Ration.FIVE.perDay}", t.copy, Secondary, maxLines = 1)
                     }
                 }
                 Spacer(Modifier.width(g * 0.8f))

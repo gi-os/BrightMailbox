@@ -273,10 +273,25 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         prefetch()
     }
 
+    /**
+     * Check now, and say what happened.
+     *
+     * Both outcomes are reported. A refresh that finds nothing says so, because the
+     * complaint that prompted this was "it isn't populating even after refreshing" — and
+     * a button that looks identical whether it worked, found nothing, or failed to
+     * connect is a button you press again rather than a fact you can act on.
+     */
     fun syncNow() = viewModelScope.launch {
         if (_busy.value) return@launch
         _busy.value = true
         runCatching { repo.sync(limit = 30) }
+            .onSuccess { r ->
+                when {
+                    r.failures.isNotEmpty() -> said(r.failures.first())
+                    r.fetched > 0 -> said("${r.fetched} new.")
+                    else -> said("Nothing new.")
+                }
+            }
             .onFailure { said("Couldn't reach the server.") }
         _busy.value = false
         refreshRation()

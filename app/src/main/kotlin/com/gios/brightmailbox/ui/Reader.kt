@@ -5,11 +5,6 @@ import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,7 +18,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,28 +77,16 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
     var showWhy by remember { mutableStateOf(false) }
 
     /*
-     * The message slides up from the bottom of a black screen.
+     * `key(msg.key)` throws the whole reader away between messages.
      *
-     * Two problems, one animation. The reader used to swap in instantly, and because the
-     * WebView is reused across messages you could see the PREVIOUS email for a frame or
-     * two before the new one painted. And a hard cut from a list to a page is the kind of
-     * thing this phone should not do.
+     * The WebView is reused otherwise, so a frame of the PREVIOUS email was visible
+     * before the new one painted. A fresh view cannot show the last message.
      *
-     * `key(msg.key)` throws the whole reader away between messages, so there are no stale
-     * pixels to see — a fresh WebView cannot show the last message. The slide then covers
-     * the fetch, over the app's own black rather than over the list.
+     * The slide itself lives in MainActivity, not here: an animation inside this screen
+     * can only start once this screen has replaced the last one, and the point is that
+     * the list is still on screen, fading, while the letter comes up past it.
      */
     key(msg.key) {
-    var shown by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { shown = true }
-
-    AnimatedVisibility(
-        visible = shown,
-        enter = slideInVertically(
-            initialOffsetY = { it },
-            animationSpec = tween(durationMillis = 260),
-        ) + fadeIn(animationSpec = tween(durationMillis = 160)),
-    ) {
     Frame {
         /*
          * No top bar at all. The message is the screen.
@@ -266,7 +248,6 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
         }
     }
     }
-    }
 }
 
 /** One bar verb. Sized to the SDK's bar-icon unit so it matches every other bar. */
@@ -334,15 +315,18 @@ private fun HtmlBody(
      * means "there are real pixels now", so the view is held at zero opacity until then
      * and crossfades from the black rather than snapping.
      */
+    /*
+     * Hard switch, not a fade.
+     *
+     * The letter is either not there or fully there — it must never fade in, because it
+     * arrives by sliding up and a slide that also changes opacity reads as two different
+     * animations arguing. Zero until the page has actually painted, so what slides up is
+     * a rendered letter rather than an empty sheet that fills in afterwards.
+     */
     var painted by remember(msg.key) { mutableStateOf(false) }
-    val fade by animateFloatAsState(
-        targetValue = if (painted) 1f else 0f,
-        animationSpec = tween(durationMillis = 180),
-        label = "message",
-    )
 
     AndroidView(
-        modifier = modifier.fillMaxWidth().alpha(fade),
+        modifier = modifier.fillMaxWidth().alpha(if (painted) 1f else 0f),
         factory = { ctx ->
             val web = WebView(ctx).apply {
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -475,10 +459,31 @@ private fun document(
      * message grey instead of leaving the app's black showing. Inline on both elements
      * beats a stylesheet rule at every specificity short of !important.
      */
-    return """<!doctype html><html style="background:transparent"><head>
+    /*
+     * The page itself never scrolls sideways; wide content scrolls inside its own box.
+     *
+     * `width=device-width` pins the layout viewport to the screen, so a message built
+     * around a 600 px table overflows it — and the overflow becomes horizontal scroll on
+     * the whole document, which is why you could drag the masthead sideways and end up
+     * past the end of the message in dead space.
+     *
+     * `overflow-x:hidden` on html and body stops the *document* scrolling, and the
+     * wrapper below takes it instead. Nothing is clipped: a 600 px table still scrolls,
+     * it just scrolls within itself, so the page around it stays put. Clamping images is
+     * the other half — an 800 px header image is the most common single cause.
+     *
+     * The style block sits BEFORE the message so a sender who really means to override
+     * it still can; only the inline `overflow-x` is non-negotiable.
+     */
+    return """<!doctype html><html style="background:transparent;overflow-x:hidden"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-</head><body style="margin:0;background:transparent;-webkit-text-size-adjust:100%">
+<style>
+  img { max-width: 100%; height: auto; }
+  pre, code { white-space: pre-wrap; word-break: break-word; }
+  td, th, p, div, a { word-break: break-word; overflow-wrap: anywhere; }
+</style>
+</head><body style="margin:0;background:transparent;overflow-x:hidden;-webkit-text-size-adjust:100%">
 <div style="margin-top:14px;background:#fff">
 <div style="padding:22px 20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#000">
   <div style="font-size:25px;line-height:1.2;font-weight:400;color:#000">$sender</div>
@@ -487,7 +492,9 @@ private fun document(
 $files
 </div>
 <div style="height:1px;background:#e2e2e2;margin:20px 20px 0"></div>
+<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
 $html
+</div>
 </div>
 </body></html>"""
 }

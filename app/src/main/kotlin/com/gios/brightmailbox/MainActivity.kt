@@ -6,6 +6,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -124,7 +131,39 @@ class MainActivity : ComponentActivity() {
                 CompositionLocalProvider(
                     LocalAccountWords provides accounts.associate { it.id to it.word },
                 ) {
-                when (val s = screen) {
+                /*
+                 * Opening a message: the list fades to black while the letter rides up
+                 * past it.
+                 *
+                 * `togetherWith` is the point — both screens are composed and animating
+                 * at the same time, so the outgoing list is still there to fade. An
+                 * animation inside the reader could not do this: by the time the reader
+                 * exists, the list is already gone and there is nothing left to fade.
+                 *
+                 * The letter does NOT fade. It slides at full opacity, because a slide
+                 * that also changes opacity reads as two animations disagreeing. The
+                 * fade is the list's alone, and it fades to nothing over the app's black
+                 * ground, which is what "fades to black" means here.
+                 *
+                 * Everything else in the app still cuts. A transition is for the one
+                 * move that changes what kind of thing you are looking at; putting one
+                 * on every screen change would make the phone feel slow.
+                 */
+                AnimatedContent(
+                    targetState = screen,
+                    transitionSpec = {
+                        if (targetState is Screen.Read && initialState is Screen.Home) {
+                            slideInVertically(
+                                animationSpec = tween(300),
+                                initialOffsetY = { it },
+                            ) togetherWith fadeOut(animationSpec = tween(300))
+                        } else {
+                            EnterTransition.None togetherWith ExitTransition.None
+                        }
+                    },
+                    label = "screen",
+                ) { current ->
+                when (val s = current) {
                     Screen.Setup -> SetupScreen(vm)
                     is Screen.Password ->
                         PasswordScreen(vm, s.service, onScan = { vm.go(Screen.Scan(s.service)) })
@@ -141,6 +180,7 @@ class MainActivity : ComponentActivity() {
                         val msg = message(s.key)
                         if (msg == null) HomeScreen(vm) else ReaderScreen(vm, msg)
                     }
+                }
                 }
                 }
 

@@ -1,3 +1,26 @@
+## v2.12 — The letter comes up past the list
+
+The list now fades to black *while* the letter rides up from below it, instead of being
+replaced first and the letter animating into an empty screen. Both are on screen at once,
+which is the only way the two halves can happen together.
+
+The letter itself never fades. It slides at full opacity and is already rendered before it
+moves — a slide that also changes opacity reads as two animations disagreeing about what is
+happening.
+
+Everything else in the app still cuts straight to the next screen. A transition is for the
+one move that changes what kind of thing you are looking at; putting one on every screen
+change is how a phone starts to feel slow.
+
+**Horizontal scrolling past the end of a message is fixed.** `width=device-width` pins the
+page to the screen, so a message built around a 600-pixel table overflowed it — and that
+overflow became horizontal scroll on the whole document, which is why you could drag the
+sender's name sideways and end up in empty space beside the message.
+
+The document no longer scrolls sideways at all. Wide content scrolls inside its own box
+instead, so nothing is clipped and nothing is unreachable — a wide table still moves, it
+just moves within itself while the page around it stays put. Images are clamped to the
+width of the screen, which is the single most common cause.
 ## v2.11 — Opening a message, and a signature
 
 **Pull a message down to put it away.** A downward drag that starts while the message is

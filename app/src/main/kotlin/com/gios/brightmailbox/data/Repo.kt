@@ -3,6 +3,7 @@ package com.gios.brightmailbox.data
 import android.content.Context
 import androidx.room.Room
 import com.gios.brightmailbox.auth.AuthManager
+import com.gios.brightmailbox.mail.Attachment
 import com.gios.brightmailbox.mail.Content
 import com.gios.brightmailbox.mail.Imap
 import com.gios.brightmailbox.mail.MailService
@@ -419,6 +420,62 @@ class Repo private constructor(private val app: Context) {
         runCatching { cached.writeText(html.orEmpty()) }
         html
     }
+
+    /* --------------------------------------------------------------- attachments */
+
+    private fun attachmentIndex(key: String) =
+        File(bodies, key.replace('/', '_') + ".att")
+
+    /**
+     * What is attached to a message, cached beside the body.
+     *
+     * A tiny hand-rolled record per line — name, mime, size, part — rather than JSON,
+     * because it is written by one function and read by one function and a dependency
+     * for four fields would be silly. Tab-separated: a filename can contain almost
+     * anything except a tab or a newline.
+     */
+    suspend fun attachments(msg: Msg): List<Attachment> = withContext(Dispatchers.IO) {
+        val f = attachmentIndex(msg.key)
+        if (f.exists()) {
+            return@withContext f.readLines().mapNotNull { line ->
+                val p = line.split('\t')
+                if (p.size < 4) null
+                else Attachment(p[0], p[1], p[2].toLongOrNull() ?: -1L, p[3])
+            }
+        }
+        val svc = serviceFor(msg.accountId) ?: return@withContext emptyList()
+        val c = runCatching { svc.content(msg.providerId) }.getOrNull()
+            ?: return@withContext emptyList()
+        runCatching {
+            f.writeText(c.attachments.joinToString("\n") { "${it.name}\t${it.mime}\t${it.size}\t${it.part}" })
+        }
+        c.attachments
+    }
+
+    /**
+     * An attachment on disk, ready to hand to another app.
+     *
+     * Cached under the app's own cache directory rather than Downloads: the file is a
+     * copy of someone's mail and it should go away with the app, not settle into the
+     * phone's storage where it outlives the message it came from.
+     */
+    suspend fun attachmentFile(msg: Msg, att: Attachment): File? = withContext(Dispatchers.IO) {
+        val dir = File(app.cacheDir, "attachments/" + msg.key.replace('/', '_'))
+        dir.mkdirs()
+        // The part path is in the filename, so two files with the same name do not
+        // overwrite each other.
+        val out = File(dir, att.part.replace('.', '_') + "-" + safeName(att.name))
+        if (out.exists() && out.length() > 0) return@withContext out
+
+        val svc = serviceFor(msg.accountId) ?: return@withContext null
+        val bytes = runCatching { svc.attachment(msg.providerId, att.part) }.getOrNull()
+            ?: return@withContext null
+        runCatching { out.writeBytes(bytes); out }.getOrNull()
+    }
+
+    /** A filename a filesystem will accept, keeping the extension so the mime survives. */
+    private fun safeName(name: String): String =
+        name.replace(Regex("""[^A-Za-z0-9._-]"""), "_").takeLast(80).ifBlank { "file" }
 
     /* -------------------------------------------------------------------- verbs */
 

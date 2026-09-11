@@ -91,6 +91,12 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     private val _html = MutableStateFlow<String?>(null)
     val html: StateFlow<String?> = _html.asStateFlow()
 
+    /** What is attached to the open message. Names and sizes only; no bytes. */
+    private val _attachments =
+        MutableStateFlow<List<com.gios.brightmailbox.mail.Attachment>>(emptyList())
+    val attachments: StateFlow<List<com.gios.brightmailbox.mail.Attachment>> =
+        _attachments.asStateFlow()
+
     /** Set from the reader's ··· sheet. Survives leaving and re-entering a message. */
     private val _plainText = MutableStateFlow(false)
     val plainText: StateFlow<Boolean> = _plainText.asStateFlow()
@@ -169,14 +175,34 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     fun open(msg: Msg) = viewModelScope.launch {
         _body.value = null
         _html.value = null
+        _attachments.value = emptyList()
         _opened.value = msg
         go(Screen.Read(msg.key))
         // Text first: it is on disk from the prefetch, so the page is never blank while
         // the HTML is read out of the cache beside it.
         _body.value = repo.body(msg)
         _html.value = repo.original(msg)
+        // Cheap: the list is cached beside the body and needs no extra round trip once
+        // the body has been fetched once.
+        _attachments.value = if (msg.hasAttachments) repo.attachments(msg) else emptyList()
         repo.open(msg)
         refreshRation()
+    }
+
+    /**
+     * Fetch an attachment and hand the file back so the screen can open it.
+     *
+     * Says something first, because this is the one action in the app that can take
+     * several seconds over IMAP with nothing on screen to show for it.
+     */
+    fun openAttachment(
+        msg: Msg,
+        att: com.gios.brightmailbox.mail.Attachment,
+        onReady: (java.io.File) -> Unit,
+    ) = viewModelScope.launch {
+        said("Getting ${att.name}…")
+        val f = repo.attachmentFile(msg, att)
+        if (f == null) said("Could not fetch that file.") else { said(null); onReady(f) }
     }
 
     fun archive(msg: Msg) = viewModelScope.launch {

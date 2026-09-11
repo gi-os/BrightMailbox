@@ -97,16 +97,27 @@ class Imap(
             val m = f.getMessageByUID(uidOf(id)) ?: return@withFolder Content(null, null)
             var text: String? = null
             var html: String? = null
-            val attachments = ArrayList<String>()
+            val attachments = ArrayList<Attachment>()
 
-            fun walk(part: Part, depth: Int) {
+            /** [path] is the MIME tree address — "1.2" is part 2 inside part 1. */
+            fun walk(part: Part, depth: Int, path: String) {
                 if (depth > 12) return // malformed nesting; a real message never goes this deep
                 val filename = runCatching { part.fileName }.getOrNull()
                 val disposition = runCatching { part.disposition }.getOrNull()
                 if (!filename.isNullOrBlank() &&
                     !disposition.equals(Part.INLINE, ignoreCase = true)
                 ) {
-                    attachments.add(Addr.decodeWords(filename))
+                    attachments.add(
+                        Attachment(
+                            name = Addr.decodeWords(filename),
+                            mime = runCatching {
+                                part.contentType?.substringBefore(';')?.trim()?.lowercase()
+                            }.getOrNull().orEmpty().ifBlank { "application/octet-stream" },
+                            // -1 when the server does not say; the UI simply omits it.
+                            size = runCatching { part.size.toLong() }.getOrDefault(-1L),
+                            part = path,
+                        ),
+                    )
                     return
                 }
                 when {
@@ -119,17 +130,47 @@ class Imap(
                     part.isMimeType("multipart/*") -> {
                         val mp = runCatching { part.content as? Multipart }.getOrNull() ?: return
                         for (i in 0 until mp.count) {
-                            runCatching { walk(mp.getBodyPart(i), depth + 1) }
+                            runCatching {
+                                walk(mp.getBodyPart(i), depth + 1, join(path, i))
+                            }
                         }
                     }
 
                     // A forwarded message arrives as a nested RFC 822 part.
                     part.isMimeType("message/rfc822") ->
-                        runCatching { part.content as? Part }.getOrNull()?.let { walk(it, depth + 1) }
+                        runCatching { part.content as? Part }.getOrNull()
+                            ?.let { walk(it, depth + 1, join(path, 0)) }
                 }
             }
-            walk(m, 0)
+            walk(m, 0, "")
             Content(text, html, attachments)
+        }
+    }
+
+    /**
+     * One attachment's bytes, found by walking back to the part that [content] recorded.
+     *
+     * Re-walking rather than holding the Part: a `Part` belongs to an open folder and a
+     * live connection, and both are gone by the time somebody taps the file. The path is
+     * the only handle that survives.
+     */
+    override suspend fun attachment(id: String, part: String): ByteArray? = io {
+        withFolder("INBOX", write = false) { f ->
+            val m = f.getMessageByUID(uidOf(id)) ?: return@withFolder null
+            var here: Part = m
+            for (step in part.split('.').filter { it.isNotBlank() }) {
+                val i = step.toIntOrNull() ?: return@withFolder null
+                here = when {
+                    here.isMimeType("multipart/*") ->
+                        (here.content as? Multipart)?.getBodyPart(i) ?: return@withFolder null
+                    here.isMimeType("message/rfc822") ->
+                        here.content as? Part ?: return@withFolder null
+                    else -> return@withFolder null
+                }
+            }
+            // getInputStream decodes the transfer encoding; getRawInputStream would hand
+            // back base64 and every file would open as gibberish.
+            runCatching { here.inputStream.use { it.readBytes() } }.getOrNull()
         }
     }
 
@@ -287,6 +328,10 @@ class Imap(
     /* ------------------------------------------------------------------- plumbing */
 
     private suspend fun <T> io(block: suspend () -> T): T = withContext(Dispatchers.IO) { block() }
+
+    /** "" + 2 -> "2"; "1" + 0 -> "1.0". Dotted, so it survives a round trip as a string. */
+    private fun join(path: String, index: Int): String =
+        if (path.isEmpty()) index.toString() else "$path.$index"
 
     private fun uidOf(id: String): Long =
         id.substringAfterLast('-').toLongOrNull()

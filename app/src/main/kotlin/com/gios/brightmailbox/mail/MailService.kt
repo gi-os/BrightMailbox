@@ -36,7 +36,28 @@ data class Message(
 }
 
 /** A fetched body, in whichever form the message actually had. */
-data class Content(val text: String?, val html: String?, val attachments: List<String> = emptyList())
+/**
+ * One file hung off a message.
+ *
+ * [part] is the path through the MIME tree — "1.2" is the second part of the first part —
+ * which is how the transport finds it again later without re-walking by filename. Two
+ * files in one message can share a name; nothing says they cannot.
+ *
+ * The bytes are NOT here. A message with a 12 MB deck would otherwise be fetched in full
+ * to render three lines of text, on a phone, over IMAP.
+ */
+data class Attachment(
+    val name: String,
+    val mime: String,
+    val size: Long,
+    val part: String,
+)
+
+data class Content(
+    val text: String?,
+    val html: String?,
+    val attachments: List<Attachment> = emptyList(),
+)
 
 /** A message to send. */
 data class Outgoing(
@@ -65,6 +86,14 @@ interface MailService {
     suspend fun list(limit: Int, pageToken: String?): Pair<List<Message>, String?>
 
     suspend fun content(id: String): Content
+
+    /**
+     * The bytes of one attachment, fetched on demand.
+     *
+     * Separate from [content] because it is the expensive call and almost never wanted:
+     * most messages with a file attached are read without anybody opening it.
+     */
+    suspend fun attachment(id: String, part: String): ByteArray?
 
     suspend fun markRead(ids: List<String>)
 

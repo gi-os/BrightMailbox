@@ -1,3 +1,29 @@
+## v2.8 — Attachments, and a setup screen you can reach the bottom of
+
+**Fixed: ADD OUTLOOK could not be reached.** The title and the paragraph above it filled a
+472 dp screen, the second service row sat below the fold, and the screen did not scroll —
+so one of the two ways into the app was simply unavailable. It scrolls now, and the copy
+is shorter. A setup screen is the one screen that has to survive any screen height and any
+font scale, because the person reading it has no account yet and therefore no way past it.
+
+**Attachments open.** They are listed under the subject, at the top of the message, with
+their size, and tapping one fetches it and hands it to whatever app opens that kind of
+file. Before this the app parsed the filenames and then said "attachments held", which was
+true and useless.
+
+The bytes are only fetched when you tap — a message with a 12 MB deck on it is not
+downloaded in full to show you three lines of text. Files are cached where the app's own
+cache lives, so they go away with the app rather than settling into the phone's storage as
+loose copies of your mail.
+
+**No scrollbar over the black.** It was drawn across the whole view, including the strip
+above the message. Nothing else in the app has one.
+
+**New reply and archive icons.** The old reply was the SDK's u-turn arrow, which is a road
+sign — it lives among *slight left* and *roundabout*. The old archive was a downward arrow
+into a tray, which reads as download. Now: the arrow that turns back, and a box with a lid.
+Still not the trash can, which the SDK does have and which would be a lie — archive moves
+a message to All Mail and delete does not.
 ## v2.7 — The notices were always there
 
 **Fixed: notices you could not get to.** Report #351 said "not fetching notices", and the

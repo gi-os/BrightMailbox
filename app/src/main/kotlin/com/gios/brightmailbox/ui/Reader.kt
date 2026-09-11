@@ -30,8 +30,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.FileProvider
 import com.gios.brightmailbox.R
 import com.gios.brightmailbox.data.Msg
+import com.gios.brightmailbox.mail.Attachment
 import com.gios.brightmailbox.sort.Pile
 import com.gios.brightmailbox.ui.theme.LocalGrid
 import com.gios.brightmailbox.ui.theme.LocalType
@@ -43,6 +45,16 @@ import com.gios.brightmailbox.ui.theme.readerLeading
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/** Our own URL scheme for an attachment tap, so no JavaScript is needed to catch one. */
+private const val ATTACHMENT_SCHEME = "bm-attachment:"
+
+/** "412 KB". Bytes are not a thing anybody wants to read off a 3.9" screen. */
+private fun size(bytes: Long): String = when {
+    bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
+    bytes >= 1024 -> "${bytes / 1024} KB"
+    else -> "$bytes B"
+}
 
 /**
  * One Letter, set as a page.
@@ -73,7 +85,31 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
          */
         val html by vm.html.collectAsStateWithLifecycle()
         val plainText by vm.plainText.collectAsStateWithLifecycle()
+        val attachments by vm.attachments.collectAsStateWithLifecycle()
         val formatted = !plainText && !html.isNullOrBlank()
+
+        /*
+         * Hand the file to whatever opens that kind of file. A content:// URI from our
+         * FileProvider plus the read grant, never a file:// path — that has thrown
+         * FileUriExposedException on every Android since 7.
+         */
+        val openFile: (Attachment) -> Unit = { att ->
+            vm.openAttachment(msg, att) { file ->
+                runCatching {
+                    val uri = FileProvider.getUriForFile(
+                        context, context.packageName + ".files", file,
+                    )
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW)
+                            .setDataAndType(uri, att.mime)
+                            .addFlags(
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                    Intent.FLAG_ACTIVITY_NEW_TASK,
+                            ),
+                    )
+                }.onFailure { vm.said("Nothing here opens ${att.name.substringAfterLast('.')} files.") }
+            }
+        }
 
         /*
          * The masthead is part of the document, not a bar above it.
@@ -91,7 +127,9 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 msg = msg,
                 account = accountWord(msg.accountId),
                 images = vm.repo.showImages,
+                attachments = attachments,
                 modifier = Modifier.weight(1f),
+                onAttachment = openFile,
             ) { url ->
                 runCatching {
                     context.startActivity(
@@ -129,9 +167,21 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                         )
                     }
                 }
-                if (msg.hasAttachments) {
+                if (attachments.isNotEmpty()) {
+                    Spacer(Modifier.height(g * 1.2f))
+                    for (a in attachments) {
+                        T(
+                            a.name + if (a.size > 0) "  ·  " + size(a.size) else "",
+                            t.detail,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .lightClickable { openFile(a) }
+                                .padding(vertical = g * 0.35f),
+                        )
+                    }
+                } else if (msg.hasAttachments) {
                     Spacer(Modifier.height(g * 0.8f))
-                    T("attachments held", t.detail, Secondary)
+                    T("getting the file list…", t.detail, Secondary)
                 }
                 Spacer(Modifier.height(g * 1.5f))
             }
@@ -214,10 +264,14 @@ private fun HtmlBody(
     msg: Msg,
     account: String,
     images: Boolean,
+    attachments: List<Attachment>,
     modifier: Modifier = Modifier,
+    onAttachment: (Attachment) -> Unit,
     onLink: (String) -> Unit,
 ) {
-    val document = remember(html, msg.key, account) { document(html, msg, account) }
+    val document = remember(html, msg.key, account, attachments) {
+        document(html, msg, account, attachments)
+    }
 
     /*
      * Nothing is drawn until the page has actually painted, then it fades in.
@@ -252,14 +306,33 @@ private fun HtmlBody(
                 settings.loadWithOverviewMode = true
                 settings.builtInZoomControls = true
                 settings.displayZoomControls = false
+                /*
+                 * No scrollbar. It is drawn across the whole view, so it ran over the
+                 * black strip above the message — and nothing else in this app has one
+                 * anyway: a Compose LazyColumn shows none, and the SDK ships none.
+                 */
+                isVerticalScrollBarEnabled = false
+                isHorizontalScrollBarEnabled = false
+                overScrollMode = WebView.OVER_SCROLL_NEVER
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(
                         view: WebView,
                         request: WebResourceRequest,
                     ): Boolean {
-                        // Never navigate in here. A link is the web, and the web is the
-                        // browser's job.
-                        onLink(request.url.toString())
+                        val url = request.url.toString()
+                        /*
+                         * Attachments are links with our own scheme, which is how they
+                         * are tappable without JavaScript — the one thing this view must
+                         * not have. The part path is the whole payload.
+                         */
+                        if (url.startsWith(ATTACHMENT_SCHEME)) {
+                            val part = url.removePrefix(ATTACHMENT_SCHEME)
+                            attachments.firstOrNull { it.part == part }?.let(onAttachment)
+                            return true
+                        }
+                        // Never navigate in here otherwise. A link is the web, and the
+                        // web is the browser's job.
+                        onLink(url)
                         return true
                     }
 
@@ -289,7 +362,12 @@ private fun HtmlBody(
  * the same leniency every other mail client relies on, and it is safer than trying to cut
  * them out with a regular expression.
  */
-private fun document(html: String, msg: Msg, account: String): String {
+private fun document(
+    html: String,
+    msg: Msg,
+    account: String,
+    attachments: List<Attachment>,
+): String {
     fun esc(s: String) = s
         .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         .replace("\"", "&quot;")
@@ -297,6 +375,24 @@ private fun document(html: String, msg: Msg, account: String): String {
     val sender = esc(msg.senderName.ifBlank { msg.sender })
     val subject = esc(msg.subject.ifBlank { "(no subject)" })
     val stamp = esc(longStamp(msg.receivedAt) + " · " + account)
+
+    /*
+     * Attachments sit under the subject, above the message — which is where you look to
+     * decide whether the message is the point or the file is.
+     *
+     * Anchors with our own scheme rather than buttons: the view has no JavaScript, and
+     * shouldOverrideUrlLoading is the callback that survives that. Styles are inline for
+     * the same reason the masthead's are — an email's <style> block would otherwise
+     * restyle these along with its own content.
+     */
+    val files = if (attachments.isEmpty()) "" else attachments.joinToString(
+        separator = "",
+        prefix = """<div style="margin-top:16px">""",
+        postfix = "</div>",
+    ) { a ->
+        val label = esc(a.name) + if (a.size > 0) " · " + size(a.size) else ""
+        """<a href="$ATTACHMENT_SCHEME${esc(a.part)}" style="display:block;margin-top:8px;padding:9px 12px;border:1px solid #d8d8d8;border-radius:6px;color:#000;text-decoration:none;font-size:14px;line-height:1.3">$label</a>"""
+    }
 
     /*
      * The body is TRANSPARENT and the sheet inside it is white, starting 14px down.
@@ -316,6 +412,7 @@ private fun document(html: String, msg: Msg, account: String): String {
   <div style="font-size:25px;line-height:1.2;font-weight:400;color:#000">$sender</div>
   <div style="font-size:13px;line-height:1.5;color:#777;margin-top:5px">$stamp</div>
   <div style="font-size:17px;line-height:1.35;color:#000;margin-top:14px">$subject</div>
+$files
 </div>
 <div style="height:1px;background:#e2e2e2;margin:20px 20px 0"></div>
 $html

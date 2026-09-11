@@ -3,28 +3,33 @@
     android:viewportWidth="60.0" android:viewportHeight="60.0">
 
     <!--
-      Archive: a message going down into a box.
+      Archive: a box with a lid.
 
-      Drawn here rather than copied, because light-sdk has no archive icon — it has 105
-      and none of them is this. The one that looked close is ic_trash, and using it would
-      be a lie on a mail app: archive MOVES a message to All Mail, delete does not, and an
-      icon that says "delete" over a button that archives is how somebody learns to be
-      afraid of a button that was always safe.
+      The first attempt was an arrow going down into an open tray, which reads as
+      download — the arrow is the loudest thing in it and a downward arrow means "save
+      this to the phone" everywhere else on the phone. A lidded box has no arrow to
+      misread: it is a thing you put mail into and can open again, which is exactly what
+      archive does.
 
-      Geometry is the SDK's so it sits level with ic_reply_white and ic_back_white beside
-      it: 60x60 viewport, 4.0 stroke, round caps and joins, pure white.
+      Not ic_trash, which light-sdk does have. Archive MOVEs to All Mail; delete does not.
+      An icon that says "delete" over a button that archives teaches someone to be afraid
+      of a button that was always safe.
+
+      60x60 viewport and 4.0 stroke, matching the SDK icons beside it.
     -->
 
-    <!-- Down arrow: the message -->
-    <path android:pathData="M30,11 L30,32"
-        android:strokeColor="#FFFFFFFF" android:strokeWidth="4.0"
-        android:strokeLineCap="round" android:strokeLineJoin="round" />
-    <path android:pathData="M21.5,24 L30,32.5 L38.5,24"
+    <!-- The lid -->
+    <path android:pathData="M10,14 L50,14 L50,23 L10,23 Z"
         android:strokeColor="#FFFFFFFF" android:strokeWidth="4.0"
         android:strokeLineCap="round" android:strokeLineJoin="round" />
 
-    <!-- The box it lands in: open at the top, so this reads as "put away", not "delete" -->
-    <path android:pathData="M13,38 L13,47 L47,47 L47,38"
+    <!-- The box under it -->
+    <path android:pathData="M14,23 L14,46 L46,46 L46,23"
+        android:strokeColor="#FFFFFFFF" android:strokeWidth="4.0"
+        android:strokeLineCap="round" android:strokeLineJoin="round" />
+
+    <!-- The handle. Without it the box reads as an empty rectangle at 28px. -->
+    <path android:pathData="M24,33 L36,33"
         android:strokeColor="#FFFFFFFF" android:strokeWidth="4.0"
         android:strokeLineCap="round" android:strokeLineJoin="round" />
 </vector>

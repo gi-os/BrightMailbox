@@ -31,6 +31,23 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Mailbox">
 
+        <!--
+          Hands one attachment to whatever app opens that kind of file. Never exported:
+          a content:// URI plus FLAG_GRANT_READ_URI_PERMISSION gives the receiving app
+          read access to that one file for the life of the intent, and nothing else in
+          here is reachable. The files live in cacheDir, so they go away with the app
+          rather than settling into the phone's storage as loose copies of someone's mail.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.gios.brightmailbox.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

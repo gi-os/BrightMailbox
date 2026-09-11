@@ -2,6 +2,8 @@ package com.gios.brightmailbox.ui
 
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,18 +47,31 @@ fun SetupScreen(vm: MailboxViewModel) {
     val t = LocalType.current
     val context = LocalContext.current
 
+    /*
+     * Scrollable, and no weight(1f) anywhere in it.
+     *
+     * The title is `title` — 115 design pixels — and with the paragraph under it and a
+     * spacer that ate the remainder, the second service row sat below the fold on a
+     * 472 dp screen with nothing to scroll. That is not a cosmetic problem: ADD OUTLOOK
+     * was the row underneath, so one of the two ways into the app could not be reached
+     * at all.
+     *
+     * A setup screen is the one screen that must survive any screen height and any font
+     * scale, because the person reading it has no account yet and therefore no way past
+     * it. Fixed spacers plus a scroller; never a weight that assumes the content fits.
+     */
     Frame {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
         TopBar("MAILBOX")
-        Spacer(Modifier.height(g * 4f))
+        Spacer(Modifier.height(g * 2.2f))
         T("Letters and\nnotices.", t.title)
-        Spacer(Modifier.height(g * 1.3f))
+        Spacer(Modifier.height(g * 1f))
         T(
-            "Mail from people goes in Letters. Everything else goes in Notices. " +
-                "You set how many Letters a day.",
+            "Mail from people goes in Letters. Everything else goes in Notices.",
             t.detail,
             Secondary,
         )
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(g * 2f))
 
         for (s in Service.entries) {
             val ready = vm.repo.auth.isConfigured(s)
@@ -107,6 +122,7 @@ fun SetupScreen(vm: MailboxViewModel) {
             }
         }
         Spacer(Modifier.height(g * 1.4f))
+        }
     }
 }
 

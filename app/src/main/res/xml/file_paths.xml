@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!--
+      Only the attachment cache. Deliberately not cache-path with path="." and certainly
+      not files-path: the app's files directory holds message bodies and the learned
+      model, and a FileProvider that can reach them is one mistyped URI away from handing
+      somebody's mail to another app.
+    -->
+    <cache-path name="attachments" path="attachments/" />
+</paths>

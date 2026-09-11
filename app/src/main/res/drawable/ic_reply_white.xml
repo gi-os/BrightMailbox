@@ -1,27 +1,26 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="60.0dp"
-    android:height="60.0dp"
-    android:viewportWidth="60.0"
-    android:viewportHeight="60.0">
-    <path
-        android:pathData="M47.8,43.1V29.9c0-13.2-10.8-13-10.8-13h-5.7"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="4.0"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
-    <path
-        android:pathData="M30.7,16.9c0,0-10.8-0.2-10.8,13V40"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="4.0"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
-    <path
-        android:pathData="M 28.2,34.9 L 19.9,43.1 L 12.2,35.4"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="4.0"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        />
+    android:width="60.0dp" android:height="60.0dp"
+    android:viewportWidth="60.0" android:viewportHeight="60.0">
+
+    <!--
+      Reply: the arrow that turns back.
+
+      This replaces light-sdk's ic_directions_uturn_left, which was the closest thing the
+      SDK had and read as a road sign — it is a road sign, it lives among
+      directions_slight_left and directions_round_about. The glyph everyone already knows
+      for reply is a leftward arrowhead on a line that turns down at the far end, and that
+      is what this is.
+
+      60x60 viewport and 4.0 stroke, matching the SDK icons it sits beside in the bar.
+    -->
+
+    <!-- Arrowhead, pointing left -->
+    <path android:pathData="M22,20 L12,30 L22,40"
+        android:strokeColor="#FFFFFFFF" android:strokeWidth="4.0"
+        android:strokeLineCap="round" android:strokeLineJoin="round" />
+
+    <!-- The line it came in on, turning down at the end -->
+    <path android:pathData="M12,30 L34,30 C43,30 48,35 48,44 L48,47"
+        android:strokeColor="#FFFFFFFF" android:strokeWidth="4.0"
+        android:strokeLineCap="round" android:strokeLineJoin="round" />
 </vector>

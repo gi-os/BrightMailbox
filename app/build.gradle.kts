@@ -76,7 +76,7 @@ android {
         targetSdk = 35
         // CI overwrites both from the run number; see .github/workflows/build.yml
         versionCode = 1
-        versionName = "2.3.0"
+        versionName = "2.4.0"
 
         // The LPIII is arm64 only. Four ABIs tripled an earlier APK for nothing.
         ndk { abiFilters += "arm64-v8a" }
@@ -188,8 +188,22 @@ dependencies {
      */
     implementation("com.gios:light-common:1.10.0")
 
-    // QR scanning, so a client id never has to be typed on a 3.9" keyboard.
-    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    /*
+     * QR scanning, so a sixteen-character app password is never typed on a 3.9" keyboard.
+     *
+     * CameraX plus ZXing's core, rather than `com.journeyapps:zxing-android-embedded`. The
+     * embedded library works, but it brings its own activity and its own layout: a scanner that
+     * looks like a different app, appearing in the middle of signing in to this one. The decoder
+     * is `scan/QrAnalyzer.kt`, lifted from Roll; the viewfinder is `ui/Scan.kt` and is ours.
+     *
+     * ZXing rather than ML Kit is not a preference — ML Kit's model is downloaded through Play
+     * Services, and LightOS has no GMS, so it would bind and never return a result.
+     */
+    implementation("androidx.camera:camera-core:1.5.3")
+    implementation("androidx.camera:camera-camera2:1.5.3")
+    implementation("androidx.camera:camera-lifecycle:1.5.3")
+    implementation("androidx.camera:camera-view:1.5.3")
+    implementation("com.google.zxing:core:3.5.3")
 
     // HTML: rewrite for the panel, and extract text when a message has no plain part.
     implementation("org.jsoup:jsoup:1.18.3")

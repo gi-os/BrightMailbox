@@ -23,6 +23,8 @@ sealed interface Screen {
     data object Setup : Screen
     /** Typing an app password for a service that uses one. */
     data class Password(val service: com.gios.brightmailbox.auth.Service) : Screen
+    /** The viewfinder, reading a sign-in code off the companion page. */
+    data class Scan(val service: com.gios.brightmailbox.auth.Service) : Screen
     data object FirstSync : Screen
     data object Home : Screen
     data class Read(val key: String) : Screen

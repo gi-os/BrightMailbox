@@ -1,3 +1,22 @@
+## v2.4 — Our own scanner
+
+The sign-in scanner used to be a third-party library that opened its own activity: a
+viewfinder in somebody else's layout, appearing in the middle of signing in to this one.
+It is ours now, in the same black-and-white as the rest of the app, and it reads codes
+from further away.
+
+The decoder is the one from Roll, which absorbed LightQR. It is QR-only with ZXing's
+`TRY_HARDER` hint — restricting the format list is most of the speed, since the general
+reader runs every barcode format over every row first, and `TRY_HARDER` then buys back
+the distance a code across a desk needs. It also carries a fix LightQR shipped without:
+a camera frame is padded to a hardware-friendly row length, so copying the buffer whole
+hands the decoder a sheared image where every row sits a little further over than the one
+above. That reads as "the scanner just doesn't work at some resolutions".
+
+ML Kit would be the obvious choice on any other Android phone and is useless here — its
+model downloads through Play Services, which LightOS does not have, so it would bind and
+never return a result.
+
 ## v2.3 — Reading a letter no longer closes it
 
 **Opening an email put you straight back on the home screen.** The reader found its

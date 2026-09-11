@@ -1,3 +1,22 @@
+## v2.2 — The phone can report its own bugs
+
+Shake-to-report was wired into this app's build from v1 and never connected to anything.
+The token field existed, CI passed the secret, and no code read either — so a shake did
+nothing. Now it works: shake the phone and it files an issue, with a screenshot and a
+note about what the app was doing.
+
+**A report from a mail client says less than the others, on purpose.** Every other app
+in the family dumps its state freely. This one sends counts and settings only — how many
+accounts and of what kind, how long since the last sync, the ration, whether remote
+images are on. No addresses, no sender names, no subjects, not even folder names. A bug
+report should not be a copy of your correspondence.
+
+Releases also reach BrightMarket straight away now. The repo was missing the step that
+tells the catalogue a release exists, so each new version sat until the index happened to
+rebuild — about fifteen minutes, sometimes longer.
+
+---
+
 ## v2.1 — Sign in with the camera
 
 An app password is sixteen characters and this keyboard is 3.9 inches wide. You make the

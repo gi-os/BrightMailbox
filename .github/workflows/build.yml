@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
   build:
@@ -48,6 +49,8 @@ jobs:
           grep -E 'versionCode|versionName' app/build.gradle.kts
 
       - name: Unit tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       # Installed-app OAuth clients have no secret, but keeping the ids in repository
@@ -59,9 +62,11 @@ jobs:
       # second silently wins, which is how an earlier project lost its client id.
       - name: Build APKs
         env:
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
           REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
+          # light-common comes from GitHub Packages, which refuses anonymous reads even
+          # for a public package. `packages: read` above plus this is what buys it.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
 
       - name: Collect APKs
@@ -117,3 +122,17 @@ jobs:
           files: out/BrightMailbox-v${{ steps.ver.outputs.version }}.apk
           body_path: RELEASE_NOTES.md
           make_latest: true
+
+      # Tell the BrightMarket index a release exists instead of waiting for its cron.
+      # Soft failure: the hourly cron catches up regardless, and a refused ping must not
+      # fail a build whose APK is already published.
+      - name: Ping the index
+        if: success()
+        continue-on-error: true
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${{ secrets.INDEX_DISPATCH_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/gi-os/brightmarket-index/dispatches \
+            -d '{"event_type":"app-released"}')
+          if [ "$code" = "204" ]; then echo "index pinged"; else echo "::warning::index ping refused with HTTP $code; the hourly cron will pick this up"; fi

@@ -76,7 +76,7 @@ android {
         targetSdk = 35
         // CI overwrites both from the run number; see .github/workflows/build.yml
         versionCode = 1
-        versionName = "2.1.0"
+        versionName = "2.2.0"
 
         // The LPIII is arm64 only. Four ABIs tripled an earlier APK for nothing.
         ndk { abiFilters += "arm64-v8a" }
@@ -180,6 +180,13 @@ dependencies {
     implementation("org.eclipse.angus:jakarta.mail:2.0.5")
     implementation("org.eclipse.angus:angus-activation:2.0.3")
     implementation("jakarta.activation:jakarta.activation-api:2.1.3")
+
+    /*
+     * Shake-to-report. The BuildConfig.REPORT_TOKEN field and the CI plumbing existed
+     * from v1, but nothing consumed them — the field was set and no reporter read it, so
+     * a shake did nothing. This is the missing half.
+     */
+    implementation("com.gios:light-common:1.10.0")
 
     // QR scanning, so a client id never has to be typed on a 3.9" keyboard.
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")

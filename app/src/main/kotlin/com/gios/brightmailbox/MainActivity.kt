@@ -10,6 +10,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gios.brightmailbox.sync.SyncWorker
@@ -26,6 +31,8 @@ import com.gios.brightmailbox.ui.SettingsScreen
 import com.gios.brightmailbox.ui.SetupScreen
 import com.gios.brightmailbox.ui.WriteScreen
 import com.gios.brightmailbox.ui.theme.LightTheme
+import com.gios.light.common.report.ReportContext
+import com.gios.light.common.report.ReportOverlay
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 
@@ -95,6 +102,26 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                /*
+                 * Which screen a report came from. Named, never described: "Read" not
+                 * the subject of what is being read — see MailboxApp for why a report
+                 * from this app says less than the others.
+                 */
+                LaunchedEffect(screen) {
+                    ReportContext.screen = when (screen) {
+                        Screen.Setup -> "Setup"
+                        is Screen.Password -> "Password"
+                        Screen.FirstSync -> "FirstSync"
+                        Screen.Home -> "Home"
+                        is Screen.Read -> "Read"
+                        is Screen.Original -> "Original"
+                        Screen.Notices -> "Notices"
+                        is Screen.Write -> "Write"
+                        Screen.Settings -> "Settings"
+                        Screen.Rules -> "Rules"
+                    }
+                }
+
                 when (val s = screen) {
                     Screen.Setup -> SetupScreen(vm)
                     is Screen.Password -> PasswordScreen(vm, s.service, onScan = ::scanSignIn)
@@ -112,6 +139,18 @@ class MainActivity : ComponentActivity() {
                         val msg = (letters + notices).firstOrNull { it.key == s.key }
                         if (msg == null) HomeScreen(vm) else OriginalScreen(vm, msg)
                     }
+                }
+
+                /*
+                 * BrightControl draws banners; this is the report chip, clear of the
+                 * action bar every screen puts on the fold.
+                 *
+                 * Its own Box rather than relying on LightTheme's: that one passes a
+                 * plain `@Composable () -> Unit`, so there is no BoxScope in here and an
+                 * overlay that wants to align itself would not compile.
+                 */
+                Box(Modifier.fillMaxSize()) {
+                    ReportOverlay(corner = Alignment.BottomEnd, bottomInset = 64.dp)
                 }
             }
         }

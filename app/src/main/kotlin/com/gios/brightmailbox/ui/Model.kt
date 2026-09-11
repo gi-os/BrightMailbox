@@ -363,6 +363,18 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * because the number is the only confirmation there is. Archive, not delete: every
      * one of them is still in the mailbox.
      */
+    /**
+     * Archive everything on screen. The ALL button on Letters.
+     *
+     * Says the number afterwards, because the screen emptying is the same thing you would
+     * see if the app had lost the mail — and archive is a move to All Mail, so the count
+     * is also the reassurance that it is all still there.
+     */
+    fun archiveThese(rows: List<Msg>) = viewModelScope.launch {
+        val n = repo.archiveMany(rows)
+        said(if (n == 0) "Nothing to archive." else "$n archived.")
+    }
+
     fun archiveAllNotices() = viewModelScope.launch {
         /*
          * Leave first, archive second.

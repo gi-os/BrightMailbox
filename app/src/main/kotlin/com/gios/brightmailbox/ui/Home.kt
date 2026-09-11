@@ -261,6 +261,14 @@ fun HomeScreen(vm: MailboxViewModel) {
         ActionBar(
             left = null,
             leftIcon = Triple(R.drawable.ic_send_white, "Write") { vm.go(Screen.Write()) },
+            /*
+             * Clear today's letters in one go — the ones on screen, not the mailbox.
+             * Hidden when there is nothing to clear, because a bulk action over an empty
+             * list is a control that can only disappoint.
+             */
+            middleStacked = if (visible.isEmpty()) null else {
+                Triple(R.drawable.ic_archive_white, "ALL") { vm.archiveThese(visible) }
+            },
             right = if (unlimited || notices.isNotEmpty()) {
                 "NOTICES $noticeTotal" to { vm.go(Screen.Notices) }
             } else {
@@ -627,6 +635,15 @@ fun ActionBar(
      * room on the right — WRITE at `button` tracking was the widest thing on the bar.
      */
     leftIcon: Triple<Int, String, () -> Unit>? = null,
+    /**
+     * An icon with a word under it: drawable, caption, action.
+     *
+     * The stacked form exists because "ARCHIVE ALL" spelled out at `button` tracking is
+     * most of a 27-unit row on its own, and this bar already carries two other things.
+     * The icon says what happens and the caption says how much — which reads faster than
+     * the sentence did, in a third of the width.
+     */
+    middleStacked: Triple<Int, String, () -> Unit>? = null,
 ) {
     val g = LocalGrid.current
     val t = LocalType.current
@@ -647,6 +664,20 @@ fun ActionBar(
             left?.let { (label, f) -> T(label, t.button, modifier = Modifier.lightClickable(onClick = f), maxLines = 1) }
         }
         middle?.let { (label, f) -> T(label, t.button, Secondary, Modifier.lightClickable(onClick = f), maxLines = 1) }
+        middleStacked?.let { (drawable, caption, f) ->
+            Column(
+                Modifier.lightClickable(onClick = f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                androidx.compose.foundation.Image(
+                    painter = painterResource(drawable),
+                    contentDescription = caption,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(g.icon * 0.85f),
+                )
+                T(caption, t.superfine, Secondary, maxLines = 1)
+            }
+        }
         right?.let { (label, f) -> T(label, t.button, Secondary, Modifier.lightClickable(onClick = f), maxLines = 1) }
     }
 }

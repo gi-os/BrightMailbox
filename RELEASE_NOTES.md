@@ -1,3 +1,13 @@
+## v2.20 — Clear today's letters in one go
+
+**Letters has an ARCHIVE ALL of its own**, on the bar: the archive icon with ALL under it.
+It clears the letters on screen — today's — and deliberately not the mail waiting for
+tomorrow, which is not in front of you and should not be swept up by a button aimed at
+what is. Starred letters are left where they are, the same as on Notices. Archive is a move
+to All Mail, so everything it clears is still in the mailbox.
+
+The stacked icon-over-word shape is there because "ARCHIVE ALL" spelled out takes most of
+the row on a 3.9-inch screen, and this bar already carries two other things.
 ## v2.19 — SEND says what it is doing, invites go to Notices
 
 **The compose screen said SENDING when nothing was being sent.** It was reading a flag

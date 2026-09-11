@@ -679,6 +679,27 @@ class Repo private constructor(private val app: Context) {
     }
 
     /**
+     * Archive a specific set of messages — whatever was on the screen.
+     *
+     * Takes the rows rather than running its own query, because "all" on the Letters
+     * screen means the letters you can see, not every letter in the mailbox. Tomorrow's
+     * waiting mail is not on screen and must not be swept up by a button aimed at today.
+     *
+     * Starred rows are skipped, the same as the notices version: a star is the user
+     * saying "not this one", and a bulk action that ignores it is one nobody can press
+     * safely.
+     */
+    suspend fun archiveMany(rows: List<Msg>): Int = withContext(Dispatchers.IO) {
+        val keep = rows.filterNot { it.starred }
+        if (keep.isEmpty()) return@withContext 0
+        dao.archiveAll(keep.map { it.key })
+        keep.groupBy { it.accountId }.forEach { (acct, list) ->
+            runCatching { serviceFor(acct)?.archive(list.map { it.providerId }) }
+        }
+        keep.size
+    }
+
+    /**
      * Clear the whole Notices pile.
      *
      * Archive, never delete — on IMAP this is a MOVE to All Mail, so a receipt cleared by

@@ -28,8 +28,6 @@ sealed interface Screen {
     data object FirstSync : Screen
     data object Home : Screen
     data class Read(val key: String) : Screen
-    /** The message as its sender built it, rendered offline. */
-    data class Original(val key: String) : Screen
     data object Notices : Screen
     data class Write(val replyTo: Msg? = null) : Screen
     data object Settings : Screen
@@ -81,6 +79,23 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _body = MutableStateFlow<Clean.Body?>(null)
     val body: StateFlow<Clean.Body?> = _body.asStateFlow()
+
+    /**
+     * The sender's HTML for the open message, or null once we know there is none.
+     *
+     * Two flows rather than one because they arrive at different times and the reader
+     * wants whichever is ready: the flattened text is on disk from the prefetch and draws
+     * immediately, the HTML is read straight after. Without that split, a formatted
+     * message would show nothing at all until both were in hand.
+     */
+    private val _html = MutableStateFlow<String?>(null)
+    val html: StateFlow<String?> = _html.asStateFlow()
+
+    /** Set from the reader's ··· sheet. Survives leaving and re-entering a message. */
+    private val _plainText = MutableStateFlow(false)
+    val plainText: StateFlow<Boolean> = _plainText.asStateFlow()
+
+    fun togglePlainText() { _plainText.value = !_plainText.value }
 
     /**
      * The message being read, held here rather than looked up in the lists.
@@ -153,9 +168,13 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun open(msg: Msg) = viewModelScope.launch {
         _body.value = null
+        _html.value = null
         _opened.value = msg
         go(Screen.Read(msg.key))
+        // Text first: it is on disk from the prefetch, so the page is never blank while
+        // the HTML is read out of the cache beside it.
         _body.value = repo.body(msg)
+        _html.value = repo.original(msg)
         repo.open(msg)
         refreshRation()
     }

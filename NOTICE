@@ -5,9 +5,10 @@ MIT licence — see LICENSE.
 Design system
 -------------
 The grid, type scale and interaction rules are ported from lightphone/light-sdk,
-which is MIT licensed. ic_settings_white.xml and ic_back_white.xml are that
-project's own files, used unchanged under the same licence, so the bars look like
-every other bar on the phone. The remaining icons are drawn for this app.
+which is MIT licensed. ic_settings_white.xml, ic_back_white.xml and
+ic_refresh_white.xml are that project's own files, used unchanged under the same
+licence, so the bars look like every other bar on the phone. The remaining icons
+are drawn for this app.
 
 Sounds
 ------

@@ -1,3 +1,34 @@
+## v2.5 — Mail looks like mail
+
+Messages render as their sender built them. Until now the app flattened every message to
+plain text and the formatted version was buried two taps down, behind ··· → SHOW
+ORIGINAL, on a screen of its own. That is backwards: the HTML is the message.
+
+**Faithful, on white.** No stylesheet is injected and no color is forced. Restyling an
+email into this app's black and white was the obvious idea and it is a trap — a sender
+who sets a text color and no background comes out invisible, and every logo with a white
+matte glares anyway. So the message keeps its own page and sits on the app's black ground
+like a sheet of paper, with the sender, time and subject above it in the app's own type.
+
+**Images load now.** A remote image is a tracking pixel and blocking it is the careful
+default, but it meant half the mail arrived as a column of grey boxes, which reads as
+broken rather than careful. Settings → READING turns them off again, and says plainly what
+the trade is.
+
+**The plain-text reading is still there**, one tap away under ···, and it is still what a
+message with no HTML gets. Letters from people are nearly always plain, so the
+page-of-a-book setting is unchanged for exactly the mail it was designed for.
+
+JavaScript stays off, and the content is loaded with no base URL, so a message has no
+origin to resolve a relative reference against. Links open in the browser rather than
+navigating inside the message.
+
+**The home screen header is one line.** MAILBOX is gone — the app is open and its name is
+on the launcher — so LETTERS, the count and the icons share one row instead of two. That
+is three grid units of a 31-unit screen handed back to the mail.
+
+**A refresh button**, left of the settings icon. Mail already arrives on its own every
+fifteen minutes and on opening the app; this is for when you are waiting on something.
 ## v2.4 — Our own scanner
 
 The sign-in scanner used to be a third-party library that opened its own activity: a

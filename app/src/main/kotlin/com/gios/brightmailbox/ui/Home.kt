@@ -64,28 +64,65 @@ fun HomeScreen(vm: MailboxViewModel) {
     }
 
     Frame {
-        TopBar(onSettings = { vm.go(Screen.Settings) })
-
+        /*
+         * One line, not two.
+         *
+         * There used to be a MAILBOX title bar above a LETTERS / count row. The title
+         * said nothing — the app is already open and its name is on the launcher — and
+         * the two rows cost six grid units of a 31-unit screen before a single letter.
+         * LETTERS, the count and the settings icon share the top bar's height now, so the
+         * first row of mail sits that much higher.
+         */
         Row(
-            Modifier.fillMaxWidth(),
+            Modifier.fillMaxWidth().height(g.topBar),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            T("LETTERS", t.subheading)
-            // Fixed-width box so switching to Unlimited cannot reflow the header.
-            Box(Modifier.width(g * 5f), contentAlignment = Alignment.CenterEnd) {
-                if (unlimited) {
-                    T("${all.size} today", t.copy, Secondary)
-                } else {
-                    Row {
-                        T("${visible.size}", t.copy)
-                        T(" of ${Ration.FIVE.perDay}", t.copy, Secondary)
+            T("LETTERS", t.subheading, maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Fixed-width box so switching to Unlimited cannot reflow the header.
+                Box(Modifier.width(g * 5f), contentAlignment = Alignment.CenterEnd) {
+                    if (unlimited) {
+                        T("${all.size} today", t.copy, Secondary, maxLines = 1)
+                    } else {
+                        Row {
+                            T("${visible.size}", t.copy)
+                            T(" of ${Ration.FIVE.perDay}", t.copy, Secondary)
+                        }
                     }
                 }
+                Spacer(Modifier.width(g * 0.8f))
+                /*
+                 * Refresh, then settings. Sync already happens on open and every fifteen
+                 * minutes, so this is for the moment you are waiting on something and
+                 * would otherwise leave and come back to force it.
+                 *
+                 * It greys while a sync runs rather than spinning: there is no spinner
+                 * anywhere in this app, and a second tap during a sync is ignored by
+                 * syncNow() regardless.
+                 */
+                val busy by vm.busy.collectAsStateWithLifecycle()
+                androidx.compose.foundation.Image(
+                    painter = painterResource(R.drawable.ic_refresh_white),
+                    contentDescription = "Check for mail",
+                    contentScale = ContentScale.Fit,
+                    alpha = if (busy) 0.4f else 1f,
+                    modifier = Modifier.size(g.icon).lightClickable(enabled = !busy) {
+                        vm.syncNow()
+                    },
+                )
+                Spacer(Modifier.width(g * 0.8f))
+                androidx.compose.foundation.Image(
+                    painter = painterResource(R.drawable.ic_settings_white),
+                    contentDescription = "Settings",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(g.icon)
+                        .lightClickable { vm.go(Screen.Settings) },
+                )
             }
         }
 
-        Spacer(Modifier.height(g * 1.3f))
+        Spacer(Modifier.height(g * 1.1f))
 
         if (all.isEmpty()) {
             Nothing(vm)

@@ -26,7 +26,6 @@ import com.gios.brightmailbox.ui.HomeScreen
 import com.gios.brightmailbox.ui.LocalAccountWords
 import com.gios.brightmailbox.ui.MailboxViewModel
 import com.gios.brightmailbox.ui.NoticesScreen
-import com.gios.brightmailbox.ui.OriginalScreen
 import com.gios.brightmailbox.ui.PasswordScreen
 import com.gios.brightmailbox.ui.ReaderScreen
 import com.gios.brightmailbox.ui.RulesScreen
@@ -111,7 +110,6 @@ class MainActivity : ComponentActivity() {
                         Screen.FirstSync -> "FirstSync"
                         Screen.Home -> "Home"
                         is Screen.Read -> "Read"
-                        is Screen.Original -> "Original"
                         Screen.Notices -> "Notices"
                         is Screen.Write -> "Write"
                         Screen.Settings -> "Settings"
@@ -142,10 +140,6 @@ class MainActivity : ComponentActivity() {
                     is Screen.Read -> {
                         val msg = message(s.key)
                         if (msg == null) HomeScreen(vm) else ReaderScreen(vm, msg)
-                    }
-                    is Screen.Original -> {
-                        val msg = message(s.key)
-                        if (msg == null) HomeScreen(vm) else OriginalScreen(vm, msg)
                     }
                 }
                 }

@@ -101,8 +101,18 @@ class Repo private constructor(private val app: Context) {
         get() = prefs.getString("custom_sound", null)
         set(v) = prefs.edit().putString("custom_sound", v).apply()
 
+    /**
+     * Remote images in a rendered message.
+     *
+     * On by default from v2.5, which is a deliberate reversal. A remote image is a
+     * tracking pixel — it tells the sender the moment the message was opened, and
+     * roughly from where — and blocking is the privacy-preserving default every careful
+     * mail client picks. The cost was that half the mail the app renders arrived as a
+     * column of grey boxes, which made the reader look broken rather than careful.
+     * Switchable in Settings; the trade is named there rather than hidden.
+     */
     var showImages: Boolean
-        get() = prefs.getBoolean("images", false)
+        get() = prefs.getBoolean("images", true)
         set(v) = prefs.edit().putBoolean("images", v).apply()
 
     var lastSync: Long
@@ -291,7 +301,15 @@ class Repo private constructor(private val app: Context) {
         val svc = serviceFor(msg.accountId) ?: return@withContext Clean.Body(msg.snippet, 0)
         val c: Content = runCatching { svc.content(msg.providerId) }
             .getOrElse { return@withContext Clean.Body(msg.snippet, 0) }
-        c.html?.takeIf { it.isNotBlank() }?.let { runCatching { htmlFile(msg.key).writeText(it) } }
+        /*
+         * Always write the HTML file, empty when the message had none.
+         *
+         * The file's existence is the cached answer to "does this message have HTML",
+         * which the reader asks on every open. Writing it only when there IS html left
+         * plain-text mail with no cached answer, so every open of a plain message paid a
+         * fresh IMAP round trip to be told "no" again.
+         */
+        runCatching { htmlFile(msg.key).writeText(c.html?.takeIf { it.isNotBlank() }.orEmpty()) }
         val raw = c.text?.takeIf { it.isNotBlank() }
             ?: c.html?.let { Clean.fromHtml(it) }
             ?: msg.snippet
@@ -319,12 +337,20 @@ class Repo private constructor(private val app: Context) {
             }
         }
 
-    /** The sender's HTML, or null for a plain-text message. Fetched if not cached. */
+    /**
+     * The sender's HTML, or null for a plain-text message.
+     *
+     * An existing but empty file means "asked already, there is none" — see [body]. Only
+     * a missing file is worth a network round trip.
+     */
     suspend fun original(msg: Msg): String? = withContext(Dispatchers.IO) {
-        htmlFile(msg.key).takeIf { it.exists() }?.let { return@withContext it.readText() }
+        val cached = htmlFile(msg.key)
+        if (cached.exists()) return@withContext cached.readText().takeIf { it.isNotBlank() }
         val svc = serviceFor(msg.accountId) ?: return@withContext null
         val c = runCatching { svc.content(msg.providerId) }.getOrNull() ?: return@withContext null
-        c.html?.takeIf { it.isNotBlank() }?.also { runCatching { htmlFile(msg.key).writeText(it) } }
+        val html = c.html?.takeIf { it.isNotBlank() }
+        runCatching { cached.writeText(html.orEmpty()) }
+        html
     }
 
     /* -------------------------------------------------------------------- verbs */

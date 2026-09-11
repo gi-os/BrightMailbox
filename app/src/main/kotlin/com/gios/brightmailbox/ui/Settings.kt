@@ -164,6 +164,28 @@ fun SettingsScreen(vm: MailboxViewModel) {
                 modifier = Modifier.lightClickable { vm.go(Screen.Setup) },
             )
 
+            Section("READING")
+            var images by remember { mutableStateOf(vm.repo.showImages) }
+            T(
+                "Messages are shown the way their sender built them. Remote images are " +
+                    "part of that — and a remote image tells the sender the moment you " +
+                    "opened the message.",
+                t.detail,
+                Secondary,
+            )
+            Spacer(Modifier.height(g * 0.7f))
+            Row(
+                Modifier.fillMaxWidth().lightClickable {
+                    images = !images
+                    vm.repo.showImages = images
+                }.padding(vertical = g * 0.35f),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                T("Load images", t.copy, if (images) Content else Secondary)
+                T(if (images) "on" else "off", t.copy, Secondary)
+            }
+
             Section("SORTING")
             val rules by vm.rules.collectAsStateWithLifecycle()
             T(

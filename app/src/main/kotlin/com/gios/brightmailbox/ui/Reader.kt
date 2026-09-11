@@ -1,6 +1,12 @@
 package com.gios.brightmailbox.ui
 
+import android.content.Intent
+import android.net.Uri
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,7 +24,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightmailbox.R
 import com.gios.brightmailbox.data.Msg
@@ -49,6 +58,7 @@ import java.util.Locale
 fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
     val g = LocalGrid.current
     val t = LocalType.current
+    val context = LocalContext.current
     val body by vm.body.collectAsStateWithLifecycle()
     var showWhy by remember { mutableStateOf(false) }
 
@@ -72,46 +82,68 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             )
         }
 
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+        val html by vm.html.collectAsStateWithLifecycle()
+        val plainText by vm.plainText.collectAsStateWithLifecycle()
+        val formatted = !plainText && !html.isNullOrBlank()
+
+        /*
+         * The masthead does not scroll when the message is formatted.
+         *
+         * A WebView brings its own scrolling, and nesting that inside a scrollable Column
+         * gives a page where neither container knows who should move. So a formatted
+         * message is a fixed masthead with the sender's own page scrolling underneath it —
+         * which is also how it reads: a sheet of their paper on our ground. Plain text
+         * keeps the original single scroll, masthead and all, because that is the
+         * page-of-a-book layout the app was built around and it should not change.
+         */
+        if (formatted) {
             Spacer(Modifier.height(g * 1.4f))
-            Row(verticalAlignment = Alignment.Bottom) {
-                T(msg.senderName, t.heading, maxLines = 2, modifier = Modifier.weight(1f, fill = false))
-                Spacer(Modifier.height(g * 0.5f))
-                T(" " + accountWord(msg.accountId), t.superfine, Secondary)
-            }
-            Spacer(Modifier.height(g * 0.4f))
-            T(longStamp(msg.receivedAt), t.detail, Secondary)
-            Spacer(Modifier.height(g * 1.5f))
-            T(msg.subject.ifBlank { "(no subject)" }, t.copy)
-
-            // Three clear units. This is the whole trick.
-            Spacer(Modifier.height(g * 3f))
-
-            T(
-                // IMAP sends no snippet, so an uncached message has nothing to show while
-                // its text is fetched. Say what is happening rather than draw a blank page.
-                body?.text ?: msg.snippet.ifBlank { "getting the text…" },
-                t.paragraph,
-                lineHeight = readerLeading(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            body?.let { b ->
-                if (b.quotedMessages > 0) {
-                    Spacer(Modifier.height(g * 1.6f))
-                    T(
-                        if (b.quotedMessages == 1) "1 earlier message"
-                        else "${b.quotedMessages} earlier messages",
-                        t.detail,
-                        Secondary,
+            Masthead(vm, msg)
+            Spacer(Modifier.height(g * 1.2f))
+            HtmlBody(html.orEmpty(), vm.repo.showImages, Modifier.weight(1f)) { url ->
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
+                }.onFailure { vm.said("No browser here to open that.") }
+            }
+            Spacer(Modifier.height(g * 0.6f))
+        } else {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                Spacer(Modifier.height(g * 1.4f))
+                Masthead(vm, msg)
+
+                // Three clear units. This is the whole trick.
+                Spacer(Modifier.height(g * 3f))
+
+                T(
+                    // IMAP sends no snippet, so an uncached message has nothing to show
+                    // while its text is fetched. Say what is happening rather than draw a
+                    // blank page.
+                    body?.text ?: msg.snippet.ifBlank { "getting the text…" },
+                    t.paragraph,
+                    lineHeight = readerLeading(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                body?.let { b ->
+                    if (b.quotedMessages > 0) {
+                        Spacer(Modifier.height(g * 1.6f))
+                        T(
+                            if (b.quotedMessages == 1) "1 earlier message"
+                            else "${b.quotedMessages} earlier messages",
+                            t.detail,
+                            Secondary,
+                        )
+                    }
                 }
+                if (msg.hasAttachments) {
+                    Spacer(Modifier.height(g * 0.8f))
+                    T("attachments held", t.detail, Secondary)
+                }
+                Spacer(Modifier.height(g * 1.5f))
             }
-            if (msg.hasAttachments) {
-                Spacer(Modifier.height(g * 0.8f))
-                T("attachments held", t.detail, Secondary)
-            }
-            Spacer(Modifier.height(g * 1.5f))
         }
 
         if (showWhy) {
@@ -124,6 +156,76 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             )
         }
     }
+}
+
+/** Sender, time, subject — the same three lines whichever way the body is drawn. */
+@Composable
+private fun Masthead(vm: MailboxViewModel, msg: Msg) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    Row(verticalAlignment = Alignment.Bottom) {
+        T(msg.senderName, t.heading, maxLines = 2, modifier = Modifier.weight(1f, fill = false))
+        Spacer(Modifier.height(g * 0.5f))
+        T(" " + accountWord(msg.accountId), t.superfine, Secondary)
+    }
+    Spacer(Modifier.height(g * 0.4f))
+    T(longStamp(msg.receivedAt), t.detail, Secondary)
+    Spacer(Modifier.height(g * 1.5f))
+    T(msg.subject.ifBlank { "(no subject)" }, t.copy)
+}
+
+/**
+ * The message as its sender built it.
+ *
+ * **Faithful, on white.** No stylesheet is injected and no colour is forced. Overriding
+ * an email's CSS to match this app was the obvious idea and it is a trap: a sender who
+ * sets a text colour and no background, or the reverse, comes out invisible, and every
+ * logo with a white matte around it glares anyway. So the message keeps its own page and
+ * sits on the app's black ground like a sheet of paper.
+ *
+ * **JavaScript stays off.** Nothing in an email needs it, it is the whole remote-code
+ * surface, and `loadDataWithBaseURL(null, …)` gives the content no origin to resolve a
+ * relative reference against — which is one more way a message could phone home.
+ */
+@Composable
+private fun HtmlBody(
+    html: String,
+    images: Boolean,
+    modifier: Modifier = Modifier,
+    onLink: (String) -> Unit,
+) {
+    AndroidView(
+        modifier = modifier.fillMaxWidth().background(Color.White),
+        factory = { ctx ->
+            WebView(ctx).apply {
+                settings.javaScriptEnabled = false
+                settings.domStorageEnabled = false
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.blockNetworkImage = !images
+                settings.loadsImagesAutomatically = images
+                // Mail is written for a desktop column; without these a 600px table is
+                // drawn at 600 device pixels and the reader scrolls sideways forever.
+                settings.useWideViewPort = true
+                settings.loadWithOverviewMode = true
+                settings.builtInZoomControls = true
+                settings.displayZoomControls = false
+                setBackgroundColor(android.graphics.Color.WHITE)
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView,
+                        request: WebResourceRequest,
+                    ): Boolean {
+                        // Never navigate in here. A link is the web, and the web is the
+                        // browser's job.
+                        onLink(request.url.toString())
+                        return true
+                    }
+                }
+            }
+        },
+        update = { it.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null) },
+    )
 }
 
 /**
@@ -154,13 +256,19 @@ private fun WhySheet(vm: MailboxViewModel, msg: Msg, onClose: () -> Unit) {
                 .padding(vertical = g * 0.4f),
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            T(
-                "SHOW ORIGINAL",
-                t.button,
-                Secondary,
-                Modifier.lightClickable { vm.go(Screen.Original(msg.key)) },
-                maxLines = 1,
-            )
+            val plainText by vm.plainText.collectAsStateWithLifecycle()
+            val html by vm.html.collectAsStateWithLifecycle()
+            // Only offer the switch when there are two things to switch between. A plain
+            // message has no formatted version and the row would do nothing.
+            if (!html.isNullOrBlank()) {
+                T(
+                    if (plainText) "FORMATTED" else "PLAIN TEXT",
+                    t.button,
+                    Secondary,
+                    Modifier.lightClickable { vm.togglePlainText(); onClose() },
+                    maxLines = 1,
+                )
+            }
             T("CLOSE", t.button, Secondary, Modifier.lightClickable(onClick = onClose), maxLines = 1)
         }
     }

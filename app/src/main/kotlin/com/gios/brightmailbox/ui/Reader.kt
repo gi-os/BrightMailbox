@@ -5,6 +5,8 @@ import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.viewinterop.AndroidView
@@ -61,25 +64,13 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
     var showWhy by remember { mutableStateOf(false) }
 
     Frame {
-        Row(
-            Modifier.fillMaxWidth().height(g.topBar),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Image(
-                painter = painterResource(R.drawable.ic_back_white),
-                contentDescription = "Back",
-                modifier = Modifier.size(g * 1.6f).lightClickable { vm.go(Screen.Home) },
-            )
-            val read by vm.readToday.collectAsStateWithLifecycle()
-            val allowed by vm.allowed.collectAsStateWithLifecycle()
-            T(
-                if (allowed == Int.MAX_VALUE) "" else "$read / ${read + allowed}",
-                t.detail,
-                Secondary,
-            )
-        }
-
+        /*
+         * No top bar at all. The message is the screen.
+         *
+         * Back moved into the bottom bar beside the other two verbs, which is where a
+         * thumb already is on a 3.9" phone, and the ration counter went with the bar — it
+         * is a fact about the day, and the day belongs to Home.
+         */
         val html by vm.html.collectAsStateWithLifecycle()
         val plainText by vm.plainText.collectAsStateWithLifecycle()
         val formatted = !plainText && !html.isNullOrBlank()
@@ -149,13 +140,43 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
         if (showWhy) {
             WhySheet(vm, msg) { showWhy = false }
         } else {
-            ActionBar(
-                left = "REPLY" to { vm.go(Screen.Write(msg)) },
-                middle = "ARCHIVE" to { vm.archive(msg) },
-                right = "···" to { showWhy = true },
-            )
+            /*
+             * Icons, not words, and back at the head of them.
+             *
+             * Three verbs at `button` tracking filled most of a 27-unit row, which left
+             * no room for back once the top bar went. Icons are the SDK's own answer —
+             * LightBottomBar takes up to five icon items but only three if any of them is
+             * text — so dropping the words is what buys the fourth slot.
+             */
+            Row(
+                Modifier.fillMaxWidth().height(g.actionBar),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BarIcon(R.drawable.ic_back_white, "Back") { vm.go(Screen.Home) }
+                BarIcon(R.drawable.ic_reply_white, "Reply") { vm.go(Screen.Write(msg)) }
+                BarIcon(R.drawable.ic_archive_white, "Archive") { vm.archive(msg) }
+                T(
+                    "···",
+                    t.button,
+                    Secondary,
+                    Modifier.lightClickable { showWhy = true },
+                    maxLines = 1,
+                )
+            }
         }
     }
+}
+
+/** One bar verb. Sized to the SDK's bar-icon unit so it matches every other bar. */
+@Composable
+private fun BarIcon(res: Int, label: String, onClick: () -> Unit) {
+    val g = LocalGrid.current
+    Image(
+        painter = painterResource(res),
+        contentDescription = label,
+        modifier = Modifier.size(g * 2f).lightClickable(onClick = onClick),
+    )
 }
 
 /** Sender, time, subject — the same three lines whichever way the body is drawn. */
@@ -197,12 +218,25 @@ private fun HtmlBody(
     onLink: (String) -> Unit,
 ) {
     val document = remember(html, msg.key, account) { document(html, msg, account) }
+
+    /*
+     * Nothing is drawn until the page has actually painted, then it fades in.
+     *
+     * The first attempt at this made the WebView transparent, which only traded a white
+     * flash for a black one — the view was on screen, empty, over the app's black ground,
+     * and then the message appeared under it. `onPageCommitVisible` is the callback that
+     * means "there are real pixels now", so the view is held at zero opacity until then
+     * and crossfades from the black rather than snapping.
+     */
+    var painted by remember(msg.key) { mutableStateOf(false) }
+    val fade by animateFloatAsState(
+        targetValue = if (painted) 1f else 0f,
+        animationSpec = tween(durationMillis = 180),
+        label = "message",
+    )
+
     AndroidView(
-        // No background here, and the view itself is transparent below. Painting white
-        // under the WebView is what made opening a message flash: the rectangle was
-        // drawn a frame or two before the page had anything in it. The document brings
-        // its own white when it is ready, and until then the app's black shows through.
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().alpha(fade),
         factory = { ctx ->
             WebView(ctx).apply {
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -227,6 +261,12 @@ private fun HtmlBody(
                         // browser's job.
                         onLink(request.url.toString())
                         return true
+                    }
+
+                    // "The page has painted something." onPageFinished is too late — it
+                    // waits for every image — and too early is the flash this replaces.
+                    override fun onPageCommitVisible(view: WebView, url: String?) {
+                        painted = true
                     }
                 }
             }
@@ -258,10 +298,20 @@ private fun document(html: String, msg: Msg, account: String): String {
     val subject = esc(msg.subject.ifBlank { "(no subject)" })
     val stamp = esc(longStamp(msg.receivedAt) + " · " + account)
 
+    /*
+     * The body is TRANSPARENT and the sheet inside it is white, starting 14px down.
+     *
+     * That gap is the app's black ground showing above the message, and because it is
+     * margin inside the scrolling document rather than padding on the view, it scrolls
+     * away with the content instead of sitting there as a permanent black bar at the top.
+     * Making the body itself white would have put the sheet hard against the screen edge;
+     * putting the gap on the WebView would have pinned it.
+     */
     return """<!doctype html><html><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-</head><body style="margin:0;background:#fff;-webkit-text-size-adjust:100%">
+</head><body style="margin:0;background:transparent;-webkit-text-size-adjust:100%">
+<div style="margin-top:14px;background:#fff">
 <div style="padding:22px 20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#000">
   <div style="font-size:25px;line-height:1.2;font-weight:400;color:#000">$sender</div>
   <div style="font-size:13px;line-height:1.5;color:#777;margin-top:5px">$stamp</div>
@@ -269,6 +319,7 @@ private fun document(html: String, msg: Msg, account: String): String {
 </div>
 <div style="height:1px;background:#e2e2e2;margin:20px 20px 0"></div>
 $html
+</div>
 </body></html>"""
 }
 

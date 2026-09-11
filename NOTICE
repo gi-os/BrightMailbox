@@ -5,10 +5,15 @@ MIT licence — see LICENSE.
 Design system
 -------------
 The grid, type scale and interaction rules are ported from lightphone/light-sdk,
-which is MIT licensed. ic_settings_white.xml, ic_back_white.xml and
-ic_refresh_white.xml are that project's own files, used unchanged under the same
-licence, so the bars look like every other bar on the phone. The remaining icons
-are drawn for this app.
+which is MIT licensed. ic_settings_white.xml, ic_back_white.xml,
+ic_refresh_white.xml and ic_reply_white.xml (the SDK's ic_directions_uturn_left)
+are that project's own files, used unchanged under the same licence, so the bars
+look like every other bar on the phone.
+
+ic_archive_white.xml is drawn for this app, to the same 60x60 viewport and 4.0
+stroke, because the SDK has 105 icons and none of them is archive. The closest
+was ic_trash, and using it would have been a lie: archive moves a message to All
+Mail and delete does not.
 
 Sounds
 ------

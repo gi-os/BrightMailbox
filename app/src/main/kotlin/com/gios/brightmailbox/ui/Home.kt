@@ -50,7 +50,6 @@ fun HomeScreen(vm: MailboxViewModel) {
 
     val all by vm.letters.collectAsStateWithLifecycle()
     val notices by vm.notices.collectAsStateWithLifecycle()
-    val noticeCount by vm.noticeCount.collectAsStateWithLifecycle()
     val waiting by vm.waiting.collectAsStateWithLifecycle()
     val allowed by vm.allowed.collectAsStateWithLifecycle()
 
@@ -58,7 +57,7 @@ fun HomeScreen(vm: MailboxViewModel) {
     val visible = vm.visibleLetters(all)
 
     if (vm.dayDone && all.isNotEmpty()) {
-        DayDone(vm, waiting)
+        DayDone(vm, waiting, notices.size)
         return
     }
 
@@ -136,7 +135,21 @@ fun HomeScreen(vm: MailboxViewModel) {
 
         Spacer(Modifier.height(g * 1.1f))
 
-        if (all.isEmpty()) {
+        /*
+         * "Nothing yet" means nothing at all — letters AND notices.
+         *
+         * This used to be `if (all.isEmpty())`, and `letters()` is
+         * `pile='LETTER' AND NOT archived AND NOT readHere`. So the moment you had read
+         * your letters, Home took this early return and drew a screen whose action bar is
+         * WRITE and nothing else — no notice rows, no NOTICES button, and that button is
+         * the only route to Screen.Notices there has ever been. Mail was fetched, sorted,
+         * stored, and unreachable.
+         *
+         * That is the bug behind the first field report this app got ("a notice came in
+         * and it isn't populating even after refreshing"). The sync was fine. The report
+         * even said so — `last sync: 0 min ago` with no error beside it.
+         */
+        if (all.isEmpty() && notices.isEmpty()) {
             Nothing(vm)
             return@Frame
         }
@@ -147,7 +160,17 @@ fun HomeScreen(vm: MailboxViewModel) {
         ) {
             items(visible, key = { it.key }) { m -> LetterRow(m) { vm.open(m) } }
 
-            if (!unlimited && notices.isNotEmpty()) {
+            if (all.isEmpty()) {
+                item { T("No letters. Notices below.", t.detail, Secondary) }
+            }
+
+            /*
+             * Unlimited normally puts notices behind the bar button so letters fill the
+             * screen. `all.isEmpty()` is the exception: with no letters to fill it, that
+             * rule leaves a blank page above a button, which is what "it isn't
+             * populating" looked like.
+             */
+            if ((!unlimited || all.isEmpty()) && notices.isNotEmpty()) {
                 item {
                     Spacer(Modifier.height(g * 1.1f))
                     Row(
@@ -156,7 +179,7 @@ fun HomeScreen(vm: MailboxViewModel) {
                         verticalAlignment = Alignment.Bottom,
                     ) {
                         T("NOTICES", t.detail, Secondary)
-                        T("$noticeCount", t.detail, Secondary)
+                        T("${notices.size}", t.detail, Secondary)
                     }
                     Spacer(Modifier.height(g * 0.6f))
                 }
@@ -165,7 +188,7 @@ fun HomeScreen(vm: MailboxViewModel) {
                 }
                 item {
                     T(
-                        "see all $noticeCount →",
+                        "see all ${notices.size} →",
                         t.detail,
                         Secondary,
                         Modifier
@@ -178,10 +201,18 @@ fun HomeScreen(vm: MailboxViewModel) {
             }
         }
 
+        /*
+         * The badge counts every notice, not the unread ones.
+         *
+         * `noticeCount` is `… AND unread`, so a notice that arrived already read on the
+         * server — which is most of them, if you have the mailbox open anywhere else —
+         * made the button read "NOTICES 0" over a list with a dozen things in it. A route
+         * that says zero is a route nobody takes.
+         */
         ActionBar(
             left = "WRITE" to { vm.go(Screen.Write()) },
-            right = if (unlimited) {
-                "NOTICES $noticeCount" to { vm.go(Screen.Notices) }
+            right = if (unlimited || notices.isNotEmpty()) {
+                "NOTICES ${notices.size}" to { vm.go(Screen.Notices) }
             } else {
                 "MARK ALL READ" to { vm.markAllNoticesRead() }
             },
@@ -199,7 +230,7 @@ fun HomeScreen(vm: MailboxViewModel) {
  * is that there is nothing to do.
  */
 @Composable
-private fun DayDone(vm: MailboxViewModel, waiting: Int) {
+private fun DayDone(vm: MailboxViewModel, waiting: Int, notices: Int) {
     val g = LocalGrid.current
     val t = LocalType.current
     Frame {
@@ -223,6 +254,15 @@ private fun DayDone(vm: MailboxViewModel, waiting: Int) {
                 .lightClickable { vm.unlockOneMore() }
                 .padding(bottom = g * 1.7f),
         )
+        /*
+         * The day being done says nothing about the notices, and this screen used to be
+         * another dead end: no bar, no route, and the receipts still sitting there. The
+         * point of the screen is that there is nothing left to DO, not that there is
+         * nothing left to see.
+         */
+        if (notices > 0) {
+            ActionBar(left = null, right = "NOTICES $notices" to { vm.go(Screen.Notices) })
+        }
     }
 }
 

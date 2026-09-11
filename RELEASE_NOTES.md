@@ -1,3 +1,31 @@
+## v2.7 — The notices were always there
+
+**Fixed: notices you could not get to.** Report #351 said "not fetching notices", and the
+fetching was fine — the report proved it, with "last sync 0 min ago" and no error beside
+it. The mail was arriving, being sorted, and being stored. It just had nowhere to appear.
+
+Home drew "Nothing yet." whenever there were no *letters* waiting, and that screen's only
+button is WRITE. The NOTICES button is the single route to the notices list anywhere in
+the app, and it lives on the screen you were no longer being shown. So: read your letters,
+and every receipt and newsletter that arrived afterwards became invisible.
+
+Three fixes. "Nothing yet" now means nothing at all, letters and notices both. With no
+letters, the notices are listed on Home instead of hidden behind the ration rule. And the
+day-done screen has a route out too, which it also lacked.
+
+**The count on that button was wrong as well** — it counted unread notices, so a notice
+that arrived already read somewhere else showed "NOTICES 0" over a list with a dozen
+things in it. It counts what the list holds now.
+
+**Opening a message no longer flashes.** The last release traded a white flash for a black
+one; the page is now held back until it has actually painted and then fades in.
+
+**The reader has no top bar.** The message is the screen. Back moved down beside the other
+verbs, and reply and archive are icons — which is what buys the room for a fourth item on
+a 27-unit row.
+
+**The message starts just below the top edge**, so a strip of black shows above it, and
+that strip scrolls away with the content rather than sitting there as a bar.
 ## v2.6 — Say when the mail did not arrive
 
 **A failed check used to look exactly like an empty inbox.** Every per-account error was

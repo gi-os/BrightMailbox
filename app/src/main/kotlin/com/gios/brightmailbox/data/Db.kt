@@ -158,6 +158,15 @@ interface MailDao {
     @Query("SELECT MAX(receivedAt) FROM messages WHERE accountId = :accountId")
     suspend fun newestFor(accountId: String): Long?
 
+    /**
+     * Everything that came to one mailbox, for when that mailbox is removed.
+     *
+     * Without this the rows outlive the credential: they still draw in both piles, and
+     * opening one asks a connection that no longer exists for a body.
+     */
+    @Query("DELETE FROM messages WHERE accountId = :accountId")
+    suspend fun deleteAccount(accountId: String)
+
     /* ----------------------------------------------------------------- rules */
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

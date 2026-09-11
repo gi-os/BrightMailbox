@@ -154,6 +154,10 @@ fun T(
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Ellipsis,
     lineHeight: TextUnit = TextUnit.Unspecified,
+    // For text that is one line by its nature — a count, a clock, a label in a bar.
+    // maxLines alone is not enough: it lets the line break and then hides the rest, so a
+    // number can still lose its tail. softWrap = false refuses the break in the first place.
+    softWrap: Boolean = true,
 ) = Text(
     text = text,
     style = if (lineHeight == TextUnit.Unspecified) style else style.copy(lineHeight = lineHeight),
@@ -161,6 +165,7 @@ fun T(
     modifier = modifier,
     maxLines = maxLines,
     overflow = overflow,
+    softWrap = softWrap,
     fontFamily = FontFamily.SansSerif,
 )
 

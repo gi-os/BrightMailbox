@@ -3,6 +3,7 @@ package com.gios.brightmailbox.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.gios.brightmailbox.data.Depth
 import com.gios.brightmailbox.data.Msg
 import com.gios.brightmailbox.data.Ration
 import com.gios.brightmailbox.data.Repo
@@ -31,9 +32,15 @@ sealed interface Screen {
     data class Write(val replyTo: Msg? = null) : Screen
     data object Settings : Screen
     data object Rules : Screen
+    /** One mailbox: rename it, or remove it. */
+    data class AccountScreen(val id: String) : Screen
+    /** Typing in the OAuth client id for a build that shipped without one. */
+    data class ClientId(val service: com.gios.brightmailbox.auth.Service) : Screen
 }
 
 data class SyncProgress(val done: Int, val total: Int, val letters: Int, val notices: Int)
+
+private const val PREFETCH = 8
 
 class MailboxViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -73,6 +80,32 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     private val _body = MutableStateFlow<Clean.Body?>(null)
     val body: StateFlow<Clean.Body?> = _body.asStateFlow()
 
+    /**
+     * The message being read, held here rather than looked up in the lists.
+     *
+     * The reader used to find its message by key in `letters + notices`, and opening a
+     * Letter sets `readHere`, which is a column the Letters query filters on. So the row
+     * left the list a second after it was opened, the lookup returned null, and the reader
+     * was replaced by the home screen mid-read — "opening an email immediately exits the
+     * email". The screen being read must not depend on a query whose whole job is to stop
+     * listing what has been read.
+     */
+    private val _opened = MutableStateFlow<Msg?>(null)
+    val opened: StateFlow<Msg?> = _opened.asStateFlow()
+
+    /**
+     * The signed-in mailboxes, as state rather than as a call.
+     *
+     * `auth.accounts()` reads SharedPreferences and returns a fresh list, so a screen that
+     * called it directly never noticed a rename — it had no reason to recompose. Every
+     * screen that names an account reads this instead, and anything that changes an
+     * account calls [refreshAccounts].
+     */
+    private val _accounts = MutableStateFlow(repo.auth.accounts())
+    val accounts: StateFlow<List<com.gios.brightmailbox.auth.Account>> = _accounts.asStateFlow()
+
+    fun refreshAccounts() { _accounts.value = repo.auth.accounts() }
+
     init { refreshRation() }
 
     fun go(s: Screen) {
@@ -108,8 +141,17 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         refreshRation()
     }
 
+    /**
+     * Open a Letter or a Notice.
+     *
+     * The body is usually on disk already — [Repo.prefetchBodies] fetches the ones on the
+     * front screen as soon as a sync finishes — so this is normally instant. When it is
+     * not, the screen is up first and the text arrives into it, rather than the tap doing
+     * nothing for two seconds.
+     */
     fun open(msg: Msg) = viewModelScope.launch {
         _body.value = null
+        _opened.value = msg
         go(Screen.Read(msg.key))
         _body.value = repo.body(msg)
         repo.open(msg)
@@ -160,7 +202,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         val result = repo.auth.signInWithPassword(service, email, password)
         _busy.value = false
         result.fold(
-            onSuccess = { onDone(null); firstSync() },
+            onSuccess = { onDone(null); refreshAccounts(); firstSync() },
             onFailure = { onDone(it.message ?: "That did not work.") },
         )
     }
@@ -179,7 +221,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
                 val r = repo.auth.signInWithPassword(p.service, p.email, p.password)
                 _busy.value = false
                 r.fold(
-                    onSuccess = { firstSync() },
+                    onSuccess = { refreshAccounts(); firstSync() },
                     onFailure = { said(it.message ?: "That code did not work.") },
                 )
             }
@@ -192,6 +234,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
             said("Sign-in didn't complete.")
             return@launch
         }
+        refreshAccounts()
         firstSync().join()
     }
 
@@ -206,6 +249,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
             }
         }.onFailure { said("Sync failed. It will keep trying in the background.") }
         refreshRation()
+        prefetch()
     }
 
     fun syncNow() = viewModelScope.launch {
@@ -215,6 +259,20 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
             .onFailure { said("Couldn't reach the server.") }
         _busy.value = false
         refreshRation()
+        prefetch()
+    }
+
+    /**
+     * Fetch the text of the Letters on the front screen, quietly, after a sync.
+     *
+     * IMAP carries no snippet, so an unfetched message has nothing to show while its body
+     * is on its way — the reader opens on an empty page for as long as the round trip
+     * takes. The ration means the number of Letters that can be opened today is small and
+     * known, so fetching exactly those costs one short burst on a connection that is
+     * already open and makes every open instant.
+     */
+    private fun prefetch() = viewModelScope.launch {
+        runCatching { repo.prefetchBodies(letters.value.take(PREFETCH), notices.value.take(2)) }
     }
 
     /* -------------------------------------------------------------------- writing */
@@ -232,5 +290,51 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     fun setRation(r: Ration) {
         repo.ration = r
         refreshRation()
+    }
+
+    /**
+     * Change how much history a first sync reads.
+     *
+     * Choosing a bigger number is a request for the mail that number describes, so it runs
+     * the deep sync again rather than waiting for the next fresh install. Choosing a
+     * smaller one deletes nothing: what has been fetched stays.
+     */
+    fun setDepth(d: Depth) {
+        val deeper = d.perAccount > repo.depth.perAccount
+        repo.depth = d
+        if (deeper && repo.auth.isSignedIn) firstSync()
+    }
+
+    /**
+     * Give a service its OAuth client id from the phone.
+     *
+     * A build with no id in it has a dead ADD button, and the id is not a secret — it is
+     * the public half of a registration anyone can make in three minutes. Typing it here
+     * is the difference between "rebuild the app" and "sign in", which matters because the
+     * person holding the phone is rarely the person holding the build.
+     */
+    fun setClientId(service: com.gios.brightmailbox.auth.Service, raw: String) =
+        viewModelScope.launch {
+            if (repo.auth.setClientId(service, raw)) {
+                refreshAccounts()
+                said("Saved. Now sign in.")
+                go(Screen.Setup)
+            } else {
+                said("That is not a client id. It looks like 8-4-4-4-12 characters.")
+            }
+        }
+
+    fun renameAccount(id: String, name: String) {
+        repo.auth.setName(id, name)
+        refreshAccounts()
+        go(Screen.Settings)
+    }
+
+    /** Remove a mailbox. Its mail goes with it — the rows are keyed by account. */
+    fun forgetAccount(id: String) = viewModelScope.launch {
+        repo.auth.forget(id)
+        runCatching { repo.dao.deleteAccount(id) }
+        refreshAccounts()
+        if (repo.auth.isSignedIn) go(Screen.Settings) else go(Screen.Setup)
     }
 }

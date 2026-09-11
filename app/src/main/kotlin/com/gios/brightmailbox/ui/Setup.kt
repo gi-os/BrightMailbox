@@ -63,7 +63,13 @@ fun SetupScreen(vm: MailboxViewModel) {
             Column(
                 Modifier
                     .fillMaxWidth(0.8f)
-                    .lightClickable(enabled = ready) {
+                    /*
+                     * A service with no client id used to be an unclickable row reading
+                     * "not set up in this build", which is a wall with the fix written on
+                     * the other side of it. Tapping it now asks for the id.
+                     */
+                    .lightClickable {
+                        if (!ready) return@lightClickable vm.go(Screen.ClientId(s))
                         when (s.authKind) {
                             AuthKind.APP_PASSWORD -> vm.go(Screen.Password(s))
                             /*
@@ -91,7 +97,7 @@ fun SetupScreen(vm: MailboxViewModel) {
                 Spacer(Modifier.height(g * 0.25f))
                 T(
                     when {
-                        !ready -> "not set up in this build"
+                        !ready -> "needs a client id — tap to add one"
                         s.authKind == AuthKind.APP_PASSWORD -> "an app password, no browser"
                         else -> "opens the browser once"
                     },
@@ -196,6 +202,45 @@ fun PasswordScreen(vm: MailboxViewModel, service: Service, onScan: () -> Unit = 
 }
 
 /**
+ * The OAuth client id, typed in.
+ *
+ * Only reachable when a build shipped without one. The id is public by design — a mobile
+ * client has no secret, and the redirect URI is fixed by the package name — so there is
+ * nothing here that should not be typed on a phone. What it is and how to make one is in
+ * SETUP.md; the short version is on this screen because nobody reads a file from a phone.
+ */
+@Composable
+fun ClientIdScreen(vm: MailboxViewModel, service: Service) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    var id by remember { mutableStateOf(TextFieldValue("")) }
+
+    Frame {
+        TopBar(service.label.uppercase())
+        Spacer(Modifier.height(g * 1.2f))
+        T("A client\nid.", t.title)
+        Spacer(Modifier.height(g * 0.8f))
+        T(
+            "This build has none, so ${service.label} cannot sign in yet. Register a free " +
+                "app at entra.microsoft.com and paste its Application (client) ID here. " +
+                "SETUP.md has the five steps.",
+            t.detail,
+            Secondary,
+        )
+        Spacer(Modifier.height(g * 1.2f))
+        Field("CLIENT ID", id, { id = it }, g, t)
+        Spacer(Modifier.height(g * 0.5f))
+        T("Eight-four-four-four-twelve characters, with dashes.", t.superfine, Secondary)
+
+        Spacer(Modifier.weight(1f))
+        ActionBar(
+            left = "BACK" to { vm.go(Screen.Setup) },
+            right = "SAVE" to { vm.setClientId(service, id.text) },
+        )
+    }
+}
+
+/**
  * First sync. Progress is a count and the two piles fill in front of you.
  *
  * No spinner. There is no spinner anywhere in this app: progress is either a number of
@@ -210,13 +255,27 @@ fun FirstSyncScreen(vm: MailboxViewModel) {
     Frame {
         TopBar("FIRST SYNC")
         Spacer(Modifier.height(g * 3f))
+        /*
+         * "of 1600" is not the number, so it is not drawn at the size of the number.
+         *
+         * Both halves used to be `t.title` — around 90 sp on this screen — and four digits
+         * either side of it is wider than the phone, so the row wrapped and the count sat
+         * on two lines. The count keeps the title size and the total sits beside it in the
+         * body size, on the same baseline. Neither half wraps: `softWrap = false` is the
+         * guarantee, because a count is a number that happens to be long sometimes.
+         */
         Row(verticalAlignment = Alignment.Bottom) {
-            T("${p?.done ?: 0}", t.title)
-            T(
-                if ((p?.total ?: 0) > 0) " of ${p?.total}" else "",
-                t.title,
-                Secondary,
-            )
+            T("${p?.done ?: 0}", t.title, maxLines = 1, softWrap = false)
+            if ((p?.total ?: 0) > 0) {
+                T(
+                    " of ${p?.total}",
+                    t.copy,
+                    Secondary,
+                    Modifier.padding(bottom = g * 0.55f),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
         }
         Spacer(Modifier.height(g * 0.7f))
         T("messages read and sorted", t.detail, Secondary)

@@ -33,6 +33,31 @@ enum class Ration(val key: String, val label: String, val perDay: Int) {
 }
 
 /**
+ * How far back the first sync reads, per account.
+ *
+ * This is history, not a cap on the mailbox: every message that arrives afterwards is
+ * fetched whatever this says. It only decides how much of the past is there on day one —
+ * and the past is what the sorter learns from, so a bigger number is a better sort and a
+ * longer wait. 400 was hardcoded until someone asked whether it was a limit.
+ *
+ * [EVERYTHING] has no number, so the first-sync screen counts up with no total rather than
+ * pretending to know one.
+ */
+enum class Depth(val key: String, val label: String, val perAccount: Int) {
+    SHORT("200", "200 messages", 200),
+    NORMAL("400", "400 messages", 400),
+    LONG("2000", "2,000 messages", 2_000),
+    EVERYTHING("all", "Everything", Int.MAX_VALUE);
+
+    /** What to show as the total while syncing. Zero means "do not claim one". */
+    val estimate: Int get() = if (this == EVERYTHING) 0 else perAccount
+
+    companion object {
+        fun of(k: String?) = entries.firstOrNull { it.key == k } ?: NORMAL
+    }
+}
+
+/**
  * Everything above the network and below the UI.
  */
 class Repo private constructor(private val app: Context) {
@@ -63,6 +88,10 @@ class Repo private constructor(private val app: Context) {
     var ration: Ration
         get() = Ration.of(prefs.getString("ration", null))
         set(v) = prefs.edit().putString("ration", v.key).apply()
+
+    var depth: Depth
+        get() = Depth.of(prefs.getString("depth", null))
+        set(v) = prefs.edit().putString("depth", v.key).apply()
 
     var chime: Chime
         get() = Chime.of(prefs.getString("chime", null))
@@ -162,13 +191,16 @@ class Repo private constructor(private val app: Context) {
     /**
      * A first sync: walk further back, and learn from what is there.
      *
+     * @param howFar how much history to read per account. The user's setting by default —
+     *   see [Depth]. This has never been a cap on the mailbox: new mail arrives regardless.
      * @param onProgress called with (done, total-ish) so the setup screen can count
      *   rather than spin. There is no spinner anywhere in this app.
      */
     suspend fun firstSync(
-        perAccount: Int = 400,
+        howFar: Depth = depth,
         onProgress: (Int, Int, Int, Int) -> Unit = { _, _, _, _ -> },
     ) = withContext(Dispatchers.IO) {
+        val perAccount = howFar.perAccount
         val mine = myAddresses()
 
         // Who has the user written to? This is the strongest classification signal in
@@ -190,7 +222,10 @@ class Repo private constructor(private val app: Context) {
         var done = 0
         var letters = 0
         var notices = 0
-        val estimate = auth.accounts().size * perAccount
+        // Not `accounts * perAccount`: "Everything" is Int.MAX_VALUE and that multiplication
+        // overflows into a negative total, which the screen would draw. Zero is the honest
+        // answer when the size of the job is unknown, and the screen shows no total for it.
+        val estimate = howFar.estimate * auth.accounts().size
 
         for (account in auth.accounts()) {
             val svc = serviceFor(account.id) ?: continue
@@ -263,6 +298,26 @@ class Repo private constructor(private val app: Context) {
         runCatching { f.writeText(raw) }
         Clean.body(raw)
     }
+
+    /**
+     * Put the text of the messages about to be opened on disk, before they are opened.
+     *
+     * Bodies are cached by [body] on first open, which means the first open of every
+     * message pays a round trip with nothing on screen: IMAP sends no snippet, so there is
+     * not even a first line to show while it waits. This walks a short list, skips
+     * everything already cached, and swallows every failure — it is an optimisation, and
+     * an optimisation that can break the sync it rides on is not one.
+     *
+     * Sequential on purpose. The connection is pooled one per account, and Gmail locks a
+     * mailbox for up to 24 hours past fifteen simultaneous IMAP connections.
+     */
+    suspend fun prefetchBodies(letters: List<Msg>, notices: List<Msg> = emptyList()) =
+        withContext(Dispatchers.IO) {
+            for (m in letters + notices) {
+                if (bodyFile(m.key).exists()) continue
+                runCatching { body(m) }
+            }
+        }
 
     /** The sender's HTML, or null for a plain-text message. Fetched if not cached. */
     suspend fun original(msg: Msg): String? = withContext(Dispatchers.IO) {

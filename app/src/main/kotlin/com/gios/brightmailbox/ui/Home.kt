@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -306,8 +307,25 @@ fun clock(at: Long): String =
     if (at == 0L) "never" else SimpleDateFormat("h:mma", Locale.getDefault())
         .format(Date(at)).lowercase()
 
-/** "google:gio@x.com" -> "gmail". */
+/**
+ * What to call the mailbox a message came to.
+ *
+ * The user's name for it when there is one, and the provider otherwise. Read from a
+ * composition local rather than passed down because the three places that need it — a
+ * Letter row, the reader's header, the line above a reply — are at three different depths,
+ * and none of them has any other reason to know about accounts.
+ *
+ * `compositionLocalOf`, not `staticCompositionLocalOf`: a rename has to repaint the rows
+ * that show it, and a static local does not invalidate its readers.
+ */
+val LocalAccountWords = compositionLocalOf { emptyMap<String, String>() }
+
+@Composable
 fun accountWord(accountId: String): String =
+    LocalAccountWords.current[accountId] ?: providerWord(accountId)
+
+/** "google:gio@x.com" -> "gmail". The fallback, and what an unnamed account shows. */
+fun providerWord(accountId: String): String =
     when (accountId.substringBefore(':')) {
         "google" -> "gmail"
         "microsoft" -> "outlook"

@@ -74,11 +74,53 @@ without touching anything else you own.
 Tap **ADD OUTLOOK**, sign in, agree. That is the whole procedure.
 
 Microsoft finished retiring Basic authentication for IMAP in April 2026, so a password
-would simply be refused — Outlook has to use OAuth. The saving grace is that Microsoft
-imposes no user cap, so one app registration covers everybody and it is already built
-into the APK.
+would simply be refused — Outlook has to use OAuth. There is no app-password route for
+Outlook, for anyone, in any client: app passwords *are* Basic authentication, they were
+switched off with it, and new ones cannot be issued. The saving grace is that Microsoft
+imposes no user cap, so one app registration covers everybody.
 
 Personal accounts and work or school accounts both work.
+
+### If ADD OUTLOOK is grey and says "not set up in this build"
+
+That build has no client id in it. The id is not a secret — a public client has none —
+but it is not in the source either, so a build made without one cannot sign in to
+Microsoft. Register one once and every build afterwards has it:
+
+1. Go to <https://entra.microsoft.com> → **Applications** → **App registrations** → **New
+   registration**.
+2. Name it anything. Under **Supported account types** choose **Accounts in any
+   organizational directory and personal Microsoft accounts** — the multi-tenant option.
+   Anything narrower refuses either work accounts or outlook.com ones.
+3. Skip the redirect URI on that page. Register, then open **Authentication** →
+   **Add a platform** → **Mobile and desktop applications** → **Custom redirect URIs**,
+   and add exactly:
+
+   ```
+   com.gios.brightmailbox://oauth2redirect
+   ```
+
+   Microsoft stores what you type and compares it literally, so a trailing slash or a
+   capital letter is a different URI and the sign-in ends on `redirect_uri_mismatch`.
+4. **API permissions** → **Add a permission** → **APIs my organization uses** → search
+   *Office 365 Exchange Online* → **Delegated** → tick `IMAP.AccessAsUser.All` and
+   `SMTP.Send`. Graph's `Mail.*` permissions are the wrong ones: an IMAP server refuses a
+   Graph token with a bare authentication failure that reads exactly like a bad password.
+5. Copy the **Application (client) ID** from the Overview page.
+
+Then give it to the build, whichever suits:
+
+- **CI** — add it as the repository secret `MICROSOFT_CLIENT_ID`. `build.yml` already
+  passes it through; nothing else changes.
+- **A local build** — put `microsoftClientId=<the id>` in `local.properties`.
+- **A phone that already has the APK** — no rebuild needed. The id can be typed or
+  scanned in at runtime and is stored beside the credentials. Signing in again after
+  changing it is required: a refresh token belongs to the client that issued it, so the
+  app drops Microsoft accounts when the id changes rather than leaving them to fail
+  silently on the next sync.
+
+No verification, no review and no fee: a multi-tenant public client that asks only for
+delegated mail permissions is approved by the user signing in, not by Microsoft.
 
 ### If your workplace blocks it
 

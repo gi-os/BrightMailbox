@@ -21,13 +21,28 @@ import java.util.concurrent.TimeUnit
 /** The refresh token was revoked or expired; only fresh consent will fix it. */
 class ReauthRequired(val accountId: String, message: String) : IOException(message)
 
-/** One signed-in mailbox. */
+/**
+ * One signed-in mailbox.
+ *
+ * [name] is the user's own word for it and is usually empty. It exists because the
+ * provider's name stops identifying an account the moment there are two of them: a row
+ * stamped "gmail" twice says nothing about which mailbox a letter came to. "work",
+ * "mum's", "the band" do.
+ */
 data class Account(
     val id: String,
     val service: Service,
     val email: String,
+    val name: String = "",
 ) {
+    /** The provider, for the setup screen, which is talking about services not mailboxes. */
     val label: String get() = service.label
+
+    /** What to call this account anywhere it is named. The user's word wins. */
+    val word: String get() = name.ifBlank { service.label }
+
+    /** Full identification, for the settings list. */
+    val title: String get() = name.ifBlank { email }
 }
 
 /**
@@ -122,9 +137,28 @@ class AuthManager(context: Context) {
         (prefs.getStringSet(KEY_ACCOUNTS, emptySet()) ?: emptySet())
             .mapNotNull { id ->
                 val svc = Service.of(prefs.getString("svc_$id", null)) ?: return@mapNotNull null
-                Account(id, svc, prefs.getString("email_$id", "") ?: "")
+                Account(
+                    id,
+                    svc,
+                    prefs.getString("email_$id", "") ?: "",
+                    prefs.getString("name_$id", "") ?: "",
+                )
             }
             .sortedBy { it.email }
+
+    /**
+     * Rename a mailbox, or clear the name by passing a blank one.
+     *
+     * Trimmed and capped at 24 characters because this word is drawn in a list row beside
+     * a sender and a subject, and a long one would push both off the screen. Nothing else
+     * validates it: it is the user's word for their own mailbox.
+     */
+    fun setName(id: String, name: String) {
+        val clean = name.trim().take(24)
+        prefs.edit().apply {
+            if (clean.isEmpty()) remove("name_$id") else putString("name_$id", clean)
+        }.apply()
+    }
 
     val isSignedIn: Boolean get() = accounts().isNotEmpty()
 
@@ -135,7 +169,7 @@ class AuthManager(context: Context) {
         set.remove(id)
         prefs.edit()
             .putStringSet(KEY_ACCOUNTS, set)
-            .remove("svc_$id").remove("email_$id").remove("secret_$id")
+            .remove("svc_$id").remove("email_$id").remove("secret_$id").remove("name_$id")
             .remove("refresh_$id").remove("access_$id").remove("expiry_$id")
             .remove("pass_$id")
             .apply()

@@ -23,9 +23,11 @@ Gmail with an app password. Outlook with one tap. Nothing to register.
 <https://gi-os.github.io/BrightMailbox/>, and scan the QR — or type it, if you prefer a
 3.9-inch keyboard to a camera.
 
-**Outlook** takes one tap. Microsoft finished retiring Basic auth for IMAP in April
-2026, so it has to be OAuth — but Microsoft caps nothing, so the one client id is
-already in the APK.
+**Outlook** takes one tap, once the build has a client id. Microsoft finished retiring
+Basic auth for IMAP in April 2026, so it has to be OAuth — there is no app-password route
+for Outlook in any client, because app passwords are Basic auth and went with it. The
+saving grace is that Microsoft caps nothing, so one registration covers everybody. A
+build made without that id says so on the row and takes the id when you tap it.
 
 The asymmetry is not an accident and it is worth knowing, because it reverses what most
 people assume. Every Google scope that can read mail is **restricted**: capped at 100
@@ -139,10 +141,15 @@ succeeds and the app falls back to the system notification sound.
 
 ### The Microsoft client id
 
-One id, for Outlook only — Gmail has none any more. It is not required at build time and
-can be scanned in as a QR at Settings → Accounts, which is what makes a plain release
-APK usable by anyone: a public client has no secret to leak, and the redirect scheme is
-fixed by the package name rather than by the id.
+One id, for Outlook only — Gmail has none any more. It is not required at build time:
+ADD OUTLOOK on a build without one asks for the id and stores it beside the credentials,
+which is what makes a plain release APK usable by anyone. A public client has no secret
+to leak, and the redirect scheme is fixed by the package name rather than by the id, so
+this is not a credential being typed into a phone — it is a name.
+
+Changing it signs the Microsoft accounts out. A refresh token belongs to the client that
+issued it, so the old ones are already dead; dropping them beats leaving rows that fail
+on the next sync with no explanation.
 
 To bake it in, put it in `local.properties`:
 

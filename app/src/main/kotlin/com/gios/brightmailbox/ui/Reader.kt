@@ -88,7 +88,9 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             Spacer(Modifier.height(g * 3f))
 
             T(
-                body?.text ?: msg.snippet,
+                // IMAP sends no snippet, so an uncached message has nothing to show while
+                // its text is fetched. Say what is happening rather than draw a blank page.
+                body?.text ?: msg.snippet.ifBlank { "getting the text…" },
                 t.paragraph,
                 lineHeight = readerLeading(),
                 modifier = Modifier.fillMaxWidth(),

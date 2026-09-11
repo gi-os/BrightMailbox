@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gios.brightmailbox.sync.SyncWorker
@@ -80,6 +81,18 @@ class MainActivity : ComponentActivity() {
                 val screen by vm.screen.collectAsStateWithLifecycle()
                 val letters by vm.letters.collectAsStateWithLifecycle()
                 val notices by vm.notices.collectAsStateWithLifecycle()
+                val opened by vm.opened.collectAsStateWithLifecycle()
+
+                /*
+                 * The message on screen, preferring the one the app was told to open.
+                 *
+                 * The lists are the fallback, for a screen restored after the process
+                 * died. They cannot be the primary source: reading a Letter is exactly
+                 * what takes it out of the Letters query, so a lookup there answers null
+                 * a moment after the reader opens.
+                 */
+                fun message(key: String) = opened?.takeIf { it.key == key }
+                    ?: (letters + notices).firstOrNull { it.key == key }
 
                 LaunchedEffect(redirect) {
                     redirect?.let {
@@ -119,9 +132,16 @@ class MainActivity : ComponentActivity() {
                         is Screen.Write -> "Write"
                         Screen.Settings -> "Settings"
                         Screen.Rules -> "Rules"
+                        is Screen.AccountScreen -> "Account"
+                        is Screen.ClientId -> "ClientId"
                     }
                 }
 
+                // Every screen that names a mailbox reads the names from here.
+                val accounts by vm.accounts.collectAsStateWithLifecycle()
+                CompositionLocalProvider(
+                    LocalAccountWords provides accounts.associate { it.id to it.word },
+                ) {
                 when (val s = screen) {
                     Screen.Setup -> SetupScreen(vm)
                     is Screen.Password -> PasswordScreen(vm, s.service, onScan = ::scanSignIn)
@@ -131,14 +151,17 @@ class MainActivity : ComponentActivity() {
                     Screen.Settings -> SettingsScreen(vm)
                     Screen.Rules -> RulesScreen(vm)
                     is Screen.Write -> WriteScreen(vm, s.replyTo)
+                    is Screen.AccountScreen -> AccountDetailScreen(vm, s.id)
+                    is Screen.ClientId -> ClientIdScreen(vm, s.service)
                     is Screen.Read -> {
-                        val msg = (letters + notices).firstOrNull { it.key == s.key }
+                        val msg = message(s.key)
                         if (msg == null) HomeScreen(vm) else ReaderScreen(vm, msg)
                     }
                     is Screen.Original -> {
-                        val msg = (letters + notices).firstOrNull { it.key == s.key }
+                        val msg = message(s.key)
                         if (msg == null) HomeScreen(vm) else OriginalScreen(vm, msg)
                     }
+                }
                 }
 
                 /*

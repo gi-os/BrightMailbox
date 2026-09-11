@@ -1,3 +1,42 @@
+## v2.3 — Reading a letter no longer closes it
+
+**Opening an email put you straight back on the home screen.** The reader found its
+message by looking it up in the Letters list. Opening a Letter is what marks it read, and
+the Letters query filters read mail out — so a second after the page opened, the lookup
+answered nothing and the home screen took its place. The reader holds the message it was
+told to open now, and the list is only a fallback for a screen restored after the app was
+killed.
+
+**And it opened on a blank page for two seconds.** IMAP carries no snippet, so there is
+nothing to show while a body is fetched. The text of the letters on the front screen is
+now pulled down quietly when a sync finishes, so opening one is instant; a message that
+still has to be fetched says so instead of showing an empty page.
+
+**How far back the first sync reads is a setting.** It was four hundred messages an
+account, decided in the code. Settings → HOW FAR BACK offers 200, 400, 2,000 or
+everything. This was never a cap on the mailbox — new mail always arrives — it only says
+how much of the past is there on day one, which is also how much the sorter has to learn
+from. Asking for more runs the deep sync again; asking for less deletes nothing.
+
+**Mailboxes can be named.** With one account "gmail" on a row was enough. With two it
+identifies nothing. Settings → ACCOUNTS → tap one, and the name you give it replaces that
+word everywhere: the letter rows, the reader, the line above a reply. The same screen
+removes a mailbox, behind a confirmation.
+
+**ADD OUTLOOK is no longer a dead row.** A build with no Microsoft client id in it said
+"not set up in this build" and refused the tap, with the fix on the other side of the
+wall. Tapping it now asks for the id, which is public by design and takes three minutes
+to register — SETUP.md has the steps. Worth stating plainly, because it is the first
+question everyone asks: there is no app-password route for Outlook, for any client. App
+passwords are Basic authentication, Microsoft finished retiring that in April 2026, and
+no new ones can be issued.
+
+**The settings and back icons are LightOS's own.** Both were redrawn by hand and neither
+quite matched the phone; the real ones ship in light-sdk under the MIT licence and are
+used unchanged now. The first-sync counter also stopped wrapping onto two lines — four
+digits either side of "of" at the title size is wider than the screen, so the total sits
+beside the count at the body size.
+
 ## v2.2 — The phone can report its own bugs
 
 Shake-to-report was wired into this app's build from v1 and never connected to anything.

@@ -14,14 +14,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gios.brightmailbox.data.Depth
 import com.gios.brightmailbox.data.Ration
 import com.gios.brightmailbox.notify.Chime
 import com.gios.brightmailbox.ui.theme.Content
@@ -38,6 +41,7 @@ fun SettingsScreen(vm: MailboxViewModel) {
     val t = LocalType.current
     var chime by remember { mutableStateOf(vm.repo.chime) }
     var ration by remember { mutableStateOf(vm.repo.ration) }
+    var depth by remember { mutableStateOf(vm.repo.depth) }
 
     Frame {
         TopBar("SETTINGS")
@@ -94,18 +98,61 @@ fun SettingsScreen(vm: MailboxViewModel) {
                 }
             }
 
+            Section("HOW FAR BACK")
+            T(
+                "How much of the past a new mailbox reads on its first sync. Mail that " +
+                    "arrives afterwards always comes, whatever this says — and choosing less " +
+                    "deletes nothing that is already here.",
+                t.detail,
+                Secondary,
+            )
+            Spacer(Modifier.height(g * 0.7f))
+            /*
+             * A list, not the two-word switch above: four options do not fit across 3.9"
+             * at the body size, and a row that wraps is worse than a row of rows.
+             */
+            for (d in Depth.entries) {
+                Row(
+                    Modifier.fillMaxWidth().lightClickable {
+                        depth = d
+                        vm.setDepth(d)
+                    }.padding(vertical = g * 0.35f),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    T(d.label, t.copy, if (d == depth) Content else Secondary, maxLines = 1)
+                    if (d == depth) T("·", t.copy)
+                }
+            }
+            Spacer(Modifier.height(g * 0.5f))
+            T(
+                "Asking for more than you have runs the deep sync again. It can take a while.",
+                t.superfine,
+                Secondary,
+            )
+
             Section("ACCOUNTS")
-            val accounts = vm.repo.auth.accounts()
+            val accounts by vm.accounts.collectAsStateWithLifecycle()
             if (accounts.isEmpty()) {
                 T("None yet.", t.detail, Secondary)
             } else {
+                // Tapping one opens it: a mailbox is a thing with a name and a way out,
+                // not a line of text.
                 for (a in accounts) {
                     Row(
-                        Modifier.fillMaxWidth().padding(vertical = g * 0.3f),
+                        Modifier
+                            .fillMaxWidth()
+                            .lightClickable { vm.go(Screen.AccountScreen(a.id)) }
+                            .padding(vertical = g * 0.3f),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.Bottom,
                     ) {
-                        T(a.email, t.detail, maxLines = 1, modifier = Modifier.weight(1f))
+                        Column(Modifier.weight(1f)) {
+                            T(a.title, t.detail, maxLines = 1)
+                            if (a.name.isNotBlank()) {
+                                T(a.email, t.superfine, Secondary, maxLines = 1)
+                            }
+                        }
                         T(a.label, t.superfine, Secondary)
                     }
                 }
@@ -136,6 +183,83 @@ fun SettingsScreen(vm: MailboxViewModel) {
             Spacer(Modifier.height(g * 2f))
         }
         ActionBar(left = "BACK" to { vm.go(Screen.Home) }, right = null)
+    }
+}
+
+/**
+ * One mailbox: give it a name, or remove it.
+ *
+ * The name is the point. With one account the provider's word is enough — every row says
+ * "gmail" and every row means the same mailbox. With two it identifies nothing, and the
+ * question a row has to answer is "which of mine did this come to". So a name typed here
+ * replaces that word everywhere an account is named: the Letters rows, the reader's
+ * header, the line above a reply.
+ *
+ * Removing is on this screen rather than in the list because a mailbox is not something to
+ * lose to a mis-tap: it takes a second tap that says what will happen.
+ */
+@Composable
+fun AccountDetailScreen(vm: MailboxViewModel, id: String) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    val accounts by vm.accounts.collectAsStateWithLifecycle()
+    val account = accounts.firstOrNull { it.id == id }
+
+    // The account can go away under this screen — REMOVE does exactly that — and a screen
+    // whose subject no longer exists should leave rather than draw blanks.
+    if (account == null) {
+        LaunchedEffect(Unit) { vm.go(Screen.Settings) }
+        return
+    }
+
+    var name by remember(id) { mutableStateOf(TextFieldValue(account.name)) }
+    var confirming by remember(id) { mutableStateOf(false) }
+
+    Frame {
+        TopBar(account.label.uppercase())
+        Spacer(Modifier.height(g * 1.2f))
+        T(account.email, t.heading, maxLines = 2)
+
+        Spacer(Modifier.height(g * 1.6f))
+        T("CALL IT", t.superfine, Secondary)
+        Spacer(Modifier.height(g * 0.4f))
+        Field("NAME", name, { name = it }, g, t)
+        Spacer(Modifier.height(g * 0.5f))
+        T(
+            "Shown wherever this mailbox is named. Leave it empty to go back to " +
+                "\"${account.label}\".",
+            t.detail,
+            Secondary,
+        )
+
+        Spacer(Modifier.weight(1f))
+
+        if (confirming) {
+            T("Remove ${account.title}?", t.copy)
+            Spacer(Modifier.height(g * 0.4f))
+            T(
+                "Its mail goes with it. Nothing is deleted on the server.",
+                t.detail,
+                Secondary,
+            )
+            Spacer(Modifier.height(g * 0.8f))
+            ActionBar(
+                left = "KEEP IT" to { confirming = false },
+                right = "REMOVE" to { vm.forgetAccount(id) },
+            )
+        } else {
+            T(
+                "REMOVE THIS MAILBOX",
+                t.superfine,
+                Secondary,
+                Modifier.lightClickable { confirming = true },
+            )
+            Spacer(Modifier.height(g * 0.8f))
+            ActionBar(
+                left = "BACK" to { vm.go(Screen.Settings) },
+                right = "SAVE" to { vm.renameAccount(id, name.text) },
+            )
+        }
     }
 }
 

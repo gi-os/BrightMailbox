@@ -58,7 +58,7 @@ data class SenderRule(
     @PrimaryKey val address: String,
     val pile: String,
     val createdAt: Long,
-    /** True when the app inferred it from behaviour rather than an explicit move. */
+    /** True when the app inferred it from behavior rather than an explicit move. */
     val implicit: Boolean = false,
 )
 

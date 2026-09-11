@@ -52,7 +52,7 @@ not, and MIME is what breaks a mail client on one message in twenty.
 
 ## How the sorting works
 
-Two tiers, and the division of labour matters.
+Two tiers, and the division of labor matters.
 
 ### Tier 0 — headers decide the pile
 
@@ -122,7 +122,7 @@ formant synthesizer for the voice, driven by measured articulation data. See
 
 The famous recording is Elwood Edwards' 1989 performance for AOL and it belongs to
 somebody. Playing your own copy on your own phone is ordinary personal use; shipping it
-inside an APK is redistribution, and the MIT licence on this repo would then be making a
+inside an APK is redistribution, and the MIT license on this repo would then be making a
 false claim to anyone who forks it. So the bundled one is synthesized, and there is a
 **Custom** row for people who have the real thing.
 
@@ -190,6 +190,6 @@ Body leading is locked to exactly two grid units, so every line of every Letter 
 shared baselines and one wheel notch moves a whole number of lines. Nothing ever
 half-clips at the fold.
 
-## Licence
+## License
 
 MIT.

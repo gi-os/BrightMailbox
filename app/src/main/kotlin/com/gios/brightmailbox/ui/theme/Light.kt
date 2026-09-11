@@ -36,8 +36,8 @@ import androidx.compose.ui.unit.sp
  *  - Units scale on WIDTH, type scales on HEIGHT. `gridUnit = screenWidthDp / 27`, and
  *    `sp = designPx * screenHeightDp / 600`. Mixing them makes bars and text drift apart
  *    on any screen that is not exactly the LP3's.
- *  - Secondary is a COLOUR (#BBBBBB), never white at 45% alpha. Alpha on a matte
- *    monochrome LCD dithers; a flat grey does not.
+ *  - Secondary is a COLOR (#BBBBBB), never white at 45% alpha. Alpha on a matte
+ *    monochrome LCD dithers; a flat gray does not.
  *  - No ripples anywhere, and the haptic fires on finger-DOWN, not on click.
  */
 

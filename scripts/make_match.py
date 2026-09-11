@@ -36,7 +36,7 @@ REF_AUDIO = os.environ.get("MAILBOX_REF") or None
 def load():
     d = json.load(open(TR))
     hop, nfr = d["hop"], d["n"]
-    # Frame i is centred at i*hop + WIN/2; WIN was 25 ms.
+    # Frame i is centered at i*hop + WIN/2; WIN was 25 ms.
     t = np.arange(nfr) * hop + 0.0125
     n = int(SR * (t[-1] + 0.0125))
     grid = np.arange(n) / SR

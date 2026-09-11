@@ -32,7 +32,7 @@ enum class Chime(val key: String, val label: String) {
  *
  * **Letters notify. Notices never do.** That single rule is most of the reason to install
  * this app rather than any other mail client, and it is stated in Settings in one
- * sentence so it is a promise rather than a behaviour someone has to infer.
+ * sentence so it is a promise rather than a behavior someone has to infer.
  *
  * **No heads-up box of our own.** BrightControl has drawn banners for any app off its
  * notification listener since v3.65, and it draws the lock-face row too. All this has to

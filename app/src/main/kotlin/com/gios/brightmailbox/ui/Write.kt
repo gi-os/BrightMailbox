@@ -128,7 +128,7 @@ fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?) {
 
 /**
  * The only field style in the app: a label, then an 80%-width rule three design pixels
- * thick. No floating label, no filled container, no focus colour.
+ * thick. No floating label, no filled container, no focus color.
  *
  * Internal rather than private because the sign-in screen needs the same field, and two
  * field styles in one app is how an app stops looking like one thing.

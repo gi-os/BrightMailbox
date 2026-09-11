@@ -51,7 +51,7 @@ jobs:
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       # Installed-app OAuth clients have no secret, but keeping the ids in repository
-      # secrets means a fork cannot authorise against this project by accident. With
+      # secrets means a fork cannot authorize against this project by accident. With
       # both unset the build still succeeds; the app shows the setup screen and asks
       # for a client id by QR.
       #

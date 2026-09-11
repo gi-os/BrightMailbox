@@ -159,7 +159,7 @@ class LearnerTest {
         assertEquals(a, b)
     }
 
-    @Test fun `features are L2 normalised so length does not dominate`() {
+    @Test fun `features are L2 normalized so length does not dominate`() {
         val l = Learner()
         val short = l.features(mail("a@b.com", "hi", "ok"))
         val long = l.features(mail("a@b.com", "hi", (1..400).joinToString(" ") { "word$it" }))

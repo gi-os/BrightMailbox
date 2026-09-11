@@ -21,7 +21,7 @@ data class Sorted(
 /**
  * The two tiers, wired together.
  *
- * Division of labour, and it matters that it stays this way:
+ * Division of labor, and it matters that it stays this way:
  *
  *   Tier 0 decides the PILE. Deterministic, explainable, offline, instant.
  *   Tier 1 decides the ORDER within Letters, and nothing else by default.

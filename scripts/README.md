@@ -50,7 +50,7 @@ Three findings worth keeping:
   makes synthesized speech sound synthesized.
 - Spectral tilt was 63% of the total error even with every formant correct — a glottal
   source model and a 1989 broadcast chain do not have the same slope.
-- Formant tracking needs Viterbi, not greedy nearest-neighbour. During the /m/ of "mail"
+- Formant tracking needs Viterbi, not greedy nearest-neighbor. During the /m/ of "mail"
   the mouth is shut and F2 is weak; greedy tracking latched onto the wrong pole and
   carried it through the vowel, reporting F2 near 2500 Hz where the real glide runs
   1500 → 2000.

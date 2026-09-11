@@ -27,7 +27,7 @@ class AddrTest {
         assertEquals(listOf("a@x.com", "b@x.com"), Addr.addresses("a@x.com; b@x.com"))
     }
 
-    @Test fun `name falls back to a humanised local part`() {
+    @Test fun `name falls back to a humanized local part`() {
         assertEquals("Charles Dolige", Addr.name("charles.dolige@lrparis.com"))
         assertEquals("Gio Lupo", Addr.name("gio_lupo@x.com"))
     }
@@ -81,7 +81,7 @@ class AddrTest {
         assertTrue(raw.contains("Content-Type: text/plain; charset=UTF-8"))
     }
 
-    @Test fun `body newlines are normalised to CRLF`() {
+    @Test fun `body newlines are normalized to CRLF`() {
         val raw = Addr.rfc5322("a@b.com", Outgoing(listOf("c@d.com"), subject = "s", body = "one\ntwo"))
         assertTrue(raw.endsWith("one\r\ntwo"))
         assertTrue(!raw.contains("\n\n"))

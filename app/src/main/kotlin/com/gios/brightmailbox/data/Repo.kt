@@ -186,6 +186,47 @@ class Repo private constructor(private val app: Context) {
     fun notices(): Flow<List<Msg>> = dao.notices()
     fun unreadNotices(): Flow<Int> = dao.unreadNotices()
     fun noticeTotal(): Flow<Int> = dao.noticeTotal()
+    fun archived(): Flow<List<Msg>> = dao.archived()
+
+    suspend fun search(query: String): List<Msg> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.length < 2) return@withContext emptyList()
+        // Escape the wildcards, or a stray % matches the whole mailbox.
+        dao.search("%" + q.replace("%", "\\%").replace("_", "\\_") + "%")
+    }
+
+    /** Everything in the inbox, both piles, minus what is held. For ARCHIVE ALL. */
+    suspend fun archiveInbox(): Int = withContext(Dispatchers.IO) {
+        archiveMany(dao.inboxList())
+    }
+
+    /**
+     * Files this app has saved to the phone, newest first.
+     *
+     * Kept as our own short list rather than read back out of MediaStore: the Downloads
+     * collection holds everything every app has ever saved, and a mail client has no
+     * business listing the rest of it. Stored as `uri\tname\tmime` lines in preferences,
+     * because it is three fields and a dependency for that would be silly.
+     */
+    fun downloads(): List<Triple<String, String, String>> =
+        prefs.getString("downloads", "").orEmpty()
+            .lineSequence()
+            .mapNotNull { line ->
+                val p = line.split('\t')
+                if (p.size < 3) null else Triple(p[0], p[1], p[2])
+            }
+            .toList()
+
+    private fun rememberDownload(uri: String, name: String, mime: String) {
+        // Newest first, de-duplicated by uri, and capped — this is a convenience list,
+        // not a record of everything that ever happened.
+        val kept = (listOf(Triple(uri, name, mime)) + downloads())
+            .distinctBy { it.first }
+            .take(60)
+        prefs.edit()
+            .putString("downloads", kept.joinToString("\n") { "${it.first}\t${it.second}\t${it.third}" })
+            .apply()
+    }
     fun waitingLetters(): Flow<Int> = dao.waitingLetters()
     fun rules(): Flow<List<SenderRule>> = dao.rules()
 
@@ -627,6 +668,7 @@ class Repo private constructor(private val app: Context) {
             values.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
             resolver.update(uri, values, null, null)
         }
+        rememberDownload(uri.toString(), name, att.mime)
         name
     }
 

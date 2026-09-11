@@ -32,6 +32,14 @@ sealed interface Screen {
     data class Read(val key: String) : Screen
     data object Notices : Screen
     data class Write(val replyTo: Msg? = null) : Screen
+    /** The list behind the hamburger: everything that is not reading today's mail. */
+    data object Menu : Screen
+    /** Mail that has been put away — archive is a place, not a deletion. */
+    data object Archive : Screen
+    /** Files saved out of attachments. */
+    data object Downloads : Screen
+    /** One box, every pile, archived included. */
+    data object Search : Screen
     data object Settings : Screen
     data object Rules : Screen
     /** One mailbox: rename it, or remove it. */
@@ -372,6 +380,24 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun archiveThese(rows: List<Msg>) = viewModelScope.launch {
         val n = repo.archiveMany(rows)
+        said(if (n == 0) "Nothing to archive." else "$n archived.")
+    }
+
+    val archived = repo.archived()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _results = MutableStateFlow<List<Msg>>(emptyList())
+    val results: StateFlow<List<Msg>> = _results.asStateFlow()
+
+    /** Search every pile. Debouncing is the screen's job; this just answers. */
+    fun search(q: String) = viewModelScope.launch { _results.value = repo.search(q) }
+
+    fun downloads(): List<Triple<String, String, String>> = repo.downloads()
+
+    /** ARCHIVE ALL from the menu: the whole inbox, both piles, minus what is held. */
+    fun archiveInbox() = viewModelScope.launch {
+        go(Screen.Home)
+        val n = repo.archiveInbox()
         said(if (n == 0) "Nothing to archive." else "$n archived.")
     }
 

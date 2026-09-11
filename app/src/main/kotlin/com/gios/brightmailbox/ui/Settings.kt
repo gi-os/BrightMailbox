@@ -287,7 +287,9 @@ fun SettingsScreen(vm: MailboxViewModel) {
 
             Spacer(Modifier.height(g * 2f))
         }
-        ActionBar(left = "BACK" to { vm.go(Screen.Home) }, right = null)
+        // Back to the menu it was opened from, not to Home — the one place that is now
+        // two taps away should not become three.
+        ActionBar(left = "BACK" to { vm.go(Screen.Menu) }, right = null)
     }
 }
 

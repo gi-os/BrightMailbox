@@ -1,3 +1,18 @@
+## v2.22 — A menu, an archive, downloads and search
+
+The gear at the top of the inbox is a **menu** now, because settings is one of five places
+rather than the only one:
+
+- **SEARCH** — one box across Letters, Notices and the archive together. Sender and subject;
+  bodies are files rather than rows, so matching them would mean opening a few hundred of
+  them per keystroke, and the screen says so instead of leaving you to guess.
+- **VIEW ARCHIVE** — everything you have put away, reading and opening exactly like the
+  piles it came from.
+- **DOWNLOADS** — the files you have saved out of attachments.
+- **ARCHIVE ALL** — clears the whole inbox, both piles, leaving anything you have held.
+  Nothing is deleted: archive is a move to All Mail, where every other client can still
+  see it.
+- **SETTINGS** — where it always was.
 ## v2.21 — The wheel scrolls
 
 The empty screen says **Clear skies** now, with the plain fact under it, and it has lost

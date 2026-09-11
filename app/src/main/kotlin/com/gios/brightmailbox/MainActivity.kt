@@ -37,6 +37,10 @@ import com.gios.brightmailbox.hw.LocalWheelBus
 import com.gios.brightmailbox.hw.WheelBus
 import com.gios.brightmailbox.sync.SyncWorker
 import com.gios.brightmailbox.ui.AccountDetailScreen
+import com.gios.brightmailbox.ui.ArchiveScreen
+import com.gios.brightmailbox.ui.DownloadsScreen
+import com.gios.brightmailbox.ui.MenuScreen
+import com.gios.brightmailbox.ui.SearchScreen
 import com.gios.brightmailbox.ui.ClientIdScreen
 import com.gios.brightmailbox.ui.FirstSyncScreen
 import com.gios.brightmailbox.ui.HomeScreen
@@ -181,6 +185,10 @@ class MainActivity : ComponentActivity() {
                         Screen.Home -> "Home"
                         is Screen.Read -> "Read"
                         Screen.Notices -> "Notices"
+                        Screen.Menu -> "Menu"
+                        Screen.Archive -> "Archive"
+                        Screen.Downloads -> "Downloads"
+                        Screen.Search -> "Search"
                         is Screen.Write -> "Write"
                         Screen.Settings -> "Settings"
                         Screen.Rules -> "Rules"
@@ -246,6 +254,10 @@ class MainActivity : ComponentActivity() {
                     Screen.FirstSync -> FirstSyncScreen(vm)
                     Screen.Home -> HomeScreen(vm)
                     Screen.Notices -> NoticesScreen(vm)
+                    Screen.Menu -> MenuScreen(vm)
+                    Screen.Archive -> ArchiveScreen(vm)
+                    Screen.Downloads -> DownloadsScreen(vm)
+                    Screen.Search -> SearchScreen(vm)
                     Screen.Settings -> SettingsScreen(vm)
                     Screen.Rules -> RulesScreen(vm)
                     is Screen.Write -> WriteScreen(vm, s.replyTo)

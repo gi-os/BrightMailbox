@@ -249,6 +249,33 @@ interface MailDao {
     @Query("SELECT * FROM messages WHERE pile = 'NOTICE' AND NOT archived AND NOT starred")
     suspend fun noticeList(): List<Msg>
 
+    /** Everything put away, newest first. Archive is a place, not a deletion. */
+    @Query("SELECT * FROM messages WHERE archived ORDER BY receivedAt DESC LIMIT :limit")
+    fun archived(limit: Int = 500): Flow<List<Msg>>
+
+    /**
+     * Search every pile, archived included.
+     *
+     * Sender, name and subject only — not the body, which is not in this table at all
+     * (bodies are files, see [Msg]). Searching what is here is instant and needs no
+     * network; searching bodies would mean reading a few hundred files per keystroke.
+     *
+     * The caller passes a pattern already wrapped in `%`. `LIKE` is case-insensitive for
+     * ASCII in SQLite by default, which is what a mail search wants.
+     */
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE sender LIKE :q OR senderName LIKE :q OR subject LIKE :q
+        ORDER BY receivedAt DESC LIMIT 200
+        """,
+    )
+    suspend fun search(q: String): List<Msg>
+
+    /** Everything still in the inbox, both piles, for a bulk clear. */
+    @Query("SELECT * FROM messages WHERE NOT archived AND NOT starred")
+    suspend fun inboxList(): List<Msg>
+
     @Query("UPDATE messages SET unread = 0 WHERE pile = 'NOTICE' AND NOT archived")
     suspend fun markAllNoticesRead()
 

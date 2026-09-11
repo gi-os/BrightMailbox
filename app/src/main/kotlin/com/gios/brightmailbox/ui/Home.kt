@@ -132,12 +132,20 @@ fun HomeScreen(vm: MailboxViewModel) {
                     },
                 )
                 Spacer(Modifier.width(g * 0.8f))
+                /*
+                 * The menu, where the gear used to be.
+                 *
+                 * Settings is one of five destinations now — search, the archive, saved
+                 * files, clearing the inbox — and five things cannot each own a corner of
+                 * a 27-unit row. The gear promised one place and would now be lying about
+                 * four others.
+                 */
                 androidx.compose.foundation.Image(
-                    painter = painterResource(R.drawable.ic_settings_white),
-                    contentDescription = "Settings",
+                    painter = painterResource(R.drawable.ic_menu_white),
+                    contentDescription = "Menu",
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.size(g.icon)
-                        .lightClickable { vm.go(Screen.Settings) },
+                        .lightClickable { vm.go(Screen.Menu) },
                 )
             }
         }

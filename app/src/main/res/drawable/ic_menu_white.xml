@@ -1,0 +1,20 @@
+<!--
+  The menu.
+
+  Three bars, full width, evenly spaced, with the same stroke weight as the SDK's own
+  icons. There is no cleverness available here and none wanted: the hamburger is the one
+  glyph that needs no explanation anywhere, which is exactly why it earns the corner the
+  gear used to have.
+
+  Rectangles rather than strokes, so the weight is exact at any scale — a stroked path
+  rounds differently on a matte panel.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M3,5.6h18v2.1h-18z M3,10.95h18v2.1h-18z M3,16.3h18v2.1h-18z" />
+</vector>

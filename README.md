@@ -19,7 +19,9 @@ Gmail with an app password. Outlook with one tap. Nothing to register.
 
 **Gmail** takes a sixteen-character app password from
 `myaccount.google.com/apppasswords`. No Google Cloud project, no consent screen, no
-"Google hasn't verified this app" warning.
+"Google hasn't verified this app" warning. Make the password on a computer, put it into
+<https://gi-os.github.io/BrightMailbox/>, and scan the QR — or type it, if you prefer a
+3.9-inch keyboard to a camera.
 
 **Outlook** takes one tap. Microsoft finished retiring Basic auth for IMAP in April
 2026, so it has to be OAuth — but Microsoft caps nothing, so the one client id is

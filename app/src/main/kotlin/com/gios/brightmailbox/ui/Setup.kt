@@ -114,7 +114,7 @@ fun SetupScreen(vm: MailboxViewModel) {
  * syncs.
  */
 @Composable
-fun PasswordScreen(vm: MailboxViewModel, service: Service) {
+fun PasswordScreen(vm: MailboxViewModel, service: Service, onScan: () -> Unit = {}) {
     val g = LocalGrid.current
     val t = LocalType.current
     val busy by vm.busy.collectAsStateWithLifecycle()
@@ -125,24 +125,44 @@ fun PasswordScreen(vm: MailboxViewModel, service: Service) {
 
     Frame {
         TopBar(service.label.uppercase())
-        Spacer(Modifier.height(g * 2.2f))
-        T("An app password.", t.title)
-        Spacer(Modifier.height(g * 1f))
-        T(
-            "Not your Google password — a separate sixteen-character one you make at " +
-                "myaccount.google.com/apppasswords. It needs 2-Step Verification " +
-                "switched on first.",
-            t.detail,
-            Secondary,
-        )
-
-        Spacer(Modifier.height(g * 2f))
-        Field("ADDRESS", email, { email = it; error = null }, g, t)
         Spacer(Modifier.height(g * 1.4f))
+        T("An app\npassword.", t.title)
+        Spacer(Modifier.height(g * 0.8f))
+        T("Not your Google password. A separate sixteen characters.", t.detail, Secondary)
+
+        /*
+         * The code route first, because it is the better one and almost nobody would
+         * find it if it sat under the keyboard. The password is made on a computer
+         * anyway; drawing it there and pointing the camera at it beats typing sixteen
+         * characters on a 3.9" screen, and the page it comes from is static and offline.
+         *
+         * Everything on this screen is measured against the LP3's 472 dp: the title is
+         * two lines, the paragraph is one, and there is exactly one weight(1f) so the
+         * action bar sits on the fold. Adding a third line of prose here pushes CONNECT
+         * off the bottom, where nothing hints that it exists.
+         */
+        Spacer(Modifier.height(g * 1.3f))
+        Column(
+            Modifier
+                .fillMaxWidth(0.8f)
+                .lightClickable(enabled = !busy) { error = null; onScan() },
+        ) {
+            T("SCAN A CODE", t.button, if (busy) Secondary else Content)
+            Spacer(Modifier.height(g * 0.35f))
+            Box(Modifier.fillMaxWidth().height(2.dp).background(Content))
+            Spacer(Modifier.height(g * 0.25f))
+            T("make one at gi-os.github.io/BrightMailbox", t.superfine, Secondary)
+        }
+
+        Spacer(Modifier.height(g * 1.3f))
+        T("OR TYPE IT", t.detail, Secondary)
+        Spacer(Modifier.height(g * 0.4f))
+        Field("ADDRESS", email, { email = it; error = null }, g, t)
+        Spacer(Modifier.height(g * 1.1f))
         Field("APP PASSWORD", password, { password = it; error = null }, g, t, mask = true)
 
         error?.let {
-            Spacer(Modifier.height(g * 0.9f))
+            Spacer(Modifier.height(g * 0.7f))
             T(it, t.detail)
         }
 

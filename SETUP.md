@@ -29,13 +29,28 @@ Name it `Mailbox`. The name is only a label, so you can find it later to revoke 
 Google shows you sixteen letters in four groups of four. That is the only time it shows
 them.
 
-### 3. Type it into the phone
+### 3. Get it onto the phone
 
-Open Mailbox, tap **ADD GMAIL**, enter your address and the code. Spaces do not matter —
-paste or type it however Google displayed it.
+Two ways. Both end the same: the app tries the credential against Gmail before saving
+it, so a wrong character is an error while you are still standing there rather than a
+sync that quietly never runs.
 
-The app tries the credential against Gmail before it saves it, so if it is wrong you
-find out immediately rather than by noticing no mail arrived.
+**By code, from the computer you just made it on.** Open
+<https://gi-os.github.io/BrightMailbox/>, paste the address and the password, and a QR
+appears. On the phone: **ADD GMAIL** → **SCAN A CODE**. Nothing is typed on a 3.9-inch
+keyboard.
+
+That page is static. It makes no network request, it has no analytics, and the QR
+encoder is part of the page rather than a script fetched from somebody else — handing a
+password to a third-party script would be the wrong shape. You can save the page and run
+it with the Wi-Fi off if you would rather.
+
+**The code is a working password while it is on screen.** Anyone who photographs it can
+read your mail. Do not screenshot it, do not paste it into a chat, and close the tab once
+the phone has it.
+
+**By hand.** **ADD GMAIL** → **OR TYPE IT**, address and code. Spaces do not matter —
+type it however Google displayed it.
 
 ### If the app password page is not there
 

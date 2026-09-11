@@ -26,6 +26,8 @@ import com.gios.brightmailbox.ui.SettingsScreen
 import com.gios.brightmailbox.ui.SetupScreen
 import com.gios.brightmailbox.ui.WriteScreen
 import com.gios.brightmailbox.ui.theme.LightTheme
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 
 /**
  * singleTask, so the OAuth redirect comes back into the running activity through
@@ -38,6 +40,27 @@ class MainActivity : ComponentActivity() {
 
     /** Set by onCreate/onNewIntent, consumed once by the composition. */
     private var redirect by mutableStateOf<Uri?>(null)
+
+    /** Text off the sign-in QR, consumed once by the composition. */
+    private var scanned by mutableStateOf<String?>(null)
+
+    /*
+     * Registered here rather than in Compose because registerForActivityResult has to
+     * run before the activity is STARTED. The result travels back through the same
+     * one-shot state field the OAuth redirect uses, so both land in the ViewModel's
+     * scope rather than the composition's.
+     */
+    private val scanner = registerForActivityResult(ScanContract()) { result ->
+        scanned = result.contents   // null when the user backed out; ignored below
+    }
+
+    private fun scanSignIn() = scanner.launch(
+        ScanOptions()
+            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            .setBeepEnabled(false)
+            .setOrientationLocked(true)
+            .setPrompt("Point at the code"),
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +81,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                LaunchedEffect(scanned) {
+                    scanned?.let {
+                        scanned = null
+                        vm.signInFromQr(it)
+                    }
+                }
+
                 LaunchedEffect(Unit) {
                     if (vm.repo.auth.isSignedIn) {
                         SyncWorker.schedule(this@MainActivity)
@@ -67,7 +97,7 @@ class MainActivity : ComponentActivity() {
 
                 when (val s = screen) {
                     Screen.Setup -> SetupScreen(vm)
-                    is Screen.Password -> PasswordScreen(vm, s.service)
+                    is Screen.Password -> PasswordScreen(vm, s.service, onScan = ::scanSignIn)
                     Screen.FirstSync -> FirstSyncScreen(vm)
                     Screen.Home -> HomeScreen(vm)
                     Screen.Notices -> NoticesScreen(vm)

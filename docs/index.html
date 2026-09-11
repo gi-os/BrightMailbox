@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mailbox — sign in by QR</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 20px 80px;
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: #fff; color: #111; display: flex; justify-content: center;
+  }
+  main { width: 100%; max-width: 560px; }
+  h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 6px; }
+  .sub { color: #666; margin: 0 0 32px; }
+  h2 { font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
+       color: #666; font-weight: 600; margin: 36px 0 12px; }
+  ol { padding-left: 20px; margin: 0 0 8px; }
+  li { margin-bottom: 8px; }
+  label { display: block; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase;
+          color: #666; margin: 18px 0 6px; }
+  input { width: 100%; padding: 11px 13px; font-size: 16px; font-family: inherit;
+          border: 1px solid #ccc; border-radius: 6px; background: #fff; color: #111; }
+  input:focus { outline: 2px solid #111; outline-offset: -1px; border-color: #111; }
+  #out { margin-top: 28px; text-align: center; }
+  canvas { image-rendering: pixelated; background: #fff; border: 1px solid #e5e5e5;
+           border-radius: 6px; max-width: 100%; height: auto; }
+  #hint { color: #666; font-size: 14px; margin-top: 12px; min-height: 1.4em; }
+  .warn { border-left: 3px solid #111; padding: 2px 0 2px 14px; margin: 28px 0; color: #333; }
+  code { background: #f2f2f2; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+  a { color: #111; }
+  footer { margin-top: 48px; color: #888; font-size: 13px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0d0d0d; color: #eee; }
+    .sub, h2, #hint, label, footer { color: #999; }
+    input { background: #1a1a1a; border-color: #333; color: #eee; }
+    input:focus { outline-color: #eee; border-color: #eee; }
+    canvas { border-color: #333; }
+    code { background: #1e1e1e; }
+    .warn { border-left-color: #eee; color: #ccc; }
+    a { color: #eee; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Sign in to Mailbox</h1>
+<p class="sub">Make the code here, scan it on the phone. Nothing is typed on a 3.9-inch keyboard
+and nothing leaves this page.</p>
+
+<h2>1 — Make an app password</h2>
+<ol>
+  <li>Turn on 2-Step Verification at
+      <a href="https://myaccount.google.com/signinoptions/two-step-verification">myaccount.google.com</a>
+      if it is not on already. Google only offers app passwords to accounts that have it.</li>
+  <li>Go to <a href="https://myaccount.google.com/apppasswords">myaccount.google.com/apppasswords</a>,
+      name it <code>Mailbox</code>, and copy the sixteen characters.</li>
+</ol>
+
+<h2>2 — Fill these in</h2>
+<label for="email">Gmail address</label>
+<input id="email" type="email" inputmode="email" autocomplete="off" spellcheck="false"
+       placeholder="you@gmail.com">
+<label for="pass">App password</label>
+<input id="pass" type="text" autocomplete="off" spellcheck="false" autocapitalize="off"
+       placeholder="abcd efgh ijkl mnop">
+
+<div id="out">
+  <canvas id="qr" width="560" height="560" aria-label="Sign-in QR code"></canvas>
+  <p id="hint">Fill both fields to draw the code.</p>
+</div>
+
+<h2>3 — Scan it</h2>
+<p>On the phone: <strong>ADD GMAIL</strong> → <strong>SCAN A CODE</strong>. Mailbox checks the
+password against Gmail before it saves it, so you will know at once if something was mistyped.</p>
+
+<div class="warn">
+  <p><strong>This code is a working password.</strong> Anyone who photographs it can read your
+  mail. Do not screenshot it, do not put it in a chat, and close this tab when the phone has
+  taken it.</p>
+  <p>You can revoke it whenever you like — same Google page, delete the entry named
+  <code>Mailbox</code>, and the phone loses access immediately without affecting anything else.</p>
+</div>
+
+<footer>
+  This page runs entirely in your browser. There is no server, no analytics and no third-party
+  script — the QR encoder below is part of the page, because asking you to trust someone else's
+  script with a password would be the wrong shape.
+  <a href="https://github.com/gi-os/BrightMailbox">Source</a>.
+</footer>
+
+</main>
+<script>
+/*
+ * A QR encoder, inline.
+ *
+ * Lifted from the BrightFantasy setup page, where it was checked properly: every matrix
+ * compared module for module against an independent encoder at the same version and mask,
+ * and 300 codes carrying realistic payloads decoded with the same ZXing build the app
+ * scans with. Two things cost time there and are worth not rediscovering:
+ *
+ *  - The format information runs *up* column 8 and then *right* along row 8. Transposing
+ *    those two leaves the data region byte-perfect and the code unscannable, which reads
+ *    like an encoder that is completely broken rather than one that is 15 modules wrong.
+ *  - Always using mask 0 is legal, matches a reference encoder exactly, and still fails to
+ *    scan for roughly one payload in twenty. Choosing the mask by the spec's penalty score
+ *    is not an optimization; it is the difference between working and mostly working.
+ *
+ * Error correction level M, not L: L fits more in a smaller code and measurably fails more
+ * when a phone camera reads it off a screen.
+ */
+(function () {
+  'use strict';
+
+  // ---- Galois field arithmetic over GF(256) with the QR primitive polynomial ----
+  var EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+  (function () {
+    var x = 1;
+    for (var i = 0; i < 255; i++) {
+      EXP[i] = x; LOG[x] = i;
+      x <<= 1;
+      if (x & 0x100) x ^= 0x11d;
+    }
+    for (var j = 255; j < 512; j++) EXP[j] = EXP[j - 255];
+  })();
+  function mul(a, b) { return (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]]; }
+
+  function generator(n) {
+    var poly = [1];
+    for (var i = 0; i < n; i++) {
+      var next = new Array(poly.length + 1).fill(0);
+      for (var j = 0; j < poly.length; j++) {
+        next[j] ^= poly[j];
+        next[j + 1] ^= mul(poly[j], EXP[i]);
+      }
+      poly = next;
+    }
+    return poly;
+  }
+
+  function ecBytes(data, count) {
+    var gen = generator(count);
+    var buf = data.concat(new Array(count).fill(0));
+    for (var i = 0; i < data.length; i++) {
+      var factor = buf[i];
+      if (factor === 0) continue;
+      for (var j = 0; j < gen.length; j++) buf[i + j] ^= mul(gen[j], factor);
+    }
+    return buf.slice(data.length);
+  }
+
+  /*
+   * Capacity, at error-correction level M.
+   *
+   * Level L fits more into a smaller code and is the obvious choice for a payload this
+   * long — and it is the wrong one here. This code is read by a phone camera pointed at a
+   * laptop screen, through whatever glare that room has, and measured against a real ZXing
+   * decoder a level-L code of this length failed on about one payload in thirty *at every
+   * resolution* — not a blur problem, a redundancy one. Level M costs two or three
+   * versions and takes that to zero.
+   */
+  var TOTAL = [26,44,70,100,134,172,196,242,292,346,404,466,532,581,655,733,815,901,991,1085];
+  var ECW   = [10,16,26,18,24,16,18,22,22,26,30,22,22,24,24,28,28,26,26,26];
+  var BLOCKS= [1,1,1,2,2,4,4,4,5,5,5,8,9,9,10,10,11,13,14,16];
+  var EC_INDICATOR = 0x00; // 00 = level M in the format information
+
+  function alignPositions(version) {
+    if (version === 1) return [];
+    var count = Math.floor(version / 7) + 2;
+    var last = version * 4 + 10;
+    var step = (version === 32) ? 26
+      : Math.ceil((last - 6) / (count - 1) / 2) * 2;
+    var pos = [6];
+    for (var i = count - 1; i > 0; i--) pos.push(last - (i - 1) * step);
+    return pos;
+  }
+
+  function encode(text) {
+    var bytes = new TextEncoder().encode(text);
+    // Pick the smallest version whose data capacity fits.
+    var version = 0, dataCodewords = 0;
+    for (var v = 1; v <= 20; v++) {
+      var cap = TOTAL[v - 1] - ECW[v - 1] * BLOCKS[v - 1];
+      var lenBits = v < 10 ? 8 : 16;
+      var needed = Math.ceil((4 + lenBits + bytes.length * 8) / 8);
+      if (needed <= cap) { version = v; dataCodewords = cap; break; }
+    }
+    if (!version) throw new Error('too long');
+
+    // ---- bit stream ----
+    var bits = [];
+    function push(value, length) {
+      for (var i = length - 1; i >= 0; i--) bits.push((value >>> i) & 1);
+    }
+    push(4, 4);                                   // byte mode
+    push(bytes.length, version < 10 ? 8 : 16);    // character count
+    for (var i = 0; i < bytes.length; i++) push(bytes[i], 8);
+    push(0, Math.min(4, dataCodewords * 8 - bits.length)); // terminator
+    while (bits.length % 8) bits.push(0);
+    var data = [];
+    for (var b = 0; b < bits.length; b += 8) {
+      var byte = 0;
+      for (var k = 0; k < 8; k++) byte = (byte << 1) | bits[b + k];
+      data.push(byte);
+    }
+    var pad = [0xec, 0x11], p = 0;
+    while (data.length < dataCodewords) data.push(pad[p++ % 2]);
+
+    // ---- split into blocks, interleave with their error correction ----
+    var blocks = BLOCKS[version - 1], ecLen = ECW[version - 1];
+    var shortLen = Math.floor(data.length / blocks);
+    var longCount = data.length % blocks;
+    var dataBlocks = [], ecBlocks = [], offset = 0;
+    for (var bl = 0; bl < blocks; bl++) {
+      var len = shortLen + (bl >= blocks - longCount ? 1 : 0);
+      var chunk = data.slice(offset, offset + len);
+      offset += len;
+      dataBlocks.push(chunk);
+      ecBlocks.push(ecBytes(chunk, ecLen));
+    }
+    var out = [];
+    for (var c = 0; c < shortLen + 1; c++) {
+      for (var d = 0; d < blocks; d++) if (c < dataBlocks[d].length) out.push(dataBlocks[d][c]);
+    }
+    for (var e = 0; e < ecLen; e++) {
+      for (var f = 0; f < blocks; f++) out.push(ecBlocks[f][e]);
+    }
+    return { version: version, codewords: out };
+  }
+
+  function build(text) {
+    var enc = encode(text);
+    var version = enc.version, size = version * 4 + 17;
+    var grid = [], reserved = [];
+    for (var i = 0; i < size; i++) {
+      grid.push(new Uint8Array(size));
+      reserved.push(new Uint8Array(size));
+    }
+
+    function finder(row, col) {
+      for (var r = -1; r <= 7; r++) {
+        for (var c = -1; c <= 7; c++) {
+          var rr = row + r, cc = col + c;
+          if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
+          var on = (r >= 0 && r <= 6 && (c === 0 || c === 6)) ||
+                   (c >= 0 && c <= 6 && (r === 0 || r === 6)) ||
+                   (r >= 2 && r <= 4 && c >= 2 && c <= 4);
+          grid[rr][cc] = on ? 1 : 0;
+          reserved[rr][cc] = 1;
+        }
+      }
+    }
+    finder(0, 0); finder(0, size - 7); finder(size - 7, 0);
+
+    // Timing patterns.
+    for (var t = 8; t < size - 8; t++) {
+      grid[6][t] = grid[t][6] = (t % 2 === 0) ? 1 : 0;
+      reserved[6][t] = reserved[t][6] = 1;
+    }
+
+    // Alignment patterns, skipping the three finder corners.
+    var pos = alignPositions(version);
+    for (var a = 0; a < pos.length; a++) {
+      for (var b = 0; b < pos.length; b++) {
+        var ar = pos[a], ac = pos[b];
+        if ((ar <= 8 && ac <= 8) || (ar <= 8 && ac >= size - 9) || (ar >= size - 9 && ac <= 8)) {
+          continue;
+        }
+        for (var dr = -2; dr <= 2; dr++) {
+          for (var dc = -2; dc <= 2; dc++) {
+            grid[ar + dr][ac + dc] =
+              (Math.max(Math.abs(dr), Math.abs(dc)) !== 1) ? 1 : 0;
+            reserved[ar + dr][ac + dc] = 1;
+          }
+        }
+      }
+    }
+
+    // Format and version information areas are reserved before any data is placed.
+    for (var f = 0; f < 9; f++) {
+      if (f !== 6) { reserved[8][f] = 1; reserved[f][8] = 1; }
+    }
+    for (var g = 0; g < 8; g++) {
+      reserved[8][size - 1 - g] = 1;
+      reserved[size - 1 - g][8] = 1;
+    }
+    grid[size - 8][8] = 1; reserved[size - 8][8] = 1; // the always-dark module
+    if (version >= 7) {
+      for (var vi = 0; vi < 6; vi++) {
+        for (var vj = 0; vj < 3; vj++) {
+          reserved[size - 11 + vj][vi] = 1;
+          reserved[vi][size - 11 + vj] = 1;
+        }
+      }
+    }
+
+    // Data, snaking up and down two columns at a time, unmasked for now.
+    var bitIndex = 0, words = enc.codewords, upward = true;
+    for (var col = size - 1; col > 0; col -= 2) {
+      if (col === 6) col--; // the vertical timing column is not a data column
+      for (var step = 0; step < size; step++) {
+        var row = upward ? size - 1 - step : step;
+        for (var side = 0; side < 2; side++) {
+          var cc2 = col - side;
+          if (reserved[row][cc2]) continue;
+          var bit = 0;
+          if (bitIndex < words.length * 8) {
+            bit = (words[bitIndex >> 3] >> (7 - (bitIndex & 7))) & 1;
+          }
+          bitIndex++;
+          grid[row][cc2] = bit;
+        }
+      }
+      upward = !upward;
+    }
+
+    /*
+     * Pick a mask, rather than always using mask 0.
+     *
+     * Mask 0 is legal and produces a matrix a reference encoder agrees with byte for
+     * byte — and roughly one code in twenty still would not scan. It is a plain
+     * checkerboard, which leaves large runs and finder-like sequences in some payloads,
+     * and a scanner that has to work from a phone camera pointed at a laptop screen
+     * gives up on those. The spec's answer is to try all eight and keep the one with the
+     * lowest penalty score, and that is the difference between mostly working and
+     * working.
+     */
+    function maskFn(m, r, c) {
+      switch (m) {
+        case 0: return (r + c) % 2 === 0;
+        case 1: return r % 2 === 0;
+        case 2: return c % 3 === 0;
+        case 3: return (r + c) % 3 === 0;
+        case 4: return (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0;
+        case 5: return (r * c) % 2 + (r * c) % 3 === 0;
+        case 6: return ((r * c) % 2 + (r * c) % 3) % 2 === 0;
+        default: return ((r + c) % 2 + (r * c) % 3) % 2 === 0;
+      }
+    }
+
+    function writeFormat(target, mask) {
+      var format = (EC_INDICATOR << 3) | mask;  // level M
+      var rem = format << 10;
+      for (var h = 0; h < 5; h++) {
+        if (rem & (1 << (14 - h))) rem ^= 0x537 << (4 - h);
+      }
+      // Bit 0 is the LSB and lives at (0,8); the sequence runs *up* column 8 and then
+      // *right* along row 8, and the second copy runs the other way round. Getting these
+      // two the wrong way round transposes the format area and nothing else — the data
+      // region stays byte-perfect and the code still will not scan, which is exactly what
+      // happened the first time this was written.
+      var bitsF = ((format << 10) | rem) ^ 0x5412;
+      for (var k = 0; k <= 5; k++) target[k][8] = (bitsF >> k) & 1;
+      target[7][8] = (bitsF >> 6) & 1;
+      target[8][8] = (bitsF >> 7) & 1;
+      target[8][7] = (bitsF >> 8) & 1;
+      for (var m2 = 9; m2 <= 14; m2++) target[8][14 - m2] = (bitsF >> m2) & 1;
+      for (var n2 = 0; n2 <= 7; n2++) target[8][size - 1 - n2] = (bitsF >> n2) & 1;
+      for (var q2 = 8; q2 <= 14; q2++) target[size - 15 + q2][8] = (bitsF >> q2) & 1;
+    }
+
+    /** The four penalty rules from the spec, summed. Lower is better. */
+    function penalty(m) {
+      var score = 0, dark = 0, i, j, run, prev;
+      // Rule 1: runs of five or more of the same colour, in both directions.
+      for (i = 0; i < size; i++) {
+        run = 1; prev = m[i][0];
+        for (j = 1; j < size; j++) {
+          if (m[i][j] === prev) { run++; } else { if (run >= 5) score += 3 + run - 5; run = 1; prev = m[i][j]; }
+        }
+        if (run >= 5) score += 3 + run - 5;
+        run = 1; prev = m[0][i];
+        for (j = 1; j < size; j++) {
+          if (m[j][i] === prev) { run++; } else { if (run >= 5) score += 3 + run - 5; run = 1; prev = m[j][i]; }
+        }
+        if (run >= 5) score += 3 + run - 5;
+      }
+      // Rule 2: every 2x2 block of one colour.
+      for (i = 0; i < size - 1; i++) {
+        for (j = 0; j < size - 1; j++) {
+          var v = m[i][j];
+          if (v === m[i][j + 1] && v === m[i + 1][j] && v === m[i + 1][j + 1]) score += 3;
+        }
+      }
+      // Rule 3: the finder-like 1011101 sequence with four light modules either side.
+      var pat = [1, 0, 1, 1, 1, 0, 1];
+      for (i = 0; i < size; i++) {
+        for (j = 0; j < size - 6; j++) {
+          var okRow = true, okCol = true;
+          for (var p = 0; p < 7; p++) {
+            if (m[i][j + p] !== pat[p]) okRow = false;
+            if (m[j + p][i] !== pat[p]) okCol = false;
+          }
+          if (okRow && (blank(m, i, j - 4, j - 1, true) || blank(m, i, j + 7, j + 10, true))) {
+            score += 40;
+          }
+          if (okCol && (blank(m, i, j - 4, j - 1, false) || blank(m, i, j + 7, j + 10, false))) {
+            score += 40;
+          }
+        }
+      }
+      // Rule 4: how far the proportion of dark modules strays from a half.
+      for (i = 0; i < size; i++) for (j = 0; j < size; j++) if (m[i][j]) dark++;
+      var percent = dark * 100 / (size * size);
+      score += Math.floor(Math.abs(percent - 50) / 5) * 10;
+      return score;
+    }
+
+    function blank(m, line, from, to, isRow) {
+      for (var x = from; x <= to; x++) {
+        if (x < 0 || x >= size) continue;
+        if (isRow ? m[line][x] : m[x][line]) return false;
+      }
+      return true;
+    }
+
+    var best = null, bestScore = Infinity;
+    for (var mask = 0; mask < 8; mask++) {
+      var candidate = grid.map(function (row) { return Uint8Array.from(row); });
+      for (var r2 = 0; r2 < size; r2++) {
+        for (var c3 = 0; c3 < size; c3++) {
+          if (!reserved[r2][c3] && maskFn(mask, r2, c3)) candidate[r2][c3] ^= 1;
+        }
+      }
+      writeFormat(candidate, mask);
+      var s = penalty(candidate);
+      if (s < bestScore) { bestScore = s; best = candidate; }
+    }
+    grid = best;
+
+    // Version information, for version 7 and up: BCH(18,6).
+    if (version >= 7) {
+      var vrem = version << 12;
+      for (var z = 0; z < 6; z++) {
+        if (vrem & (1 << (17 - z))) vrem ^= 0x1f25 << (5 - z);
+      }
+      var vbits = (version << 12) | vrem;
+      for (var w = 0; w < 18; w++) {
+        var bitv = (vbits >> w) & 1;
+        grid[Math.floor(w / 3)][size - 11 + (w % 3)] = bitv;
+        grid[size - 11 + (w % 3)][Math.floor(w / 3)] = bitv;
+      }
+    }
+    return grid;
+  }
+
+
+  // ---- drawing ----
+  var canvas = document.getElementById('qr');
+  var ctx = canvas.getContext('2d');
+  var hint = document.getElementById('hint');
+
+  function draw(text) {
+    var grid = build(text);
+    var size = grid.length, quiet = 4, total = size + quiet * 2;
+    // Whole-pixel modules only. A fractional module size is what makes a dense code
+    // unreadable on a small camera — the edges blur into each other.
+    var scale = Math.max(4, Math.floor(480 / total));
+    canvas.width = canvas.height = total * scale;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000';
+    for (var r = 0; r < size; r++) {
+      for (var c = 0; c < size; c++) {
+        if (grid[r][c]) ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
+      }
+    }
+    return size;
+  }
+
+  function payload() {
+    var email = document.getElementById('email').value.trim();
+    // Google prints app passwords in four groups of four; the spaces are not the secret.
+    var pass = document.getElementById('pass').value.replace(/\s+/g, '');
+    if (!email || !pass) return null;
+    return 'brightmailbox://signin?s=google' +
+           '&e=' + encodeURIComponent(email) +
+           '&p=' + encodeURIComponent(pass);
+  }
+
+  function update() {
+    var text = payload();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!text) {
+      hint.textContent = 'Fill both fields to draw the code.';
+      canvas.width = canvas.height = 480;
+      return;
+    }
+    var pass = document.getElementById('pass').value.replace(/\s+/g, '');
+    try {
+      var modules = draw(text);
+      hint.textContent = pass.length === 16
+        ? 'Ready — scan this in the app. ' + modules + '×' + modules + ' modules.'
+        : 'Drawn, but an app password is normally 16 characters and this one is ' +
+          pass.length + '.';
+    } catch (e) {
+      hint.textContent = 'That is longer than this encoder handles. Check nothing extra ' +
+        'was pasted along with the password.';
+    }
+  }
+
+  ['email', 'pass'].forEach(function (id) {
+    document.getElementById(id).addEventListener('input', update);
+  });
+  update();
+})();
+</script>
+</body>
+</html>

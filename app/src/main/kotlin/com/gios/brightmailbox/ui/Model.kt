@@ -165,6 +165,27 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /**
+     * Sign in from the companion page's QR.
+     *
+     * Errors go to [said] rather than the screen's inline error, because a scan can be
+     * started from anywhere and the toast is the one surface that is always visible.
+     */
+    fun signInFromQr(text: String) = viewModelScope.launch {
+        when (val p = com.gios.brightmailbox.auth.QrSignIn.parse(text)) {
+            is com.gios.brightmailbox.auth.QrSignIn.Result.Bad -> said(p.why)
+            is com.gios.brightmailbox.auth.QrSignIn.Result.Ok -> {
+                _busy.value = true
+                val r = repo.auth.signInWithPassword(p.service, p.email, p.password)
+                _busy.value = false
+                r.fold(
+                    onSuccess = { firstSync() },
+                    onFailure = { said(it.message ?: "That code did not work.") },
+                )
+            }
+        }
+    }
+
     fun completeSignIn(uri: android.net.Uri) = viewModelScope.launch {
         val account = runCatching { repo.auth.onRedirect(uri) }.getOrNull()
         if (account == null) {

@@ -1,3 +1,28 @@
+## v2.1 — Sign in with the camera
+
+An app password is sixteen characters and this keyboard is 3.9 inches wide. You make the
+password on a computer anyway, so now the computer can hand it over directly.
+
+Open <https://gi-os.github.io/BrightMailbox/>, paste your address and the password, and
+it draws a QR. On the phone: **ADD GMAIL** → **SCAN A CODE**. Typing it still works and
+is one tap further down the same screen.
+
+The page is static and does everything in your browser: no network request, no
+analytics, and the QR encoder is part of the page rather than a script pulled from
+someone else's server, because handing a live password to a third-party script is the
+wrong shape. Save it and run it offline if you like.
+
+The code is a working password for as long as it is on screen — do not photograph it,
+and close the tab once the phone has taken it. Revoking is the same Google page that
+made it.
+
+The encoder is the one written for BrightFantasy, where it was checked properly: every
+matrix compared module for module against an independent encoder, and three hundred
+codes decoded with the same ZXing build the app scans with. A sign-in payload lands at
+version 5 — 37×37 modules, far easier on a camera than the dense codes it was built for.
+
+---
+
 ## v2.0 — One protocol, no setup
 
 Signing in used to take ten minutes and a Google Cloud project. Now it takes sixteen

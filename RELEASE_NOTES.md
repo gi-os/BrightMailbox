@@ -1,3 +1,17 @@
+## v2.21 — The wheel scrolls
+
+The brightness wheel scrolls Mailbox, the same as it does in the other apps on this phone:
+letters, notices, settings, a message, and a PDF. Turns only — the press, the camera button
+and brightness still belong to LightControl, which owns them phone-wide.
+
+It reads the way the wheel reads elsewhere, because it is the same code: one notch adds to
+a debt that each frame pays a share of, so a single notch glides instead of jumping and a
+fast spin becomes one continuous sweep. The first notch after a pause is held back and only
+released by a second one, so a thumb brushing the wheel does not move the page.
+
+The part specific to a mail client is the message itself. A rendered message is a focused
+WebView, and a WebView takes the key before anything in the app can — so the wheel is read
+at the activity, above the whole view hierarchy, and handed down to whatever is on screen.
 ## v2.20 — Clear today's letters in one go
 
 **Letters has an ARCHIVE ALL of its own**, on the bar: the archive icon with ALL under it.

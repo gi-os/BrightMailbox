@@ -163,8 +163,12 @@ fun HomeScreen(vm: MailboxViewModel) {
             return@Frame
         }
 
+        // The wheel scrolls the list, the same as in every other app on this phone.
+        val list = androidx.compose.foundation.lazy.rememberLazyListState()
+        com.gios.brightmailbox.hw.WheelScroll(list)
         LazyColumn(
             Modifier.weight(1f),
+            state = list,
             verticalArrangement = Arrangement.spacedBy(g * 1.1f),
         ) {
             items(visible, key = { it.key }) { m ->

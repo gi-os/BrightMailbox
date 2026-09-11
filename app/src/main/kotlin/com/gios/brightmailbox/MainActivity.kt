@@ -3,6 +3,7 @@ package com.gios.brightmailbox
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -30,6 +31,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gios.brightmailbox.hw.LightKey
+import com.gios.brightmailbox.hw.LightKeys
+import com.gios.brightmailbox.hw.LocalWheelBus
+import com.gios.brightmailbox.hw.WheelBus
 import com.gios.brightmailbox.sync.SyncWorker
 import com.gios.brightmailbox.ui.AccountDetailScreen
 import com.gios.brightmailbox.ui.ClientIdScreen
@@ -77,6 +82,17 @@ class MainActivity : ComponentActivity() {
 
     /** Set by onCreate/onNewIntent, consumed once by the composition. */
     private var redirect by mutableStateOf<Uri?>(null)
+
+    /**
+     * Wheel notches, on their way from the hardware to whatever is on screen.
+     *
+     * Held by the activity because [dispatchKeyEvent] is the only place that sees a key
+     * before the view hierarchy does — `DecorView` offers it to the window callback before
+     * `superDispatchKeyEvent` walks the views — and that is exactly what beats a **focused
+     * WebView**, which is what a message is. A Compose key handler inside the reader would
+     * never get the event.
+     */
+    private val wheel = WheelBus()
 
     /*
      * The scanner is a screen now, not an activity result.
@@ -177,6 +193,7 @@ class MainActivity : ComponentActivity() {
                 val accounts by vm.accounts.collectAsStateWithLifecycle()
                 CompositionLocalProvider(
                     LocalAccountWords provides accounts.associate { it.id to it.word },
+                    LocalWheelBus provides wheel,
                 ) {
                 /*
                  * Opening a message: the list fades to black while the letter rides up
@@ -266,6 +283,32 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Turns only.
+     *
+     * The wheel press, the camera button and brightness belong to LightControl, which owns
+     * the buttons phone-wide and passes bare turns through to `com.gios.*`. An app that
+     * claimed the click would fight it — and worse, claiming keys this app has no use for
+     * would take away controls that currently work.
+     *
+     * Both halves of the notch are consumed. The sensor sends a DOWN/UP pair per notch and
+     * letting the UP through would be a second event for the same physical movement.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        when (LightKeys.of(event)) {
+            LightKey.WheelUp -> {
+                if (event.action == KeyEvent.ACTION_DOWN) wheel.send(1)
+                return true
+            }
+            LightKey.WheelDown -> {
+                if (event.action == KeyEvent.ACTION_DOWN) wheel.send(-1)
+                return true
+            }
+            else -> Unit
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onNewIntent(intent: Intent) {

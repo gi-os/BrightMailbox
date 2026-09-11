@@ -48,7 +48,9 @@ fun SettingsScreen(vm: MailboxViewModel) {
 
     Frame {
         TopBar("SETTINGS")
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+        val scroll = rememberScrollState()
+        com.gios.brightmailbox.hw.WheelScroll(scroll)
+        Column(Modifier.weight(1f).verticalScroll(scroll)) {
 
             Section("DAILY LETTERS")
             /*

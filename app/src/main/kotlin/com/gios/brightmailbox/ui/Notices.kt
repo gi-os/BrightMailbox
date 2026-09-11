@@ -48,7 +48,9 @@ fun NoticesScreen(vm: MailboxViewModel) {
             T("$count", t.detail, Secondary)
         }
 
-        LazyColumn(Modifier.weight(1f)) {
+        val list = androidx.compose.foundation.lazy.rememberLazyListState()
+        com.gios.brightmailbox.hw.WheelScroll(list)
+        LazyColumn(Modifier.weight(1f), state = list) {
             for ((label, rows) in groups) {
                 item(key = "h:$label") {
                     Spacer(Modifier.height(g * 0.8f))

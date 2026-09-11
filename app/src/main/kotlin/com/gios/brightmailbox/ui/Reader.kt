@@ -206,6 +206,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             }
         } else {
             val scroll = rememberScrollState()
+            com.gios.brightmailbox.hw.WheelScroll(scroll)
             /*
              * Pull down to go home, WITHOUT eating the scroll.
              *
@@ -418,6 +419,17 @@ private fun HtmlBody(
      */
     var painted by remember(msg.key) { mutableStateOf(false) }
 
+    /*
+     * The WebView, hoisted so the wheel can reach it.
+     *
+     * This is the whole reason the key hook lives in the activity: a message is a focused
+     * WebView, and it would swallow the notch before any Compose handler saw it. The
+     * activity sees it first, the bus carries it here, and `WheelScroll` scrolls the
+     * document directly.
+     */
+    var webRef by remember(msg.key) { mutableStateOf<WebView?>(null) }
+    com.gios.brightmailbox.hw.WheelScroll(webRef)
+
     AndroidView(
         modifier = modifier.fillMaxWidth().alpha(if (painted) 1f else 0f),
         factory = { ctx ->
@@ -472,6 +484,7 @@ private fun HtmlBody(
                     }
                 }
             }
+            webRef = web
             // The frame is the thing returned, with the web view inside it — the pull
             // has to be caught above the WebView to be caught at all.
             PullDownFrame(ctx).apply {

@@ -106,8 +106,11 @@ fun PdfScreen(
                 Spacer(Modifier.weight(1f))
             }
             else -> {
+                val pages = androidx.compose.foundation.lazy.rememberLazyListState()
+                com.gios.brightmailbox.hw.WheelScroll(pages)
                 LazyColumn(
                     Modifier.weight(1f),
+                    state = pages,
                     verticalArrangement = Arrangement.spacedBy(g * 0.6f),
                 ) {
                     items(r.pageCount) { index -> PdfPage(r, index) }

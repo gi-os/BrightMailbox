@@ -47,7 +47,9 @@ import com.gios.brightmailbox.ui.theme.lightClickable
 fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?) {
     val g = LocalGrid.current
     val t = LocalType.current
-    val busy by vm.busy.collectAsStateWithLifecycle()
+    // Not vm.busy — that is on for every background sync, and this screen is asking a
+    // question about this message, not about the network.
+    val busy by vm.sending.collectAsStateWithLifecycle()
 
     val accounts = vm.repo.auth.accounts()
     var accountId by remember { mutableStateOf(replyTo?.accountId ?: accounts.firstOrNull()?.id.orEmpty()) }

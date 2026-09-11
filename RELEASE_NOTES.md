@@ -1,3 +1,21 @@
+## v2.19 — SEND says what it is doing, invites go to Notices
+
+**The compose screen said SENDING when nothing was being sent.** It was reading a flag
+that every background sync also sets, and a sync runs when the app opens and every fifteen
+minutes — so the button spent most of its life mislabelled and disabled. It now watches
+only the message it is actually sending.
+
+**Teams and Outlook meeting invitations go to Notices.** An invitation is not
+correspondence: it is an object for a calendar, and nothing here can accept or decline it,
+so it should not spend one of the day's five letters. This is the one rule that outranks
+"you have replied to this person" — an invite from someone you write to daily is still an
+invite.
+
+**The sheet's width is pinned to the view.** Third attempt at the clipped top-right corner.
+The sheet was sized at 100%, and 100% is the browser's opinion of the page width, which can
+land a fraction wider than the view really is — in which case the left corner is fine and
+the right one falls off the end, which is exactly the symptom. It is now set to the view's
+measured width, so the right edge is arithmetic rather than a computation I cannot see.
 ## v2.18 — Plain text scrolls again, PDFs open, and counts tell the truth
 
 **Fixed: plain text could not be scrolled.** The pull-down-to-go-home gesture was taking

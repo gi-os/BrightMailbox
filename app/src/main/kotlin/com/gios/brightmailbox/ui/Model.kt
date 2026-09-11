@@ -63,6 +63,19 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
     /**
+     * Specifically: a message is being sent.
+     *
+     * Separate from [busy], which means "the app is talking to a server" and is set by
+     * every sync, every sign-in and every refresh. The compose screen read [busy] to label
+     * its button, so a background sync — which happens on open and every fifteen minutes —
+     * made it say SENDING while nothing was being sent, and disabled the button at the same
+     * time, so the state was both wrong and sticky. A flag shared by three operations
+     * cannot answer a question about one of them.
+     */
+    private val _sending = MutableStateFlow(false)
+    val sending: StateFlow<Boolean> = _sending.asStateFlow()
+
+    /**
      * Which day the Letters list is showing.
      *
      * A read letter stays on the list until the day turns, and the query is told which
@@ -486,11 +499,11 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     /* -------------------------------------------------------------------- writing */
 
     fun send(accountId: String, msg: Outgoing) = viewModelScope.launch {
-        _busy.value = true
+        _sending.value = true
         runCatching { repo.send(accountId, msg) }
             .onSuccess { said("Sent."); go(Screen.Home) }
             .onFailure { said("Not sent. Your draft is still here.") }
-        _busy.value = false
+        _sending.value = false
     }
 
     /* ------------------------------------------------------------------- settings */

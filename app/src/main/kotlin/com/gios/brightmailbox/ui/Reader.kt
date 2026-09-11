@@ -712,7 +712,22 @@ private fun document(
   td, th, p, div, a { word-break: break-word; overflow-wrap: anywhere; }
 $shrink</style>
 </head><body style="margin:0;background:transparent;overflow-x:hidden;-webkit-text-size-adjust:100%">
-<div style="margin-top:14px;background:#fff;border-radius:14px 14px 0 0;overflow:hidden">
+<!--
+  The sheet's width is PINNED to the view, not to 100% of the page.
+
+  Third report of the top-right corner being clipped, after two fixes that each had a
+  plausible cause and neither of which was it. 100% means 100% of the layout viewport,
+  and the layout viewport is WebView's opinion — derived from density, the meta tag and
+  the content, and free to come out a fraction wider than the view actually is. When it
+  does, the left corner sits at x=0 and is fine while the right one falls off the end,
+  which is exactly and only the symptom being reported.
+
+  $viewDp is the view's real width in dp, which is the same number as a CSS pixel. Pinning
+  to it makes the sheet's right edge the view's right edge by arithmetic rather than by
+  trusting a computation I cannot see. max-width keeps it honest if that number is ever
+  the larger of the two.
+-->
+<div style="width:${viewDp}px;max-width:100%;box-sizing:border-box;margin-top:14px;background:#fff;border-radius:14px 14px 0 0;overflow:hidden">
 <div style="padding:22px 20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#000">
   <div style="font-size:25px;line-height:1.2;font-weight:400;color:#000">$sender</div>
   <div style="font-size:13px;line-height:1.5;color:#777;margin-top:5px">$stamp</div>

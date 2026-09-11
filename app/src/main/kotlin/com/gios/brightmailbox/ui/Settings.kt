@@ -1,6 +1,7 @@
 package com.gios.brightmailbox.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightmailbox.data.Depth
@@ -184,6 +186,34 @@ fun SettingsScreen(vm: MailboxViewModel) {
             ) {
                 T("Load images", t.copy, if (images) Content else Secondary)
                 T(if (images) "on" else "off", t.copy, Secondary)
+            }
+
+            Section("SIGNATURE")
+            var signature by remember { mutableStateOf(TextFieldValue(vm.repo.signature)) }
+            T(
+                "Added to the end of everything you send, after the \"--\" line every " +
+                    "mail client uses to fold a signature away when quoting.",
+                t.detail,
+                Secondary,
+            )
+            Spacer(Modifier.height(g * 0.7f))
+            BasicTextField(
+                value = signature,
+                onValueChange = {
+                    signature = it
+                    // Saved as typed. There is no Save button anywhere in this app and
+                    // adding one here would be the only one.
+                    vm.repo.signature = it.text
+                },
+                textStyle = t.copy.copy(color = Content),
+                cursorBrush = SolidColor(Content),
+                modifier = Modifier.fillMaxWidth(0.9f),
+            )
+            Spacer(Modifier.height(g * 0.3f))
+            Box(Modifier.fillMaxWidth(0.9f).height(2.dp).background(Content))
+            if (signature.text.isBlank()) {
+                Spacer(Modifier.height(g * 0.3f))
+                T("Nothing is added while this is empty.", t.superfine, Secondary)
             }
 
             Section("SORTING")

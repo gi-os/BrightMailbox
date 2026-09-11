@@ -77,22 +77,11 @@ fun HomeScreen(vm: MailboxViewModel) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             /*
-             * LETTERS yields, the count does not.
-             *
-             * The count used to sit in a fixed five-unit Box so that switching to
-             * Unlimited could not reflow the header. Five units is not enough for
-             * "12 today" and the word was clipped at every ration — a fixed width is only
-             * safe when you know the widest string, and "today" made that false. The
-             * label gives way instead, which it can: LETTERS is the one word here that
-             * the screen does not need to finish reading.
+             * No label. The first screen of a mail app is its letters; saying so is the
+             * same redundancy MAILBOX was, one row further down. What is left is the
+             * count, which is the only part that ever changes.
              */
-            T(
-                "LETTERS",
-                t.subheading,
-                maxLines = 1,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(Modifier.width(g * 0.5f))
+            Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (unlimited) {
                     T("${all.size} today", t.copy, Secondary, maxLines = 1)

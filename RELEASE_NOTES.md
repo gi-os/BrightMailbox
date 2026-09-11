@@ -1,3 +1,27 @@
+## v2.11 — Opening a message, and a signature
+
+**Pull a message down to put it away.** A downward drag that starts while the message is
+already at its top takes you back home; the same drag anywhere else scrolls, because the
+message asked for it first.
+
+**Messages slide up from the bottom.** They used to swap in instantly, and because the
+view was reused between messages you could catch a frame of the *previous* email before
+the new one painted. The whole reader is thrown away between messages now, so there are no
+stale pixels to see, and the slide covers the fetch over black rather than over the list.
+
+**Fixed: a grey bar above some messages instead of black.** CSS hands a background up to
+the page from `body` — and if body has none, from `html`. Plenty of marketing mail sets
+`html { background: #f4f4f4 }`, and only `body` was being held transparent, so that grey
+painted the whole canvas including the strip above the message.
+
+**A signature**, in Settings. It is added to the end of everything you send, after the
+"--" line that every mail client uses to fold a signature away when quoting a reply —
+which is why it does not come back at you in every response. Added when the message is
+sent rather than dropped into the draft, so there is nothing to type around and nothing to
+delete by accident.
+
+**LETTERS is gone from the top of the home screen.** The first screen of a mail app is its
+letters; saying so was the same redundancy MAILBOX was, one row further down.
 ## v2.10 — Sync goes both ways
 
 **Archive something in Gmail and it now disappears here too.** Until this release sync

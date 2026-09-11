@@ -5,6 +5,9 @@ import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -18,7 +21,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.viewinterop.AndroidView
@@ -75,6 +82,29 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
     val body by vm.body.collectAsStateWithLifecycle()
     var showWhy by remember { mutableStateOf(false) }
 
+    /*
+     * The message slides up from the bottom of a black screen.
+     *
+     * Two problems, one animation. The reader used to swap in instantly, and because the
+     * WebView is reused across messages you could see the PREVIOUS email for a frame or
+     * two before the new one painted. And a hard cut from a list to a page is the kind of
+     * thing this phone should not do.
+     *
+     * `key(msg.key)` throws the whole reader away between messages, so there are no stale
+     * pixels to see — a fresh WebView cannot show the last message. The slide then covers
+     * the fetch, over the app's own black rather than over the list.
+     */
+    key(msg.key) {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+
+    AnimatedVisibility(
+        visible = shown,
+        enter = slideInVertically(
+            initialOffsetY = { it },
+            animationSpec = tween(durationMillis = 260),
+        ) + fadeIn(animationSpec = tween(durationMillis = 160)),
+    ) {
     Frame {
         /*
          * No top bar at all. The message is the screen.
@@ -130,6 +160,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 attachments = attachments,
                 modifier = Modifier.weight(1f),
                 onAttachment = openFile,
+                onDismiss = { vm.go(Screen.Home) },
             ) { url ->
                 runCatching {
                     context.startActivity(
@@ -139,7 +170,25 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 }.onFailure { vm.said("No browser here to open that.") }
             }
         } else {
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            val scroll = rememberScrollState()
+            Column(
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(scroll)
+                    /*
+                     * The same pull as the formatted view, where it is far easier: a
+                     * Compose scroll state says outright whether it is at the top, and
+                     * there is no WebView vetoing the parent's interest in the gesture.
+                     */
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures { change, dragAmount ->
+                            if (scroll.value == 0 && dragAmount > 14f) {
+                                change.consume()
+                                vm.go(Screen.Home)
+                            }
+                        }
+                    },
+            ) {
                 Spacer(Modifier.height(g * 1.4f))
                 Masthead(vm, msg)
 
@@ -216,6 +265,8 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             }
         }
     }
+    }
+    }
 }
 
 /** One bar verb. Sized to the SDK's bar-icon unit so it matches every other bar. */
@@ -267,6 +318,7 @@ private fun HtmlBody(
     attachments: List<Attachment>,
     modifier: Modifier = Modifier,
     onAttachment: (Attachment) -> Unit,
+    onDismiss: () -> Unit,
     onLink: (String) -> Unit,
 ) {
     val document = remember(html, msg.key, account, attachments) {
@@ -292,7 +344,7 @@ private fun HtmlBody(
     AndroidView(
         modifier = modifier.fillMaxWidth().alpha(fade),
         factory = { ctx ->
-            WebView(ctx).apply {
+            val web = WebView(ctx).apply {
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 settings.javaScriptEnabled = false
                 settings.domStorageEnabled = false
@@ -344,7 +396,16 @@ private fun HtmlBody(
                 }
             }
         },
-        update = { it.loadDataWithBaseURL(null, document, "text/html", "UTF-8", null) },
+            PullDownFrame(ctx).apply {
+                addView(web)
+                atTop = { web.scrollY == 0 }
+                onPull = onDismiss
+            }
+        },
+        update = { frame ->
+            (frame.getChildAt(0) as? WebView)
+                ?.loadDataWithBaseURL(null, document, "text/html", "UTF-8", null)
+        },
     )
 }
 
@@ -403,7 +464,17 @@ private fun document(
      * Making the body itself white would have put the sheet hard against the screen edge;
      * putting the gap on the WebView would have pinned it.
      */
-    return """<!doctype html><html><head>
+    /*
+     * `<html>` carries the transparent background too, and that is not belt and braces.
+     *
+     * CSS propagates a background to the canvas from `body` — unless body has none, in
+     * which case it takes `html`'s. Marketing mail very often ships
+     * `html { background: #f4f4f4 }`, and because our transparent declaration was only on
+     * `body`, that grey propagated to the whole canvas and painted the strip above the
+     * message grey instead of leaving the app's black showing. Inline on both elements
+     * beats a stylesheet rule at every specificity short of !important.
+     */
+    return """<!doctype html><html style="background:transparent"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 </head><body style="margin:0;background:transparent;-webkit-text-size-adjust:100%">

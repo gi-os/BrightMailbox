@@ -116,6 +116,18 @@ class Repo private constructor(private val app: Context) {
         get() = prefs.getBoolean("images", true)
         set(v) = prefs.edit().putBoolean("images", v).apply()
 
+    /**
+     * Appended to everything sent, after the standard "-- " separator.
+     *
+     * That separator is not decoration: RFC 3676 defines "-- " on a line of its own as the
+     * start of a signature, and every mail client in the world uses it to fold the thing
+     * away when quoting a reply. Writing the signature without it means it is quoted back
+     * at you in every response.
+     */
+    var signature: String
+        get() = prefs.getString("signature", "").orEmpty()
+        set(v) = prefs.edit().putString("signature", v.trim()).apply()
+
     var lastSync: Long
         get() = prefs.getLong("last_sync", 0L)
         private set(v) = prefs.edit().putLong("last_sync", v).apply()
@@ -584,7 +596,19 @@ class Repo private constructor(private val app: Context) {
     /* ------------------------------------------------------------------- sending */
 
     suspend fun send(accountId: String, msg: Outgoing) = withContext(Dispatchers.IO) {
-        serviceFor(accountId)?.send(msg) ?: error("no such account")
+        /*
+         * The signature is added here, not in the compose screen.
+         *
+         * Putting it in the draft would mean the writer has to type around it, can delete
+         * it by accident, and sees it twice on a reply they edit. Appending at the point
+         * of sending makes it a property of the message leaving rather than of the text
+         * being written.
+         */
+        val sig = signature
+        val outgoing = if (sig.isBlank()) msg else msg.copy(
+            body = msg.body.trimEnd() + "\n\n-- \n" + sig,
+        )
+        serviceFor(accountId)?.send(outgoing) ?: error("no such account")
         // Writing to someone is the strongest evidence they are a person.
         msg.to.forEach { addr ->
             val existing = dao.correspondents().firstOrNull { it.address == addr }

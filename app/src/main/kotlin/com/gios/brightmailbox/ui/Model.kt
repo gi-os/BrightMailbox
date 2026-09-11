@@ -364,9 +364,19 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * one of them is still in the mailbox.
      */
     fun archiveAllNotices() = viewModelScope.launch {
+        /*
+         * Leave first, archive second.
+         *
+         * It already ended on Home — but only after `repo.archiveAllNotices()` returned,
+         * and that walks every notice and asks the server to MOVE it. On a pile of two
+         * hundred that is a long silence with the screen unchanged, which reads as a
+         * button that did nothing rather than one still working. The rows are removed
+         * locally first inside the repository and the lists are reactive, so Home is
+         * already correct by the time it draws.
+         */
+        go(Screen.Home)
         val n = repo.archiveAllNotices()
         said(if (n == 0) "Nothing to clear." else "$n archived.")
-        go(Screen.Home)
     }
 
     fun markAllNoticesRead() = viewModelScope.launch {

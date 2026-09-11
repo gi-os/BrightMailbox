@@ -11,6 +11,11 @@ so it should not spend one of the day's five letters. This is the one rule that 
 "you have replied to this person" — an invite from someone you write to daily is still an
 invite.
 
+**ARCHIVE ALL returns to the list straight away.** It always ended on the main screen, but
+only once every notice had been moved on the server, so on a large pile it sat there
+looking like a button that had done nothing. It leaves first now and finishes the work
+behind you.
+
 **The sheet's width is pinned to the view.** Third attempt at the clipped top-right corner.
 The sheet was sized at 100%, and 100% is the browser's opinion of the page width, which can
 land a fraction wider than the view really is — in which case the left corner is fine and

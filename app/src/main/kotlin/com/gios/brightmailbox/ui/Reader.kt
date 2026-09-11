@@ -395,7 +395,8 @@ private fun HtmlBody(
                     }
                 }
             }
-        },
+            // The frame is the thing returned, with the web view inside it — the pull
+            // has to be caught above the WebView to be caught at all.
             PullDownFrame(ctx).apply {
                 addView(web)
                 atTop = { web.scrollY == 0 }

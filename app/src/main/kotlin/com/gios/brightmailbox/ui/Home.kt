@@ -358,11 +358,11 @@ private fun Nothing(vm: MailboxViewModel) {
         // the true middle, and the action bar takes four units off the bottom anyway.
         Spacer(Modifier.height(g * 6f))
 
-        T(if (error != null) "Can't reach\nyour mail." else "Nothing\nyet.", t.title)
+        T(if (error != null) "Can't reach\nyour mail." else "Clear\nskies.", t.title)
+        Spacer(Modifier.height(g * 0.8f))
+        T(if (error != null) "Nothing came in." else "Your inbox is empty.", t.detail, Secondary)
 
-        Spacer(Modifier.height(g * 1.6f))
-        Box(Modifier.width(g * 6f).height(2.dp).background(Secondary))
-        Spacer(Modifier.height(g * 1.2f))
+        Spacer(Modifier.height(g * 1.4f))
 
         /*
          * The state of the machine, one fact per line, quietest first. Every line is
@@ -393,15 +393,17 @@ private fun Nothing(vm: MailboxViewModel) {
 
         Spacer(Modifier.weight(1f))
         /*
-         * CHECK NOW earns the second slot here and nowhere else. On a screen with mail on
-         * it the refresh icon in the header is enough; on a screen with nothing on it,
-         * "check again" is the only thing anybody wants to do, and hunting for an icon to
-         * do it is how you end up believing the app is broken.
+         * No CHECK NOW here.
+         *
+         * It was a second way to do the one thing the refresh icon in the header already
+         * does, on the one screen where both are visible at once — two controls for one
+         * action, a few units apart, which reads as an app unsure of itself rather than
+         * as a helpful shortcut.
          */
         ActionBar(
             left = null,
             leftIcon = Triple(R.drawable.ic_send_white, "Write") { vm.go(Screen.Write()) },
-            right = if (busy) null else "CHECK NOW" to { vm.syncNow() },
+            right = null,
         )
     }
 }

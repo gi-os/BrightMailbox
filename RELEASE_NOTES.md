@@ -1,5 +1,10 @@
 ## v2.21 — The wheel scrolls
 
+The empty screen says **Clear skies** now, with the plain fact under it, and it has lost
+both the rule across the middle and the CHECK NOW button — the refresh icon at the top of
+the same screen already did that, and two controls for one action a few units apart reads
+as an app unsure of itself.
+
 The brightness wheel scrolls Mailbox, the same as it does in the other apps on this phone:
 letters, notices, settings, a message, and a PDF. Turns only — the press, the camera button
 and brightness still belong to LightControl, which owns them phone-wide.

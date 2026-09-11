@@ -222,11 +222,31 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         _html.value = null
         _attachments.value = emptyList()
         _opened.value = msg
+
+        /*
+         * Read the cache BEFORE navigating, so the reader knows what it is drawing.
+         *
+         * The reader picks its whole layout off `html` — a white sheet in a WebView when
+         * there is HTML, the app's black page when there is not. Navigating first meant
+         * that choice was made while the answer was still null, so the first letter of a
+         * session slid up as a black page and then snapped into a white sheet when the
+         * fetch landed a moment later. The slide happened; it just happened to the wrong
+         * layout, which is indistinguishable from no slide at all.
+         *
+         * This is a disk read of a file the prefetch already wrote, so it costs well
+         * under a frame. A message nobody has fetched yet still opens immediately and
+         * still says "getting the text…" — that case is honest, and it is rare, because
+         * the prefetch covers exactly the messages that are on screen to be tapped.
+         */
+        val (cachedText, cachedHtml) = repo.cached(msg)
+        _body.value = cachedText
+        _html.value = cachedHtml
         go(Screen.Read(msg.key))
-        // Text first: it is on disk from the prefetch, so the page is never blank while
-        // the HTML is read out of the cache beside it.
-        _body.value = repo.body(msg)
-        _html.value = repo.original(msg)
+
+        // Whatever the cache could not answer. Both are no-ops when it could: `original`
+        // reads an empty cache file as a definite "there is none" rather than a round trip.
+        if (cachedText == null) _body.value = repo.body(msg)
+        if (cachedHtml == null) _html.value = repo.original(msg)
         // Cheap: the list is cached beside the body and needs no extra round trip once
         // the body has been fetched once.
         _attachments.value = if (msg.hasAttachments) repo.attachments(msg) else emptyList()

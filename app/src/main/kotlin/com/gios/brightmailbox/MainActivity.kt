@@ -17,6 +17,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -121,6 +122,32 @@ class MainActivity : ComponentActivity() {
                     if (vm.repo.auth.isSignedIn) {
                         SyncWorker.schedule(this@MainActivity)
                         vm.syncNow()
+                    }
+                }
+
+                /*
+                 * Start the WebView engine now, while nobody is waiting for it.
+                 *
+                 * The first `WebView(ctx)` in a process loads the whole rendering engine,
+                 * which takes long enough that the first letter's slide-up was over before
+                 * the page had painted anything — the view is held at zero opacity until
+                 * `onPageCommitVisible`, so the first letter of a session appeared out of
+                 * nowhere after the animation had finished. Every letter after it was
+                 * fine, because the engine was warm by then. That is the whole reason this
+                 * only ever happened once.
+                 *
+                 * Deliberately after the first frame: this blocks the main thread for a
+                 * few hundred milliseconds and it should land on a drawn list rather than
+                 * on the launch. The view is thrown away immediately — what survives is
+                 * the process-wide engine, which is the expensive part.
+                 */
+                LaunchedEffect(Unit) {
+                    withFrameNanos { }
+                    runCatching {
+                        android.webkit.WebView(this@MainActivity).apply {
+                            loadDataWithBaseURL(null, "<html></html>", "text/html", "UTF-8", null)
+                            destroy()
+                        }
                     }
                 }
 

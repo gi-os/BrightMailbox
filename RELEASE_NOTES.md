@@ -1,3 +1,18 @@
+## v2.15 — The first letter animates too
+
+**The first message you opened never seemed to slide up.** Two separate reasons, both now
+fixed. The reader picks its layout from whether the message has HTML, and until the text
+had been fetched that question had no answer yet — so the first letter slid up as a plain
+page and then snapped into a formatted one, which looks exactly like no animation at all.
+It now reads what is already on the phone before opening, so it knows what it is drawing.
+The rendering engine also started up on the first message and took long enough to miss the
+animation; it starts while you are still looking at the list instead.
+
+**The rounded top corners are no longer clipped on the right.** Messages built on a
+600-pixel grid were fitted by scaling the whole page, which scaled the letter's own frame
+with them and landed its corners between pixels. Now only the message is scaled down. The
+sheet, its corners, and the sender and subject above it stay at full size — so the header
+is also no longer shrunk to match whatever width a newsletter happened to declare.
 ## v2.14 — Read mail stays put, and you can hold one
 
 **Reading a letter no longer makes it disappear.** It turns gray and stays exactly where

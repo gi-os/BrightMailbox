@@ -436,6 +436,34 @@ class Repo private constructor(private val app: Context) {
     }
 
     /**
+     * What is already on disk for this message, without touching the network.
+     *
+     * The reason this exists separately from [body] and [original] is the animation. Those
+     * two will happily go to the server, so calling them before the reader opens would
+     * stall the tap for a round trip; calling them after means the reader is composed
+     * before anyone knows whether the message has HTML, and **a null `html` means two
+     * different things** — "there is none" and "nobody has looked yet". The reader drew
+     * the plain-text layout for both, so the first letter of a session slid up as a black
+     * page and then snapped to a white sheet once the fetch landed. That is the missing
+     * animation: it ran, on the wrong thing.
+     *
+     * Everything the prefetch has already fetched — the letters on the front screen — is
+     * answered from here in under a millisecond, so the reader knows what it is drawing
+     * before it is on screen.
+     *
+     * An html file that exists and is empty is a real answer: "asked already, there is
+     * none". Only a missing file means unknown.
+     */
+    suspend fun cached(msg: Msg): Pair<Clean.Body?, String?> = withContext(Dispatchers.IO) {
+        val text = bodyFile(msg.key).takeIf { it.exists() }
+            ?.let { runCatching { Clean.body(it.readText()) }.getOrNull() }
+        val html = htmlFile(msg.key).takeIf { it.exists() }
+            ?.let { runCatching { it.readText() }.getOrNull() }
+            ?.takeIf { it.isNotBlank() }
+        text to html
+    }
+
+    /**
      * Put the text of the messages about to be opened on disk, before they are opened.
      *
      * Bodies are cached by [body] on first open, which means the first open of every

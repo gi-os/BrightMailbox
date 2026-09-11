@@ -302,8 +302,19 @@ private fun HtmlBody(
     onDismiss: () -> Unit,
     onLink: (String) -> Unit,
 ) {
-    val document = remember(html, msg.key, account, attachments) {
-        document(html, msg, account, attachments)
+    /*
+     * How wide this view actually is, in CSS pixels.
+     *
+     * CSS pixels are dp on Android, so no density arithmetic — but the screen's width is
+     * not the view's: `Frame` insets every screen by a grid unit on each side, so the
+     * WebView is two units narrower than the panel. Passing the screen width would
+     * compute a zoom slightly too large and leave the message scrolling inside its own
+     * box by a couple of dozen pixels — the old bug back in miniature.
+     */
+    val screenDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
+    val viewDp = (screenDp - 2 * LocalGrid.current.inset.value).toInt()
+    val document = remember(html, msg.key, account, attachments, viewDp) {
+        document(html, msg, account, attachments, viewDp)
     }
 
     /*
@@ -437,6 +448,8 @@ private fun document(
     msg: Msg,
     account: String,
     attachments: List<Attachment>,
+    /** The WebView's own width in CSS pixels (dp), insets already taken off. */
+    viewDp: Int,
 ): String {
     fun esc(s: String) = s
         .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -514,11 +527,42 @@ private fun document(
      * scroll sideways at all. Mail with no declared width keeps `device-width` and stays
      * full size, which is most personal mail.
      */
-    val viewport = declaredWidth(html)?.let { "width=$it" } ?: "width=device-width,initial-scale=1"
+    /*
+     * The message is zoomed. The page is NOT.
+     *
+     * v2.13 put the declared width in the viewport meta, which laid the whole document
+     * out at 600 and let the WebView scale everything down to fit. That fixed the
+     * overflow and broke two things with it. Our sheet was scaled too, so its rounded top
+     * corners landed on fractional device pixels and the right one — the one at the far
+     * edge, where the rounding error accumulates — came out clipped. And the masthead
+     * shrank along with the mail, which was never the intent.
+     *
+     * `zoom` on the message wrapper alone does the same job in the right place: the
+     * content inside is laid out at the width it was built for and then rendered smaller,
+     * with the surrounding box shrinking to match — which is what separates `zoom` from
+     * `transform: scale`, where the parent keeps the unscaled height and leaves a hole
+     * below. The sheet, its corners and the masthead stay at device scale and stay crisp.
+     *
+     * The floor stops a message that declares 1280 from being rendered at a size nobody
+     * can read; anything past it scrolls sideways inside its own box, as before.
+     */
+    val gutter = 36
+    val room = (viewDp - gutter).coerceAtLeast(240)
+    val declared = declaredWidth(html)
+    val zoom = declared?.takeIf { it > room }?.let { (room.toFloat() / it).coerceAtLeast(0.55f) }
+    /*
+     * Locale.US, and it is not a nicety. The default locale formats a decimal with a
+     * comma in most of Europe, and `zoom:0,5900` is not a number CSS will parse — the
+     * declaration is dropped, the message renders at full width, and the overflow is
+     * back for exactly the users least likely to be able to report why.
+     */
+    val openZoom = if (zoom == null) "" else
+        """<div style="zoom:${String.format(java.util.Locale.US, "%.4f", zoom)};width:${declared}px">"""
+    val closeZoom = if (zoom == null) "" else "</div>"
 
     return """<!doctype html><html style="background:transparent;overflow-x:hidden"><head>
 <meta charset="utf-8">
-<meta name="viewport" content="$viewport">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   img { max-width: 100%; height: auto; }
   pre, code { white-space: pre-wrap; word-break: break-word; }
@@ -541,7 +585,7 @@ $files
   Padding all the way round would put a white frame under every newsletter footer.
 -->
 <div style="padding:16px 18px 0;overflow-x:auto;-webkit-overflow-scrolling:touch">
-$html
+$openZoom$html$closeZoom
 </div>
 <div style="height:24px"></div>
 </div>

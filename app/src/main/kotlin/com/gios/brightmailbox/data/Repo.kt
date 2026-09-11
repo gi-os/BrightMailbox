@@ -231,6 +231,36 @@ class Repo private constructor(private val app: Context) {
                 }
             }
             if (rows.isNotEmpty()) dao.put(rows)
+
+            /*
+             * The other direction.
+             *
+             * Sync only ever added. Archive a message in Gmail on a laptop and it stayed
+             * in Mailbox forever, because nothing ever asked the server what happened to
+             * the messages already held — the app read the inbox as an append-only feed,
+             * which it is not.
+             *
+             * A key missing from `states` means the message has left INBOX: archived,
+             * filed or deleted elsewhere. Archiving locally is the safe echo of all
+             * three — it removes the row from view and touches nothing on the server.
+             * Read state is copied back the same way.
+             *
+             * Failures here are swallowed on purpose. Reconciliation is a nicety and the
+             * mail that just arrived is not; a server that will not answer this must not
+             * cost the fetch that already worked.
+             */
+            runCatching {
+                val live = dao.liveFor(account.id)
+                if (live.isNotEmpty()) {
+                    val states = svc.states(live.map { it.providerId })
+                    val gone = live.filter { it.providerId !in states }.map { it.key }
+                    if (gone.isNotEmpty()) dao.archiveAll(gone)
+                    val readElsewhere = live.filter { m ->
+                        m.unread && states[m.providerId] == false
+                    }.map { it.key }
+                    if (readElsewhere.isNotEmpty()) dao.markSeen(readElsewhere)
+                }
+            }
         }
 
         // Only a check that actually reached a mailbox counts as a check. Stamping the
@@ -505,6 +535,29 @@ class Repo private constructor(private val app: Context) {
         rows.groupBy { it.accountId }.forEach { (acct, list) ->
             runCatching { serviceFor(acct)?.markRead(list.map { it.providerId }) }
         }
+    }
+
+    /**
+     * Clear the whole Notices pile.
+     *
+     * Archive, never delete — on IMAP this is a MOVE to All Mail, so a receipt cleared by
+     * accident is still in the mailbox and still findable from any other client. That is
+     * what makes a one-tap bulk action on somebody's mail defensible at all.
+     *
+     * The local rows are marked first so the list empties immediately; the server move
+     * follows per account. A failed move leaves the message in the inbox on the server and
+     * archived here, which the next sync does not undo (reconciliation only archives, it
+     * never un-archives) — the cost of that is one notice that has to be cleared again on
+     * the web, and the alternative is a button that appears to do nothing for ten seconds.
+     */
+    suspend fun archiveAllNotices(): Int = withContext(Dispatchers.IO) {
+        val rows = dao.noticeList()
+        if (rows.isEmpty()) return@withContext 0
+        dao.archiveAllNotices()
+        rows.groupBy { it.accountId }.forEach { (acct, list) ->
+            runCatching { serviceFor(acct)?.archive(list.map { it.providerId }) }
+        }
+        rows.size
     }
 
     /**

@@ -95,6 +95,20 @@ interface MailService {
      */
     suspend fun attachment(id: String, part: String): ByteArray?
 
+    /**
+     * Which of these are still in the inbox, and whether they are unread there.
+     *
+     * The answer to "what happened while the app was not looking". A key missing from
+     * the result means the message is no longer in the inbox — archived, filed or
+     * deleted somewhere else — and the value is the server's read state, which also
+     * moves without us.
+     *
+     * Deliberately not a full folder listing: this asks about the messages the app
+     * already holds, so the cost is bounded by our own row count rather than by the size
+     * of somebody's inbox.
+     */
+    suspend fun states(ids: List<String>): Map<String, Boolean>
+
     suspend fun markRead(ids: List<String>)
 
     suspend fun archive(ids: List<String>)

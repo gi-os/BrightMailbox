@@ -60,8 +60,17 @@ fun NoticesScreen(vm: MailboxViewModel) {
             }
         }
 
+        /*
+         * READ / ARCHIVE ALL / BACK.
+         *
+         * Three items is the SDK's limit for a bar with any text in it, which is what
+         * cost "MARK ALL READ" two of its words. ARCHIVE ALL is a move to All Mail, not
+         * a delete — every notice it clears is still in the mailbox — which is the only
+         * reason a one-tap bulk action on somebody's mail belongs on a bar at all.
+         */
         ActionBar(
-            left = "MARK ALL READ" to { vm.markAllNoticesRead() },
+            left = "READ" to { vm.markAllNoticesRead() },
+            middle = "ARCHIVE ALL" to { vm.archiveAllNotices() },
             right = "BACK" to { vm.go(Screen.Home) },
         )
     }

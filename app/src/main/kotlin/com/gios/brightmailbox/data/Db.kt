@@ -152,6 +152,26 @@ interface MailDao {
     @Query("UPDATE messages SET archived = 1 WHERE key = :key")
     suspend fun archive(key: String)
 
+    /* ------------------------------------------------- reconciling with the server */
+
+    /** Everything still in this account's inbox as far as the app knows. */
+    @Query("SELECT * FROM messages WHERE accountId = :accountId AND NOT archived")
+    suspend fun liveFor(accountId: String): List<Msg>
+
+    /** Archived somewhere else. Room takes a list, so this is one statement. */
+    @Query("UPDATE messages SET archived = 1 WHERE key IN (:keys)")
+    suspend fun archiveAll(keys: List<String>)
+
+    /** The server's read state won. */
+    @Query("UPDATE messages SET unread = 0 WHERE key IN (:keys)")
+    suspend fun markSeen(keys: List<String>)
+
+    @Query("UPDATE messages SET archived = 1 WHERE pile = 'NOTICE' AND NOT archived")
+    suspend fun archiveAllNotices()
+
+    @Query("SELECT * FROM messages WHERE pile = 'NOTICE' AND NOT archived")
+    suspend fun noticeList(): List<Msg>
+
     @Query("UPDATE messages SET unread = 0 WHERE pile = 'NOTICE' AND NOT archived")
     suspend fun markAllNoticesRead()
 

@@ -174,6 +174,48 @@ class Imap(
         }
     }
 
+    /**
+     * Ask the server what became of the messages we hold.
+     *
+     * `getMessagesByUID` returns a null slot for every UID that is no longer in the
+     * folder, which is exactly the signal wanted: a message archived in Gmail's web UI
+     * has left INBOX and comes back null here. Those keys are simply absent from the map.
+     *
+     * One FLAGS fetch for the survivors, so a message read on a laptop stops being unread
+     * here too. Cheap: flags only, no headers and no bodies.
+     */
+    override suspend fun states(ids: List<String>): Map<String, Boolean> = io {
+        if (ids.isEmpty()) return@io emptyMap()
+        withFolder("INBOX", write = false) { f ->
+            val validity = f.getUIDValidity()
+            /*
+             * A UIDVALIDITY change means every UID we hold refers to nothing. Returning
+             * an empty map would then archive the entire mailbox, so say "no news" and
+             * let the next sync re-add what it finds.
+             */
+            val wanted = ids.mapNotNull { id ->
+                val parts = id.split('-')
+                val v = parts.getOrNull(0)?.toLongOrNull()
+                val uid = parts.getOrNull(1)?.toLongOrNull()
+                if (v != validity || uid == null) null else uid to id
+            }
+            if (wanted.isEmpty()) return@withFolder emptyMap()
+
+            val msgs = f.getMessagesByUID(wanted.map { it.first }.toLongArray())
+            f.fetch(
+                msgs.filterNotNull().toTypedArray(),
+                FetchProfile().apply { add(FetchProfile.Item.FLAGS) },
+            )
+            val out = HashMap<String, Boolean>(msgs.size)
+            for ((i, m) in msgs.withIndex()) {
+                if (m == null) continue // gone from the inbox
+                val id = wanted.getOrNull(i)?.second ?: continue
+                out[id] = runCatching { !m.isSet(Flags.Flag.SEEN) }.getOrDefault(true)
+            }
+            out
+        }
+    }
+
     /* ------------------------------------------------------------------- writing */
 
     override suspend fun markRead(ids: List<String>) {

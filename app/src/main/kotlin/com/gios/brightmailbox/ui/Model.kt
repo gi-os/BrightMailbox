@@ -149,8 +149,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * Today's visible Letters.
      *
      * Beyond the ration they are not deleted and not hidden in a folder — they are
-     * tomorrow's, and the count of what waits is shown. The list is already ranked by
-     * the DAO, so this only takes the top of it.
+     * tomorrow's, and the count of what waits is shown.
      */
     fun visibleLetters(all: List<Msg>): List<Msg> {
         if (repo.ration == Ration.UNLIMITED) return all
@@ -226,6 +225,19 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
 
     fun archive(msg: Msg) = viewModelScope.launch {
         repo.archive(msg)
+        go(Screen.Home)
+    }
+
+    /**
+     * Clear the Notices pile.
+     *
+     * Says how many, because a screen that empties with no word looks like a crash — and
+     * because the number is the only confirmation there is. Archive, not delete: every
+     * one of them is still in the mailbox.
+     */
+    fun archiveAllNotices() = viewModelScope.launch {
+        val n = repo.archiveAllNotices()
+        said(if (n == 0) "Nothing to clear." else "$n archived.")
         go(Screen.Home)
     }
 

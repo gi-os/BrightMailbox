@@ -1,3 +1,23 @@
+## v2.10 — Sync goes both ways
+
+**Archive something in Gmail and it now disappears here too.** Until this release sync
+only ever added: it read the inbox as a feed of new things and never asked the server what
+had become of the messages it already held. So a newsletter you cleared on a laptop sat in
+Mailbox forever.
+
+Every sync now asks after the messages it holds. One that has left the inbox — archived,
+filed or deleted somewhere else — is archived here. One you read elsewhere stops being
+unread here. The cost is bounded by how many messages the app holds, not by how big the
+mailbox is, and it asks for flags only: no headers, no bodies.
+
+It is one-way in the sense that matters for safety: the app never un-archives and never
+deletes. Anything it gets wrong leaves the message in your mailbox.
+
+**ARCHIVE ALL on the Notices screen.** One tap clears the pile. It is a move to All Mail,
+not a delete — every notice it clears is still in the mailbox and still findable from any
+other client, which is the only reason a bulk action on somebody's mail belongs on a bar.
+"MARK ALL READ" is now "READ" to make room; three items is the limit for a bar with any
+text in it.
 ## v2.9 — Newest first
 
 Letters are in time order now, newest at the top. Notices always were.

@@ -1,5 +1,6 @@
 package com.gios.brightmailbox.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,12 +25,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightmailbox.R
 import com.gios.brightmailbox.data.Msg
 import com.gios.brightmailbox.data.Ration
+import com.gios.brightmailbox.ui.theme.Content
 import com.gios.brightmailbox.ui.theme.LocalGrid
 import com.gios.brightmailbox.ui.theme.LocalType
 import com.gios.brightmailbox.ui.theme.Screen as Frame
 import com.gios.brightmailbox.ui.theme.Secondary
 import com.gios.brightmailbox.ui.theme.T
 import com.gios.brightmailbox.ui.theme.lightClickable
+import com.gios.brightmailbox.ui.theme.lightHoldable
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -56,7 +59,19 @@ fun HomeScreen(vm: MailboxViewModel) {
     val unlimited = vm.repo.ration == Ration.UNLIMITED
     val visible = vm.visibleLetters(all)
 
-    if (vm.dayDone && all.isNotEmpty()) {
+    /*
+     * The finished-day screen is now the empty case only.
+     *
+     * It used to take over the moment the fifth letter was read, which under v2.14 would
+     * throw away the very thing that release is about: the five letters you just read are
+     * still on the list, greyed, and replacing them with a screen that says "Five of five"
+     * is the same disappearance one level up. When there are rows to show, the same two
+     * sentences go under them as a footer instead — see the end of the list below.
+     *
+     * It still earns its place when there is nothing left to draw: the day's letters read
+     * and then archived away, with more waiting for tomorrow.
+     */
+    if (vm.dayDone && visible.isEmpty() && all.isNotEmpty()) {
         DayDone(vm, waiting, notices.size)
         return
     }
@@ -147,10 +162,40 @@ fun HomeScreen(vm: MailboxViewModel) {
             Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(g * 1.1f),
         ) {
-            items(visible, key = { it.key }) { m -> LetterRow(m) { vm.open(m) } }
+            items(visible, key = { it.key }) { m ->
+                LetterRow(m, onClick = { vm.open(m) }, onHold = { vm.star(m) })
+            }
 
             if (all.isEmpty()) {
                 item { T("No letters. Notices below.", t.detail, Secondary) }
+            }
+
+            /*
+             * The day's close, as a footer rather than a screen.
+             *
+             * Same two facts the takeover carried — that there were five, and what happens
+             * next — under the five greyed rows that prove it, which is more than the
+             * takeover could say because the takeover had to hide them to say it.
+             */
+            if (vm.dayDone) {
+                item {
+                    Spacer(Modifier.height(g * 0.6f))
+                    T(
+                        if (waiting > 0) "Five of five. More tomorrow at 7am."
+                        else "Five of five. Nothing else waiting.",
+                        t.detail,
+                        Secondary,
+                    )
+                    Spacer(Modifier.height(g * 0.5f))
+                    // A line, not a button. It should not sit there tempting you.
+                    T(
+                        "Hold the wheel to read a sixth",
+                        t.detail,
+                        Secondary,
+                        Modifier.fillMaxWidth().lightClickable { vm.unlockOneMore() },
+                        maxLines = 1,
+                    )
+                }
             }
 
             /*
@@ -173,7 +218,7 @@ fun HomeScreen(vm: MailboxViewModel) {
                     Spacer(Modifier.height(g * 0.6f))
                 }
                 items(notices.take(4), key = { "n" + it.key }) { m ->
-                    NoticeRow(m) { vm.open(m) }
+                    NoticeRow(m, onClick = { vm.open(m) }, onHold = { vm.star(m) })
                 }
                 item {
                     T(
@@ -275,20 +320,48 @@ private fun Nothing(vm: MailboxViewModel) {
 /**
  * A Letter: sender at copy, account as a superfine secondary word after it, subject at
  * detail with the time pushed right. Four grid units tall.
+ *
+ * **Read is a shade, not a disappearance.** A letter that has been opened drops from
+ * white to [Secondary] and stays exactly where it was until the day turns. There is no
+ * other state to draw: the row does not move, resize, indent or gain a rule, because the
+ * one thing the list has to keep is a stable place for every letter — a row that jumps
+ * when you come back from reading it is a row you have to find again.
+ *
+ * Grey rather than dimmed white for the reason in the theme header: alpha on a matte
+ * monochrome LCD dithers into a texture, a flat grey does not.
  */
 @Composable
-fun LetterRow(m: Msg, onClick: () -> Unit) {
+fun LetterRow(m: Msg, onClick: () -> Unit, onHold: () -> Unit = {}) {
     val g = LocalGrid.current
     val t = LocalType.current
-    Column(Modifier.fillMaxWidth().lightClickable(onClick = onClick)) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            T(m.senderName, t.copy, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+    val ink = if (m.readHere) Secondary else Content
+    Column(
+        Modifier.fillMaxWidth().lightHoldable(onLongClick = onHold, onClick = onClick),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            T(
+                m.senderName,
+                t.copy,
+                ink,
+                maxLines = 1,
+                modifier = Modifier.weight(1f, fill = false),
+            )
             Spacer(Modifier.width(g * 0.45f))
             T(accountWord(m.accountId), t.superfine, Secondary, maxLines = 1)
+            if (m.starred) {
+                Spacer(Modifier.weight(1f))
+                Star()
+            }
         }
         Spacer(Modifier.height(g * 0.25f))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-            T(m.subject.ifBlank { "(no subject)" }, t.detail, maxLines = 1, modifier = Modifier.weight(1f))
+            T(
+                m.subject.ifBlank { "(no subject)" },
+                t.detail,
+                ink,
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
             Spacer(Modifier.width(g * 0.5f))
             T(stamp(m.receivedAt), t.detail, Secondary, maxLines = 1)
         }
@@ -300,11 +373,11 @@ fun LetterRow(m: Msg, onClick: () -> Unit) {
  * it, subject hard-truncated. No time — none of these are urgent.
  */
 @Composable
-fun NoticeRow(m: Msg, onClick: () -> Unit) {
+fun NoticeRow(m: Msg, onClick: () -> Unit, onHold: () -> Unit = {}) {
     val g = LocalGrid.current
     val t = LocalType.current
     Row(
-        Modifier.fillMaxWidth().lightClickable(onClick = onClick),
+        Modifier.fillMaxWidth().lightHoldable(onLongClick = onHold, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         T(m.senderName, t.detail, Secondary, Modifier.width(g * 6.5f), maxLines = 1)
@@ -315,6 +388,71 @@ fun NoticeRow(m: Msg, onClick: () -> Unit) {
             modifier = Modifier.weight(1f),
             maxLines = 1,
         )
+        if (m.starred) {
+            Spacer(Modifier.width(g * 0.4f))
+            Star()
+        }
+    }
+}
+
+/**
+ * The held mark.
+ *
+ * Deliberately small — 0.7 of a grid unit, about two thirds the height of the word beside
+ * it. It is a state, not a control: there is nothing to tap here, and a mark drawn at
+ * icon size would read as a button that does not work.
+ */
+@Composable
+private fun Star() {
+    val g = LocalGrid.current
+    androidx.compose.foundation.Image(
+        painter = painterResource(R.drawable.ic_star_white),
+        contentDescription = "Held",
+        contentScale = ContentScale.Fit,
+        modifier = Modifier.size(g * 0.7f),
+    )
+}
+
+/* ------------------------------------------------------------------------- toast */
+
+/**
+ * What the app just said.
+ *
+ * This is new in v2.14, and it should have existed since v2.0: `MailboxViewModel.said()`
+ * has always written to a StateFlow that **nothing collected**. Every sentence the app
+ * tried to say went into it and stopped there — "Sent.", "3 new.", "Nothing new.", the
+ * per-account failure line added specifically so a sync that cannot reach a mailbox says
+ * so, and the sign-in errors from the QR scanner. The work to produce those sentences was
+ * done and correct; there was no surface, so a refresh that failed looked exactly like a
+ * refresh that found nothing, which is the complaint that prompted writing them.
+ *
+ * It clears itself after a few seconds. A line that has to be dismissed is a dialog, and
+ * a dialog for "Held." would be worse than saying nothing.
+ */
+@Composable
+fun Said(vm: MailboxViewModel, modifier: Modifier = Modifier) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    val message by vm.toast.collectAsStateWithLifecycle()
+
+    // Keyed on the text, so a second message restarts the clock rather than inheriting
+    // the tail of the first one's.
+    androidx.compose.runtime.LaunchedEffect(message) {
+        if (message != null) {
+            kotlinx.coroutines.delay(2600)
+            vm.said(null)
+        }
+    }
+
+    val text = message ?: return
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = g.inset)
+            .background(com.gios.brightmailbox.ui.theme.Background)
+            .padding(vertical = g * 0.4f),
+    ) {
+        T(text, t.detail, maxLines = 2, modifier = Modifier.weight(1f))
     }
 }
 

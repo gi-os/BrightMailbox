@@ -229,6 +229,23 @@ class Imap(
     }
 
     /**
+     * `\Flagged`, on or off.
+     *
+     * One of the four flags every IMAP server is required to support, so there is no
+     * capability to check and no per-provider fallback — unlike archive, which has to
+     * find a folder first.
+     */
+    override suspend fun setFlagged(ids: List<String>, on: Boolean) {
+        if (ids.isEmpty()) return
+        io {
+            withFolder("INBOX", write = true) { f ->
+                val msgs = f.getMessagesByUID(uids(ids)).filterNotNull().toTypedArray()
+                if (msgs.isNotEmpty()) f.setFlags(msgs, Flags(Flags.Flag.FLAGGED), on)
+            }
+        }
+    }
+
+    /**
      * Archive, which on IMAP means moving out of the inbox — never deleting.
      *
      * MOVE (RFC 6851) rather than copy-then-delete, because on Gmail setting `\Deleted`

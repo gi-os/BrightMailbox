@@ -111,6 +111,15 @@ interface MailService {
 
     suspend fun markRead(ids: List<String>)
 
+    /**
+     * Set or clear IMAP's `\Flagged` on these messages.
+     *
+     * The same bit Gmail draws as a star and Outlook as a flag, which is why starring
+     * something in this app is worth pushing at all: it is not a private annotation, it
+     * shows up wherever the mailbox is open next.
+     */
+    suspend fun setFlagged(ids: List<String>, on: Boolean)
+
     suspend fun archive(ids: List<String>)
 
     suspend fun send(msg: Outgoing)

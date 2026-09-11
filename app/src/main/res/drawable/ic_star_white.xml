@@ -1,0 +1,19 @@
+<!--
+  The held mark.
+
+  Filled, not outlined. An outline at this size — the mark is about eight device pixels
+  across on the LP3 — is two hairlines with a gap between them, and a matte monochrome LCD
+  turns that into a grey smudge. A solid shape stays a shape.
+
+  Drawn inside 24x24 with a margin on every side, so it sits on the same optical line as
+  the text beside it rather than crowding the row.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,3.2L14.5,9.0L20.8,9.6L16.1,13.8L17.5,20.0L12,16.8L6.5,20.0L7.9,13.8L3.2,9.6L9.5,9.0Z" />
+</vector>

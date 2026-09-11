@@ -71,6 +71,7 @@ class Repo private constructor(private val app: Context) {
         .build()
 
     private val db = Room.databaseBuilder(app, MailDb::class.java, "mailbox.db")
+        .addMigrations(MailDb.MIGRATION_1_2)
         .fallbackToDestructiveMigration()
         .build()
 
@@ -149,7 +150,14 @@ class Repo private constructor(private val app: Context) {
 
     /* --------------------------------------------------------------------- feeds */
 
-    fun letters(): Flow<List<Msg>> = dao.letters()
+    /**
+     * Today's Letters, including the ones already read today.
+     *
+     * The day is passed in rather than read here so the caller can re-ask for it — a
+     * process that lives across midnight would otherwise hold yesterday's list forever.
+     * See [MailboxViewModel.letters].
+     */
+    fun letters(day: Int = today()): Flow<List<Msg>> = dao.letters(day)
     fun notices(): Flow<List<Msg>> = dao.notices()
     fun unreadNotices(): Flow<Int> = dao.unreadNotices()
     fun waitingLetters(): Flow<Int> = dao.waitingLetters()
@@ -534,6 +542,20 @@ class Repo private constructor(private val app: Context) {
     }
 
     /**
+     * Hold a message, or let it go.
+     *
+     * Local first, server second, and the server call is best-effort: a star is a decision
+     * about what this screen shows, so it has to take effect with no signal. The `\Flagged`
+     * bit is a bonus — it is what makes the same message appear starred in Gmail and
+     * flagged in Outlook — but nothing here depends on it landing.
+     */
+    suspend fun star(msg: Msg, on: Boolean) = withContext(Dispatchers.IO) {
+        dao.setStarred(msg.key, on)
+        runCatching { serviceFor(msg.accountId)?.setFlagged(listOf(msg.providerId), on) }
+        Unit
+    }
+
+    /**
      * The most-used control in the app, on 41 rows at a time.
      *
      * The local update happens first and unconditionally, so the screen clears even with
@@ -666,7 +688,13 @@ class Repo private constructor(private val app: Context) {
 
     /* ------------------------------------------------------------------ plumbing */
 
-    private fun today(): Int {
+    /**
+     * Today as yyyymmdd, in the phone's own calendar.
+     *
+     * Public because the ViewModel has to ask again — it is what decides when a read
+     * letter leaves the list, and the answer changes while the app is running.
+     */
+    fun today(): Int {
         val c = Calendar.getInstance()
         return c.get(Calendar.YEAR) * 10000 + (c.get(Calendar.MONTH) + 1) * 100 + c.get(Calendar.DAY_OF_MONTH)
     }

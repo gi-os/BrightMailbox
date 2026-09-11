@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -39,6 +40,7 @@ import com.gios.brightmailbox.ui.NoticesScreen
 import com.gios.brightmailbox.ui.PasswordScreen
 import com.gios.brightmailbox.ui.ReaderScreen
 import com.gios.brightmailbox.ui.RulesScreen
+import com.gios.brightmailbox.ui.Said
 import com.gios.brightmailbox.ui.ScanScreen
 import com.gios.brightmailbox.ui.Screen
 import com.gios.brightmailbox.ui.SettingsScreen
@@ -222,6 +224,17 @@ class MainActivity : ComponentActivity() {
                  * overlay that wants to align itself would not compile.
                  */
                 Box(Modifier.fillMaxSize()) {
+                    /*
+                     * What the app just said, over whatever screen is up.
+                     *
+                     * Above the action bar rather than at the very bottom, because every
+                     * screen in this app ends in a bar and a sentence printed over WRITE
+                     * is a sentence that hides the control it is talking about.
+                     */
+                    Said(
+                        vm,
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp),
+                    )
                     ReportOverlay(corner = Alignment.BottomEnd, bottomInset = 64.dp)
                 }
             }

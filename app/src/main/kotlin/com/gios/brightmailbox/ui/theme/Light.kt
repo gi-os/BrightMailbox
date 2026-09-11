@@ -2,6 +2,7 @@ package com.gios.brightmailbox.ui.theme
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -137,6 +138,42 @@ fun Modifier.lightClickable(enabled: Boolean = true, onClick: () -> Unit): Modif
             androidx.compose.foundation.interaction.MutableInteractionSource()
         },
         indication = null,
+    ) {
+        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+        onClick()
+    }
+}
+
+/**
+ * The same target, with a hold on it.
+ *
+ * Separate from [lightClickable] rather than an optional parameter, because
+ * `combinedClickable` costs a gesture detector on every row that uses it and most rows
+ * have nothing to hold for.
+ *
+ * The two gestures buzz differently on purpose: a tap gets the light `TextHandleMove`
+ * tick every control in the app gets, a hold gets `LongPress`, which is the heavier one.
+ * That difference is the only confirmation the finger gets that the hold registered
+ * before anything appears on the screen.
+ */
+@androidx.compose.runtime.Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+fun Modifier.lightHoldable(
+    enabled: Boolean = true,
+    onLongClick: () -> Unit,
+    onClick: () -> Unit,
+): Modifier {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    return this.combinedClickable(
+        enabled = enabled,
+        interactionSource = androidx.compose.runtime.remember {
+            androidx.compose.foundation.interaction.MutableInteractionSource()
+        },
+        indication = null,
+        onLongClick = {
+            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            onLongClick()
+        },
     ) {
         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
         onClick()

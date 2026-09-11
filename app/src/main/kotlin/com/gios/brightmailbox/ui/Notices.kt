@@ -54,7 +54,11 @@ fun NoticesScreen(vm: MailboxViewModel) {
                     Spacer(Modifier.height(g * 0.5f))
                 }
                 items(rows.size, key = { i -> rows[i].key }) { i ->
-                    NoticeRow(rows[i]) { vm.open(rows[i]) }
+                    NoticeRow(
+                        rows[i],
+                        onClick = { vm.open(rows[i]) },
+                        onHold = { vm.star(rows[i]) },
+                    )
                     Spacer(Modifier.height(g * 0.45f))
                 }
             }

@@ -47,8 +47,27 @@ data class Msg(
     val hasAttachments: Boolean = false,
     /** Set when the user has opened it here, independent of the server's read flag. */
     val readHere: Boolean = false,
-    /** Which day's ration this Letter was counted against. yyyymmdd, 0 if not yet. */
+    /**
+     * Which day's ration this Letter was counted against. yyyymmdd, 0 if not yet.
+     *
+     * Doing double duty since v2.14: it is also the stamp that decides how long a message
+     * stays on the list after it has been read. A message read today is today's, greyed
+     * but present; tomorrow the same row no longer matches and the list has moved on.
+     * Written by [MailDao.markRead] from the Kotlin calendar, so every comparison against
+     * it must use the same clock rather than SQLite's `localtime` — the two disagree at
+     * the edges, and a disagreement here either strands a read letter forever or takes it
+     * away while it is still being looked at.
+     */
     @ColumnInfo(defaultValue = "0") val rationDay: Int = 0,
+    /**
+     * Held by hand.
+     *
+     * The one thing in the app that overrides every rule about what is shown: a starred
+     * message ignores the ration, ignores the day rollover, and is skipped by ARCHIVE ALL.
+     * Mirrored to the server as IMAP `\Flagged`, which is the same bit Gmail draws as its
+     * star and Outlook as its flag — so holding something here marks it everywhere.
+     */
+    @ColumnInfo(defaultValue = "0") val starred: Boolean = false,
     val archived: Boolean = false,
 )
 
@@ -107,15 +126,25 @@ interface MailDao {
      * The ranking is not gone — it moved to [MailboxViewModel.visibleLetters], which is
      * where the ration picks the five worth reading. That picking is invisible and always
      * was; the *order* is not.
+     *
+     * **A read letter is not gone, it is spent.** Until v2.14 this said `AND NOT readHere`,
+     * so opening a letter deleted it from the screen — the only evidence you had read
+     * anything was that the list was shorter than before, and a letter opened by mistake
+     * could not be found again from inside the app at all. Now a letter read *today*
+     * stays, drawn in grey, and leaves on its own when [day] moves on. Starred letters
+     * never leave.
+     *
+     * @param day today as yyyymmdd, from the same calendar that wrote `rationDay`.
      */
     @Query(
         """
         SELECT * FROM messages
-        WHERE pile = 'LETTER' AND NOT archived AND NOT readHere
+        WHERE pile = 'LETTER' AND NOT archived
+          AND (NOT readHere OR starred OR rationDay = :day)
         ORDER BY receivedAt DESC
         """,
     )
-    fun letters(): Flow<List<Msg>>
+    fun letters(day: Int): Flow<List<Msg>>
 
     @Query(
         """
@@ -152,6 +181,9 @@ interface MailDao {
     @Query("UPDATE messages SET archived = 1 WHERE key = :key")
     suspend fun archive(key: String)
 
+    @Query("UPDATE messages SET starred = :on WHERE key = :key")
+    suspend fun setStarred(key: String, on: Boolean)
+
     /* ------------------------------------------------- reconciling with the server */
 
     /** Everything still in this account's inbox as far as the app knows. */
@@ -166,10 +198,18 @@ interface MailDao {
     @Query("UPDATE messages SET unread = 0 WHERE key IN (:keys)")
     suspend fun markSeen(keys: List<String>)
 
-    @Query("UPDATE messages SET archived = 1 WHERE pile = 'NOTICE' AND NOT archived")
+    /*
+     * ARCHIVE ALL means all of them except the ones held by hand.
+     *
+     * A star is the user saying "not this one", and a bulk action that ignores it is a
+     * bulk action nobody can safely press. Both statements carry the exclusion because
+     * both run: the list is what gets moved on the server, the update is what clears the
+     * screen, and they have to agree about which rows they are talking about.
+     */
+    @Query("UPDATE messages SET archived = 1 WHERE pile = 'NOTICE' AND NOT archived AND NOT starred")
     suspend fun archiveAllNotices()
 
-    @Query("SELECT * FROM messages WHERE pile = 'NOTICE' AND NOT archived")
+    @Query("SELECT * FROM messages WHERE pile = 'NOTICE' AND NOT archived AND NOT starred")
     suspend fun noticeList(): List<Msg>
 
     @Query("UPDATE messages SET unread = 0 WHERE pile = 'NOTICE' AND NOT archived")
@@ -233,9 +273,26 @@ interface MailDao {
 
 @Database(
     entities = [Msg::class, SenderRule::class, Correspondent::class, Draft::class],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class MailDb : RoomDatabase() {
     abstract fun dao(): MailDao
+
+    companion object {
+        /**
+         * v1 → v2: the `starred` column.
+         *
+         * Written out rather than left to `fallbackToDestructiveMigration`, which is what
+         * the builder still falls back on. Destructive is tolerable for a cache and this
+         * is a cache — but it is a cache of somebody's mail with a learned model hanging
+         * off it, and dropping it costs a full re-sync of every account on the first
+         * launch after an update, on a phone, over IMAP. One ALTER avoids all of that.
+         */
+        val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+    }
 }

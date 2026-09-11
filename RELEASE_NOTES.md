@@ -1,3 +1,26 @@
+## v2.14 — Read mail stays put, and you can hold one
+
+**Reading a letter no longer makes it disappear.** It turns gray and stays exactly where
+it was until the next day. Until now, opening a letter took it off the list on the spot,
+so the only sign you had read anything was that the list got shorter — and a letter opened
+by mistake could not be found again from inside the app at all.
+
+**Hold any letter or notice to keep it.** A held message gets a small star and stops
+obeying the rules about what the list shows: it ignores the daily five, it stays past the
+day it arrived, and ARCHIVE ALL leaves it alone. Hold it again to let it go. The star is
+set on the server as well, so the same message reads as starred in Gmail and flagged in
+Outlook.
+
+**The finished-day screen is for an empty screen now.** It used to take over the moment the
+fifth letter was read, which would hide the five gray letters this release is about. The
+same two lines sit under the list instead, over the letters that prove them.
+
+**The app can say things again.** Every sentence it tried to say went into a place nothing
+displayed: "Sent.", "3 new.", "Nothing new.", and the line naming a mailbox it could not
+reach. A failed check therefore looked exactly like a check that found nothing, which is
+the confusion those messages were written to clear up. They appear above the bottom bar
+now, for a few seconds.
+
 ## v2.13 — A proper sheet
 
 **The letter is a slide-up sheet now.** White, from the bottom edge, rounded at the top

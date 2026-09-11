@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -60,7 +61,20 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
-    val letters = repo.letters()
+    /**
+     * Which day the Letters list is showing.
+     *
+     * A read letter stays on the list until the day turns, and the query is told which
+     * day that is — so something has to re-ask. [refreshRation] moves this, and it runs
+     * every time Home is entered, which is the moment that matters: a phone left on the
+     * bedside table overnight shows yesterday's greyed letters until it is picked up,
+     * and then does not.
+     */
+    private val _day = MutableStateFlow(repo.today())
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val letters = _day
+        .flatMapLatest { repo.letters(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val notices = repo.notices()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -139,6 +153,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     fun said(message: String?) { _toast.value = message }
 
     private fun refreshRation() = viewModelScope.launch {
+        _day.value = repo.today()
         _allowed.value = repo.allowedToday()
         _readToday.value = repo.readToday()
     }
@@ -154,9 +169,21 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     fun visibleLetters(all: List<Msg>): List<Msg> {
         if (repo.ration == Ration.UNLIMITED) return all
         /*
+         * Two kinds of row, and only one of them is rationed.
+         *
+         * `held` is everything already read today and everything starred: it is on the
+         * screen because of something the user did, so the ration has no say over it.
+         * Rationing it would be perverse — reading a letter would make another letter
+         * disappear to keep the count at five.
+         *
+         * `_allowed` is already 5 minus what has been read today, so the two halves add
+         * back up to five and the list does not grow as the day goes on.
+         */
+        val (held, fresh) = all.partition { it.readHere || it.starred }
+        /*
          * Score picks, time orders.
          *
-         * [all] arrives newest first. The ration is meant to hand back the letters worth
+         * [fresh] arrives newest first. The ration is meant to hand back the letters worth
          * reading rather than merely the most recent, so the model still chooses WHICH
          * ones — but the five it chooses are then put back in time order, because a list
          * of five sorted by an invisible number is a list that looks shuffled.
@@ -165,12 +192,12 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
          * and sorting on the exact value would reshuffle the day's five for no visible
          * reason.
          */
-        return all.sortedWith(
+        val picked = fresh.sortedWith(
             compareByDescending<Msg> { (it.score * 20).toInt() }
                 .thenByDescending { it.receivedAt },
-        )
-            .take(_allowed.value)
-            .sortedByDescending { it.receivedAt }
+        ).take(_allowed.value)
+
+        return (held + picked).sortedByDescending { it.receivedAt }
     }
 
     val dayDone: Boolean
@@ -221,6 +248,19 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         said("Getting ${att.name}…")
         val f = repo.attachmentFile(msg, att)
         if (f == null) said("Could not fetch that file.") else { said(null); onReady(f) }
+    }
+
+    /**
+     * Hold a message on the screen, or let it go. The long press on any row.
+     *
+     * Says which way it went, because the mark is small and a hold is easy to do by
+     * accident — the sentence is how you find out you did it. The row updates itself from
+     * the database; nothing here has to tell it.
+     */
+    fun star(msg: Msg) = viewModelScope.launch {
+        val on = !msg.starred
+        repo.star(msg, on)
+        said(if (on) "Held." else "Let go.")
     }
 
     fun archive(msg: Msg) = viewModelScope.launch {

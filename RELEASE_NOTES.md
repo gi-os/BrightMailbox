@@ -1,3 +1,18 @@
+## v2.17 — Outlook works out of the box
+
+**Tap ADD OUTLOOK, sign in, done.** Until now that button was grey on every release ever
+published and said "not set up in this build", because the Microsoft app registration it
+needs did not exist. It does now, and it ships with the app — so Outlook and Microsoft 365
+mailboxes need no setup at all, no portal, and nothing to type on a phone keyboard.
+
+Gmail is unchanged and still uses an app password. That difference is not an oversight:
+Google caps every mail scope at 100 users pending a four-figure annual audit, and
+Microsoft caps nothing, so one registration covers everybody on the Microsoft side and no
+registration would cover everybody on Google's.
+
+SETUP.md gained the two traps worth knowing if you build your own copy — a personal
+Microsoft account cannot hold an app registration at all, and the API permissions step
+fails silently at first sync rather than at sign-in.
 ## v2.16 — A default view, a swipe, and a screen worth looking at
 
 **Settings → READING now decides how messages open**, as sent or as text only. The ··· in

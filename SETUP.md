@@ -81,18 +81,42 @@ imposes no user cap, so one app registration covers everybody.
 
 Personal accounts and work or school accounts both work.
 
+Every release from v2.17 onwards carries a registration, so there is nothing to set up:
+install it and tap **ADD OUTLOOK**. The rest of this section is for anyone building their
+own copy, or running one from before v2.17.
+
 ### If ADD OUTLOOK is grey and says "not set up in this build"
 
 That build has no client id in it. The id is not a secret — a public client has none —
 but it is not in the source either, so a build made without one cannot sign in to
-Microsoft. Register one once and every build afterwards has it:
+Microsoft. Every release before v2.17 was in this state, because the registration did not
+exist yet. Register one once and every build afterwards has it:
 
 1. Go to <https://entra.microsoft.com> → **Applications** → **App registrations** → **New
    registration**.
-2. Name it anything. Under **Supported account types** choose **Accounts in any
+
+   **Sign in with a work or school account, not a personal one.** A personal Microsoft
+   account — including a Gmail or Yahoo address registered as one — is put into a system
+   tenant called *Microsoft Services* that has **no directory behind it**, so there is
+   nowhere for a registration to live and the portal refuses at the door:
+
+   > Selected user account does not exist in tenant 'Microsoft Services' and cannot
+   > access the application '74658136-…'
+
+   That application id is the admin center's own interface, which is the giveaway that
+   the portal is rejecting you rather than anything to do with mail. The advice in the
+   message — be added as an external user — does not apply; there is no tenant of yours
+   to be added to. Creating a tenant of your own now generally requires a paid Azure
+   account, so in practice this step needs an organization account.
+2. Name it **after the app**, not after the project it is filed under. This is the
+   user-facing display name and it is what the consent screen says out loud: *"Mailbox
+   wants to read and write your mail."* A name nobody recognizes, asking for a mailbox,
+   is the exact shape of a phishing prompt — and borrowing a real product's name is worse.
+   It can be changed later under **Branding & properties**.
+3. Under **Supported account types** choose **Accounts in any
    organizational directory and personal Microsoft accounts** — the multi-tenant option.
    Anything narrower refuses either work accounts or outlook.com ones.
-3. Skip the redirect URI on that page. Register, then open **Authentication** →
+4. Skip the redirect URI on that page. Register, then open **Authentication** →
    **Add a platform** → **Mobile and desktop applications** → **Custom redirect URIs**,
    and add exactly:
 
@@ -102,11 +126,22 @@ Microsoft. Register one once and every build afterwards has it:
 
    Microsoft stores what you type and compares it literally, so a trailing slash or a
    capital letter is a different URI and the sign-in ends on `redirect_uri_mismatch`.
-4. **API permissions** → **Add a permission** → **APIs my organization uses** → search
+5. **API permissions** → **Add a permission** → **APIs my organization uses** → search
    *Office 365 Exchange Online* → **Delegated** → tick `IMAP.AccessAsUser.All` and
    `SMTP.Send`. Graph's `Mail.*` permissions are the wrong ones: an IMAP server refuses a
    Graph token with a bare authentication failure that reads exactly like a bad password.
-5. Copy the **Application (client) ID** from the Overview page.
+   This is the step with no warning attached to it — skip it and sign-in *succeeds*, then
+   the first sync fails as though the password were wrong.
+6. Add **no** certificate or secret. This is a public client: it holds no secret, it
+   proves itself with PKCE, and a registration that has one configured is a different
+   kind of application.
+7. Copy the **Application (client) ID** from the Overview page.
+
+Nothing here costs money. An app registration is free on every tier, and users sign in
+against their **own** tenant or Microsoft account rather than yours, so no guest is
+created in the tenant holding the registration and there is nothing to meter. What the
+tenant does take on is the registration itself: its administrators can see it, audit it,
+and delete it — and deleting it stops Outlook working for everyone using that build.
 
 Then give it to the build, whichever suits:
 

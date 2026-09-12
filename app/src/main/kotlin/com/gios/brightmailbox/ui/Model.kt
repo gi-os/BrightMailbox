@@ -175,6 +175,16 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     val opened: StateFlow<Msg?> = _opened.asStateFlow()
 
     /**
+     * The screen the reader was opened from.
+     *
+     * A message can be reached from four places now — the two piles, the archive and a
+     * search — and every one of them used to end at Home when you left the message. Going
+     * back to a list you were not in, and losing the search you had just typed, is the
+     * kind of thing that makes an app feel like it is not listening.
+     */
+    private var cameFrom: Screen = Screen.Home
+
+    /**
      * The signed-in mailboxes, as state rather than as a call.
      *
      * `auth.accounts()` reads SharedPreferences and returns a fresh list, so a screen that
@@ -261,7 +271,8 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * not, the screen is up first and the text arrives into it, rather than the tap doing
      * nothing for two seconds.
      */
-    fun open(msg: Msg) = viewModelScope.launch {
+    fun open(msg: Msg, from: Screen = Screen.Home) = viewModelScope.launch {
+        cameFrom = from
         _body.value = null
         _html.value = null
         _attachments.value = emptyList()
@@ -345,9 +356,37 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         said(if (on) "Held." else "Let go.")
     }
 
+    /** Leave the message, back to the list it was opened from. */
+    fun leaveReader() = go(cameFrom)
+
     fun archive(msg: Msg) = viewModelScope.launch {
         repo.archive(msg)
-        go(Screen.Home)
+        go(cameFrom)
+    }
+
+    /**
+     * Put an archived message back in the inbox.
+     *
+     * Harder than archiving, and the reason is UIDs. `providerId` is
+     * `"$uidValidity-$uid"` **relative to INBOX**, and a message that has been moved out
+     * of INBOX no longer has that UID — so there is nothing to address it by. The message
+     * is found in the archive folder by its **RFC 5322 Message-ID**, which is the one
+     * identifier that survives a move between folders.
+     *
+     * The local row is then **deleted**, not un-archived, and a sync is kicked off. Moving
+     * it back gives it yet another new UID, so keeping the old row would leave a stale
+     * `providerId` pointing at nothing, and the next sync would fetch the same message
+     * again under a different key and show it twice. Deleting and re-fetching is the only
+     * version of this that leaves the database honest.
+     */
+    fun unarchive(msg: Msg) = viewModelScope.launch {
+        val ok = repo.unarchive(msg)
+        if (!ok) {
+            said("Could not move that back.")
+            return@launch
+        }
+        said("Back in your inbox.")
+        syncNow()
     }
 
     /**

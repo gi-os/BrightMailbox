@@ -60,7 +60,7 @@ fun NoticesScreen(vm: MailboxViewModel) {
                 items(rows.size, key = { i -> rows[i].key }) { i ->
                     NoticeRow(
                         rows[i],
-                        onClick = { vm.open(rows[i]) },
+                        onClick = { vm.open(rows[i], Screen.Notices) },
                         onHold = { vm.star(rows[i]) },
                         onSwipe = { vm.archiveHere(rows[i]) },
                     )

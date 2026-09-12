@@ -1,3 +1,16 @@
+## v2.23 — Out of the archive, and back where you were
+
+**Swipe a row in the archive to put it back.** The mirror of the swipe that archived it, so
+the archive is a place you can take things out of rather than a one-way chute. It is a real
+move back to your inbox on the server, not a local flag — a local one would be quietly
+undone by the next sync.
+
+**Leaving a message returns you to the list you opened it from.** Notices, the archive, a
+search you had just typed — all of them used to drop you back on the front screen, which
+meant finding your place again every time you read something.
+
+**The second ARCHIVE ALL is gone** from the bottom of the inbox; the one in the menu is
+enough.
 ## v2.22 — A menu, an archive, downloads and search
 
 The gear at the top of the inbox is a **menu** now, because settings is one of five places

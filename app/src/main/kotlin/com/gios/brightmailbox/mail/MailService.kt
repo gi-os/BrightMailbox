@@ -122,6 +122,18 @@ interface MailService {
 
     suspend fun archive(ids: List<String>)
 
+    /**
+     * Move a message out of the archive and back into the inbox.
+     *
+     * Addressed by **Message-ID**, not by the provider id every other call uses: that id
+     * carries a UID which is valid only inside INBOX, and a message that has been archived
+     * is by definition not there any more. The Message-ID is written by the sender and
+     * survives every move.
+     *
+     * @return true if the message was found and moved.
+     */
+    suspend fun unarchive(messageId: String): Boolean
+
     suspend fun send(msg: Outgoing)
 
     /**

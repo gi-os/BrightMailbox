@@ -273,14 +273,8 @@ fun HomeScreen(vm: MailboxViewModel) {
         ActionBar(
             left = null,
             leftIcon = Triple(R.drawable.ic_send_white, "Write") { vm.go(Screen.Write()) },
-            /*
-             * Clear today's letters in one go — the ones on screen, not the mailbox.
-             * Hidden when there is nothing to clear, because a bulk action over an empty
-             * list is a control that can only disappoint.
-             */
-            middleStacked = if (visible.isEmpty()) null else {
-                Triple(R.drawable.ic_archive_white, "ALL") { vm.archiveThese(visible) }
-            },
+            // ARCHIVE ALL lives in the menu now. Two of them, one on the bar and one a
+            // tap away behind the hamburger, is one too many for an action this broad.
             right = if (unlimited || notices.isNotEmpty()) {
                 "NOTICES $noticeTotal" to { vm.go(Screen.Notices) }
             } else {
@@ -437,11 +431,13 @@ fun LetterRow(
     onClick: () -> Unit,
     onHold: () -> Unit = {},
     onSwipe: (() -> Unit)? = null,
+    /** What the swipe does, for the word revealed behind the row. */
+    swipeLabel: String = "ARCHIVE",
 ) {
     val g = LocalGrid.current
     val t = LocalType.current
     val ink = if (m.readHere) Secondary else Content
-    SwipeRow(onSwipe) { rowModifier ->
+    SwipeRow(onSwipe, swipeLabel) { rowModifier ->
     Column(
         rowModifier.fillMaxWidth().lightHoldable(onLongClick = onHold, onClick = onClick),
     ) {
@@ -490,6 +486,7 @@ fun LetterRow(
 @Composable
 private fun SwipeRow(
     onSwipe: (() -> Unit)?,
+    label: String = "ARCHIVE",
     content: @Composable (Modifier) -> Unit,
 ) {
     if (onSwipe == null) {
@@ -500,7 +497,7 @@ private fun SwipeRow(
     val t = LocalType.current
     androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth()) {
         T(
-            "ARCHIVE",
+            label,
             t.detail,
             Secondary,
             Modifier.align(Alignment.CenterEnd),
@@ -527,7 +524,7 @@ fun NoticeRow(
 ) {
     val g = LocalGrid.current
     val t = LocalType.current
-    SwipeRow(onSwipe) { rowModifier ->
+    SwipeRow(onSwipe, "ARCHIVE") { rowModifier ->
     Row(
         rowModifier.fillMaxWidth().lightHoldable(onLongClick = onHold, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,

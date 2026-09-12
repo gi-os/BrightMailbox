@@ -195,7 +195,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 attachments = attachments,
                 modifier = Modifier.weight(1f),
                 onAttachment = openFile,
-                onDismiss = { vm.go(Screen.Home) },
+                onDismiss = { vm.leaveReader() },
             ) { url ->
                 runCatching {
                     context.startActivity(
@@ -239,7 +239,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                             overscroll += available.y
                             if (overscroll > 140f) {
                                 overscroll = 0f
-                                vm.go(Screen.Home)
+                                vm.leaveReader()
                             }
                         } else if (available.y < 0f) {
                             overscroll = 0f
@@ -317,7 +317,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                BarIcon(R.drawable.ic_back_white, "Back") { vm.go(Screen.Home) }
+                BarIcon(R.drawable.ic_back_white, "Back") { vm.leaveReader() }
                 BarIcon(R.drawable.ic_reply_white, "Reply") { vm.go(Screen.Write(msg)) }
                 BarIcon(R.drawable.ic_archive_white, "Archive") { vm.archive(msg) }
                 T(

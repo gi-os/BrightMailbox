@@ -211,6 +211,17 @@ interface MailDao {
     @Query("UPDATE messages SET starred = :on WHERE key = :key")
     suspend fun setStarred(key: String, on: Boolean)
 
+    /**
+     * Drop a row entirely.
+     *
+     * Only for un-archiving, and the reason is UIDs: a message moved back to INBOX gets a
+     * new one, so the old `providerId` points at nothing and the next sync would fetch the
+     * same message again under a different key. Deleting the stale row is what stops the
+     * message appearing twice.
+     */
+    @Query("DELETE FROM messages WHERE key = :key")
+    suspend fun forget(key: String)
+
     /* ------------------------------------------------- reconciling with the server */
 
     /** Everything still in this account's inbox as far as the app knows. */

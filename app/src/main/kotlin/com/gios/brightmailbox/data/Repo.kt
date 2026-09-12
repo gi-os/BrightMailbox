@@ -691,6 +691,26 @@ class Repo private constructor(private val app: Context) {
     }
 
     /**
+     * Put an archived message back in the inbox. See [MailboxViewModel.unarchive].
+     *
+     * Server first, and only on success is the local row dropped — the opposite order to
+     * every other verb here. Archiving optimistically is safe because a failed move leaves
+     * the message in the inbox, where it already was; un-archiving optimistically is not,
+     * because a failed move would leave a row claiming to be in an inbox that has never
+     * heard of it.
+     *
+     * Needs the Message-ID. A message that predates v2.0, or one whose sender omitted the
+     * header, cannot be found again and is refused rather than half-moved.
+     */
+    suspend fun unarchive(msg: Msg): Boolean = withContext(Dispatchers.IO) {
+        val id = msg.messageId?.takeIf { it.isNotBlank() } ?: return@withContext false
+        val svc = serviceFor(msg.accountId) ?: return@withContext false
+        val moved = runCatching { svc.unarchive(id) }.getOrDefault(false)
+        if (moved) dao.forget(msg.key)
+        moved
+    }
+
+    /**
      * Hold a message, or let it go.
      *
      * Local first, server second, and the server call is best-effort: a star is a decision

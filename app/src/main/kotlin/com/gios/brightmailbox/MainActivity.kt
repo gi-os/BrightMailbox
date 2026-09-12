@@ -224,8 +224,16 @@ class MainActivity : ComponentActivity() {
                 AnimatedContent(
                     targetState = screen,
                     transitionSpec = {
-                        val opening = targetState is Screen.Read && initialState is Screen.Home
-                        val closing = targetState is Screen.Home && initialState is Screen.Read
+                        /*
+                         * Any list to a message, and back to whichever list it was.
+                         *
+                         * This used to name Home on both sides, from when Home was the
+                         * only way into a message. There are four now — the two piles, the
+                         * archive and a search — and the sheet should arrive and leave the
+                         * same way regardless of which one you were standing in.
+                         */
+                        val opening = targetState is Screen.Read && initialState !is Screen.Read
+                        val closing = initialState is Screen.Read && targetState !is Screen.Read
                         when {
                             opening -> slideInVertically(
                                 animationSpec = tween(SHEET_IN, easing = SheetEasing),

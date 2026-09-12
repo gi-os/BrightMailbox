@@ -91,10 +91,13 @@ private fun MenuItem(label: String, detail: String, onClick: () -> Unit) {
  * Mail that has been put away.
  *
  * Reads the same as the piles it came from, and opens into the same reader — an archived
- * message is a message. What it deliberately does not have is an un-archive button: the
- * server is the authority on where mail lives, reconciliation only ever archives (see
- * `Repo.sync`), and a local un-archive would be undone by the next sync. Moving it back
- * is a thing to do in a full mail client.
+ * message is a message.
+ *
+ * Swiping a row puts it back, and that is a real move on the server rather than a local
+ * flag, because a local one would be undone by the next sync: reconciliation only ever
+ * archives, so the server is the authority on where mail lives and the only way to
+ * disagree with it is to change its mind. See `Repo.unarchive` for why this costs a
+ * Message-ID search and a deleted row.
  */
 @Composable
 fun ArchiveScreen(vm: MailboxViewModel) {
@@ -132,7 +135,21 @@ fun ArchiveScreen(vm: MailboxViewModel) {
                 verticalArrangement = Arrangement.spacedBy(g * 0.9f),
             ) {
                 items(rows, key = { it.key }) { m ->
-                    LetterRow(m, onClick = { vm.open(m) }, onHold = { vm.star(m) })
+                    /*
+                     * Swipe to put it back.
+                     *
+                     * The mirror of the swipe that archived it, and the same gesture, so
+                     * the archive is a place you can move things out of rather than a
+                     * one-way chute. Under it this is a real IMAP move back to INBOX, not
+                     * a local flag — see `Repo.unarchive`.
+                     */
+                    LetterRow(
+                        m,
+                        onClick = { vm.open(m, Screen.Archive) },
+                        onHold = { vm.star(m) },
+                        onSwipe = { vm.unarchive(m) },
+                        swipeLabel = "UNARCHIVE",
+                    )
                 }
             }
         }
@@ -266,7 +283,7 @@ fun SearchScreen(vm: MailboxViewModel) {
             verticalArrangement = Arrangement.spacedBy(g * 0.9f),
         ) {
             items(results, key = { it.key }) { m ->
-                LetterRow(m, onClick = { vm.open(m) }, onHold = { vm.star(m) })
+                LetterRow(m, onClick = { vm.open(m, Screen.Search) }, onHold = { vm.star(m) })
             }
         }
 

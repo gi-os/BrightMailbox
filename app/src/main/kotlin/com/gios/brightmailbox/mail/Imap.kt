@@ -14,6 +14,7 @@ import jakarta.mail.Transport
 import jakarta.mail.UIDFolder
 import jakarta.mail.internet.InternetAddress
 import jakarta.mail.internet.MimeMessage
+import jakarta.mail.search.MessageIDTerm
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.eclipse.angus.mail.imap.IMAPFolder
@@ -273,6 +274,42 @@ class Imap(
                     f.expunge()
                 }
             }
+        }
+    }
+
+    /**
+     * Back to INBOX, found by Message-ID.
+     *
+     * `MessageIDTerm` is a server-side SEARCH, so the archive folder is never walked
+     * client-side — which matters, because on Gmail the archive folder is All Mail and
+     * holds everything the account has ever received.
+     *
+     * The move is INBOX-ward, so the copy fallback flags `\Deleted` in the ARCHIVE folder
+     * on a server with no MOVE. That is the one direction where a delete is safe: the
+     * message exists in INBOX by then, and on Gmail the label is what is being removed.
+     */
+    override suspend fun unarchive(messageId: String): Boolean = io {
+        val store = store()
+        val source = special(store, "\\All", "\\Archive", service.archiveNames) as? IMAPFolder
+            ?: return@io false
+        val inbox = store.getFolder("INBOX") ?: return@io false
+        source.open(Folder.READ_WRITE)
+        try {
+            val found = source.search(MessageIDTerm(messageId))
+            if (found.isNullOrEmpty()) return@io false
+            try {
+                source.moveUIDMessages(found, inbox)
+            } catch (e: Exception) {
+                // No MOVE extension. Copy first, so a failure leaves the message where it
+                // is — and this is the one direction where the delete that follows is
+                // safe, because by then the message is already in INBOX.
+                source.copyMessages(found, inbox)
+                source.setFlags(found, Flags(Flags.Flag.DELETED), true)
+                source.expunge()
+            }
+            true
+        } finally {
+            runCatching { source.close(false) }
         }
     }
 

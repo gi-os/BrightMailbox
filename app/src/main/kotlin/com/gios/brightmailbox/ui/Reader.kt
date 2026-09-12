@@ -134,6 +134,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
         val plainText by vm.plainText.collectAsStateWithLifecycle()
         val attachments by vm.attachments.collectAsStateWithLifecycle()
         val thread by vm.thread.collectAsStateWithLifecycle()
+        val fetching by vm.fetching.collectAsStateWithLifecycle()
         val formatted = !plainText && !html.isNullOrBlank()
 
         /*
@@ -266,15 +267,44 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 // Three clear units. This is the whole trick.
                 Spacer(Modifier.height(g * 3f))
 
-                T(
-                    // IMAP sends no snippet, so an uncached message has nothing to show
-                    // while its text is fetched. Say what is happening rather than draw a
-                    // blank page.
-                    body?.text ?: msg.snippet.ifBlank { "getting the text…" },
-                    t.paragraph,
-                    lineHeight = readerLeading(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                /*
+                 * Three states, and they must not be confused with each other.
+                 *
+                 * This was `body?.text ?: "getting the text…"`, which looks right and is
+                 * not: a failed fetch handed back a perfectly valid Body containing an
+                 * empty string, so the elvis never fired and the screen printed nothing at
+                 * all. Black, permanently, with no explanation — the reported bug.
+                 *
+                 * IMAP carries no snippet, so there is never anything to show in the
+                 * meantime; the honest thing is to say which of the three is happening.
+                 */
+                val text = body?.text?.takeIf { it.isNotBlank() }
+                when {
+                    text != null -> T(
+                        text,
+                        t.paragraph,
+                        lineHeight = readerLeading(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    fetching -> T("Getting the message…", t.paragraph, Secondary)
+                    else -> {
+                        T("This message did not come through.", t.paragraph)
+                        Spacer(Modifier.height(g * 0.8f))
+                        T(
+                            "The text could not be fetched. Nothing has been lost — it is " +
+                                "still in your mailbox. Try again in a moment.",
+                            t.detail,
+                            Secondary,
+                        )
+                        Spacer(Modifier.height(g * 1f))
+                        T(
+                            "TRY AGAIN",
+                            t.button,
+                            modifier = Modifier.lightClickable { vm.open(msg) },
+                            maxLines = 1,
+                        )
+                    }
+                }
 
                 body?.let { b ->
                     if (b.quotedMessages > 0) {

@@ -50,7 +50,20 @@ sealed interface Screen {
 
 data class SyncProgress(val done: Int, val total: Int, val letters: Int, val notices: Int)
 
-private const val PREFETCH = 8
+/**
+ * How many messages to fetch the text of before anybody taps one.
+ *
+ * Was 8 letters and 2 notices, from when those were the only two screens. There are five
+ * lists now — letters, notices in full, the archive, search results and a thread — so most
+ * of what can be tapped was never covered, and every one of those opens paid a cold IMAP
+ * round trip with nothing on screen. That is the "some letters open slow" report.
+ *
+ * Sequential on one pooled connection, so this is bounded work rather than a stampede,
+ * and every failure is swallowed. Notices are fetched too, and generously: they are the
+ * pile with hundreds of rows in it.
+ */
+private const val PREFETCH = 20
+private const val PREFETCH_NOTICES = 12
 
 class MailboxViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -127,6 +140,17 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     val body: StateFlow<Clean.Body?> = _body.asStateFlow()
 
     /**
+     * True while the open message's text is on its way.
+     *
+     * Needed because `body == null` meant two things and the reader could not tell them
+     * apart: "not here yet" and "could not be fetched". It printed the same nothing for
+     * both, which on a black screen is indistinguishable from a broken app — and was the
+     * black screen being reported.
+     */
+    private val _fetching = MutableStateFlow(false)
+    val fetching: StateFlow<Boolean> = _fetching.asStateFlow()
+
+    /**
      * The sender's HTML for the open message, or null once we know there is none.
      *
      * Two flows rather than one because they arrive at different times and the reader
@@ -195,6 +219,24 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * kind of thing that makes an app feel like it is not listening.
      */
     private var cameFrom: Screen = Screen.Home
+
+    /**
+     * When the app last checked without being asked.
+     *
+     * The launch sync runs from a `LaunchedEffect`, and anything that rebuilds the
+     * composition — a configuration change, and **creating a WebView can cause one** —
+     * runs it again. That is the other half of "it keeps saying nothing new": not a timer,
+     * but the same one-shot firing repeatedly. A minute's grace makes a second launch sync
+     * a no-op without touching the fifteen-minute background schedule or the refresh
+     * button, neither of which goes through here.
+     */
+    private var lastAutoSync = 0L
+
+    /** The launch check: silent, and at most once a minute however often it is asked. */
+    fun syncOnOpen() {
+        if (System.currentTimeMillis() - lastAutoSync < 60_000) return
+        syncNow(announce = false)
+    }
 
     /**
      * The signed-in mailboxes, as state rather than as a call.
@@ -317,8 +359,10 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
 
         // Whatever the cache could not answer. Both are no-ops when it could: `original`
         // reads an empty cache file as a definite "there is none" rather than a round trip.
+        _fetching.value = cachedText == null || cachedHtml == null
         if (cachedText == null) _body.value = repo.body(msg)
         if (cachedHtml == null) _html.value = repo.original(msg)
+        _fetching.value = false
         // Cheap: the list is cached beside the body and needs no extra round trip once
         // the body has been fetched once.
         _thread.value = repo.thread(msg)
@@ -400,7 +444,9 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
             return@launch
         }
         said("Back in your inbox.")
-        syncNow()
+        // Silent: the sentence above is the reply to what was asked for, and a second one
+        // saying "Nothing new." a moment later would contradict it.
+        syncNow(announce = false)
     }
 
     /**
@@ -567,13 +613,23 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * a button that looks identical whether it worked, found nothing, or failed to
      * connect is a button you press again rather than a fact you can act on.
      */
-    fun syncNow() = viewModelScope.launch {
+    /**
+     * @param announce whether to say what happened. **A sentence is a reply to something
+     *   the user did**, and the automatic checks — on launch, and after putting a message
+     *   back in the inbox — are not that. "Nothing new." appearing on its own while you
+     *   are reading is the app talking to itself, and that is what was being reported.
+     *   A failure is always announced: silence is the thing that made a broken sync
+     *   invisible in the first place.
+     */
+    fun syncNow(announce: Boolean = true) = viewModelScope.launch {
         if (_busy.value) return@launch
         _busy.value = true
+        lastAutoSync = System.currentTimeMillis()
         runCatching { repo.sync(limit = 30) }
             .onSuccess { r ->
                 when {
                     r.failures.isNotEmpty() -> said(r.failures.first())
+                    !announce -> Unit
                     r.fetched > 0 -> said("${r.fetched} new.")
                     else -> said("Nothing new.")
                 }
@@ -594,7 +650,12 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * already open and makes every open instant.
      */
     private fun prefetch() = viewModelScope.launch {
-        runCatching { repo.prefetchBodies(letters.value.take(PREFETCH), notices.value.take(2)) }
+        runCatching {
+            repo.prefetchBodies(
+                letters.value.take(PREFETCH),
+                notices.value.take(PREFETCH_NOTICES),
+            )
+        }
     }
 
     /* -------------------------------------------------------------------- writing */

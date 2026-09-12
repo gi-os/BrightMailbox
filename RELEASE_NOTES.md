@@ -1,3 +1,25 @@
+## v2.26 — The black screen, the slow opens, and the app talking to itself
+
+**Fixed: some letters opened to a black screen, permanently.** When the text could not be
+fetched, the app handed the reader a perfectly valid but empty message instead of saying it
+had failed — so the screen printed nothing at all, with no explanation. It then *saved* that
+emptiness, which made one dropped connection blank that message for good: every later open
+read the empty copy back without going near the network.
+
+Failures are no longer saved, and the reader now says which of three things is happening —
+here it is, getting it, or it did not come through, with a TRY AGAIN.
+
+**Fixed: some letters opened slowly.** The app fetches the text of what you are likely to
+tap before you tap it, and that list had never grown past the first eight letters and two
+notices — from when those were the only two screens. Anything in the archive, in a search,
+in a thread or further down the notices was always a cold fetch. It now covers the lists
+that actually exist.
+
+**Fixed: "Nothing new." appearing on its own every few seconds.** That sentence is a reply
+to pressing refresh, and the automatic check on opening the app was saying it too — and
+saying it again each time anything rebuilt the screen, which opening a message can do. The
+automatic checks are silent now, and run at most once a minute. A *failure* is still always
+reported: that was the point of putting it there.
 ## v2.25 — Conversations, and drafts that survive
 
 **A message now knows what came before it.** Under a letter that is part of a conversation

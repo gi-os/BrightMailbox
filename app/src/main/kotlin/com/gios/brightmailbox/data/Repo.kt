@@ -499,13 +499,27 @@ class Repo private constructor(private val app: Context) {
     private fun htmlFile(key: String) = File(bodies, key.replace('/', '_') + ".html")
 
     /** The cleaned reading text, fetched and cached on first open. */
-    suspend fun body(msg: Msg): Clean.Body = withContext(Dispatchers.IO) {
+    /**
+     * @return the text, or **null when it could not be fetched** — which is not the same
+     *   thing as a message with nothing in it, and used to be conflated with it.
+     *
+     * This returned `Clean.Body(msg.snippet, 0)` on every failure, and **IMAP carries no
+     * snippet**, so a failure produced a perfectly valid Body containing an empty string.
+     * The reader's `body?.text ?: "getting the text…"` then saw a non-null Body and printed
+     * the empty string: a black screen, for ever, with nothing on it and no way to tell
+     * whether the message was empty or the fetch had failed.
+     *
+     * Worse, the empty result was **written to the cache**, so one dropped connection
+     * blanked that message permanently — every later open read the empty file back and
+     * showed the same black screen without going near the network.
+     */
+    suspend fun body(msg: Msg): Clean.Body? = withContext(Dispatchers.IO) {
         val f = bodyFile(msg.key)
         if (f.exists()) return@withContext Clean.body(f.readText())
 
-        val svc = serviceFor(msg.accountId) ?: return@withContext Clean.Body(msg.snippet, 0)
+        val svc = serviceFor(msg.accountId) ?: return@withContext null
         val c: Content = runCatching { svc.content(msg.providerId) }
-            .getOrElse { return@withContext Clean.Body(msg.snippet, 0) }
+            .getOrElse { return@withContext null }
         /*
          * Always write the HTML file, empty when the message had none.
          *
@@ -516,9 +530,17 @@ class Repo private constructor(private val app: Context) {
          */
         runCatching { htmlFile(msg.key).writeText(c.html?.takeIf { it.isNotBlank() }.orEmpty()) }
         val raw = c.text?.takeIf { it.isNotBlank() }
-            ?: c.html?.let { Clean.fromHtml(it) }
-            ?: msg.snippet
-        runCatching { f.writeText(raw) }
+            ?: c.html?.takeIf { it.isNotBlank() }?.let { Clean.fromHtml(it) }
+            ?: ""
+        /*
+         * Cache a real answer, never an empty one.
+         *
+         * A message that genuinely has no text is rare; a fetch that came back with
+         * nothing because something went wrong mid-transfer is not. Writing the empty
+         * string here is what made a transient failure permanent, so an empty result is
+         * simply not written and the next open tries again.
+         */
+        if (raw.isNotBlank()) runCatching { f.writeText(raw) }
         Clean.body(raw)
     }
 

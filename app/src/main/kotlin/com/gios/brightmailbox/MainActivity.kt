@@ -141,7 +141,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     if (vm.repo.auth.isSignedIn) {
                         SyncWorker.schedule(this@MainActivity)
-                        vm.syncNow()
+                        vm.syncOnOpen()
                     }
                 }
 

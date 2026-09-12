@@ -188,6 +188,18 @@ class Repo private constructor(private val app: Context) {
     fun noticeTotal(): Flow<Int> = dao.noticeTotal()
     fun archived(): Flow<List<Msg>> = dao.archived()
 
+    /**
+     * The rest of [msg]'s conversation, oldest first, itself excluded.
+     *
+     * A message with no thread root — one that started nothing and answered nothing — has
+     * `threadId` equal to its own id, so this correctly returns nothing for the great
+     * majority of mail rather than needing a special case.
+     */
+    suspend fun thread(msg: Msg): List<Msg> = withContext(Dispatchers.IO) {
+        if (msg.threadId.isBlank()) return@withContext emptyList()
+        dao.thread(msg.threadId, msg.accountId, msg.key)
+    }
+
     suspend fun search(query: String): List<Msg> = withContext(Dispatchers.IO) {
         val q = query.trim()
         if (q.length < 2) return@withContext emptyList()
@@ -804,6 +816,38 @@ class Repo private constructor(private val app: Context) {
     }
 
     suspend fun dropRule(address: String) = dao.dropRule(address)
+
+    /* -------------------------------------------------------------------- drafts */
+
+    fun drafts(): Flow<List<Draft>> = dao.drafts()
+
+    /**
+     * Keep what is being written, or drop it when it is empty.
+     *
+     * The table and the DAO have existed since v1 and nothing ever called them, so closing
+     * the compose screen threw the message away — on a phone, where writing anything is
+     * slow and an interruption is a phone call. The one place a draft absolutely must
+     * survive is the moment somebody leaves the screen, so that is exactly where this is
+     * called from.
+     *
+     * An empty draft is deleted rather than stored. A list of blank drafts you opened and
+     * closed is worse than no list.
+     *
+     * @return the row id, so the screen can keep updating the same draft rather than
+     *   writing a new one each time.
+     */
+    suspend fun keepDraft(d: Draft): Long = withContext(Dispatchers.IO) {
+        val empty = d.to.isBlank() && d.subject.isBlank() && d.body.isBlank()
+        if (empty) {
+            if (d.id != 0L) dao.dropDraft(d.id)
+            return@withContext 0L
+        }
+        dao.putDraft(d.copy(updatedAt = System.currentTimeMillis()))
+    }
+
+    suspend fun dropDraft(id: Long) = withContext(Dispatchers.IO) {
+        if (id != 0L) dao.dropDraft(id)
+    }
 
     /* ------------------------------------------------------------------- sending */
 

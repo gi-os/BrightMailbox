@@ -60,6 +60,61 @@ fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?) {
     var body by remember { mutableStateOf(TextFieldValue("")) }
     var editingSubject by remember { mutableStateOf(replyTo == null) }
 
+    /*
+     * The draft this screen is editing, 0 until it has been written once.
+     *
+     * Restored on open: the most recent draft for this reply, or the most recent standalone
+     * one. There is no draft list screen and this is deliberate — on a phone with a
+     * five-a-day ration, a folder of abandoned half-messages is another pile to feel bad
+     * about. What people actually want is for the thing they were writing to still be
+     * there, which is this.
+     */
+    var draftId by remember { mutableStateOf(0L) }
+    val drafts by vm.drafts.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(drafts.isNotEmpty()) {
+        if (draftId != 0L) return@LaunchedEffect
+        val mine = drafts.firstOrNull { it.inReplyTo == replyTo?.messageId } ?: return@LaunchedEffect
+        draftId = mine.id
+        accountId = mine.accountId.ifBlank { accountId }
+        if (mine.to.isNotBlank()) to = TextFieldValue(mine.to)
+        if (mine.subject.isNotBlank()) subject = TextFieldValue(mine.subject)
+        if (mine.body.isNotBlank()) body = TextFieldValue(mine.body)
+    }
+
+    /** Everything the screen is holding, as a row. */
+    fun snapshot() = com.gios.brightmailbox.data.Draft(
+        id = draftId,
+        accountId = accountId,
+        to = to.text,
+        cc = "",
+        subject = subject.text,
+        body = body.text,
+        inReplyTo = replyTo?.messageId,
+        references = replyTo?.references,
+        threadId = replyTo?.threadId,
+        updatedAt = System.currentTimeMillis(),
+    )
+
+    /*
+     * Save on the way out, however you leave.
+     *
+     * DisposableEffect's onDispose runs when this screen leaves the composition — which
+     * covers CANCEL, the hardware back gesture, and the app being killed behind you. A
+     * save wired only to the CANCEL button would miss the two ways people actually leave.
+     */
+    /*
+     * …except when it has just been sent.
+     *
+     * Sending navigates away, which disposes this screen, which would otherwise save a
+     * draft of the message that had just left — so every sent message would leave a copy
+     * of itself behind. The flag is read inside onDispose rather than keyed on, because by
+     * then the send has already happened.
+     */
+    var sent by remember { mutableStateOf(false) }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { if (!sent) vm.keepDraft(snapshot()) }
+    }
+
     Frame {
         Row(
             Modifier.fillMaxWidth().height(g.topBar),
@@ -110,6 +165,7 @@ fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?) {
         ActionBar(
             left = (if (busy) "SENDING" else "SEND") to {
                 if (ready) {
+                    sent = true
                     vm.send(
                         accountId,
                         Outgoing(
@@ -120,6 +176,8 @@ fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?) {
                             references = replyTo?.references,
                             threadId = replyTo?.threadId,
                         ),
+                        draftId,
+                        onFailed = { sent = false },
                     )
                 }
             },

@@ -260,6 +260,30 @@ interface MailDao {
     @Query("SELECT * FROM messages WHERE pile = 'NOTICE' AND NOT archived AND NOT starred")
     suspend fun noticeList(): List<Msg>
 
+    /**
+     * The rest of a conversation, oldest first.
+     *
+     * `threadId` is the RFC 5322 thread root — the first Message-ID in `References`, or
+     * `In-Reply-To`, or the message's own id — computed on the way in since v2.0 and,
+     * until now, read by nothing at all.
+     *
+     * Scoped to the account. Two people can reply to the same mailing-list message from
+     * two of your mailboxes, and stitching those into one conversation would show mail
+     * from one account inside another.
+     *
+     * Archived messages are included: the earlier half of a conversation is very often
+     * already filed away, and leaving it out would make a thread look like it started in
+     * the middle.
+     */
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE threadId = :threadId AND accountId = :accountId AND key != :exclude
+        ORDER BY receivedAt ASC LIMIT 40
+        """,
+    )
+    suspend fun thread(threadId: String, accountId: String, exclude: String): List<Msg>
+
     /** Everything put away, newest first. Archive is a place, not a deletion. */
     @Query("SELECT * FROM messages WHERE archived ORDER BY receivedAt DESC LIMIT :limit")
     fun archived(limit: Int = 500): Flow<List<Msg>>

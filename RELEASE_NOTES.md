@@ -1,3 +1,21 @@
+## v2.25 — Conversations, and drafts that survive
+
+**A message now knows what came before it.** Under a letter that is part of a conversation
+there is a line saying how many earlier messages there are; tap it for the list, tap one to
+read it. Collapsed by default — on five letters a day a thread is context for the one you
+were handed, not a stream to scroll, and unfolding on its own would bury the message you
+opened under its own history.
+
+The rows show who and when rather than the subject, because inside a thread every subject
+is the same subject. Archived messages are included: the first half of a conversation is
+usually already filed away, and leaving it out makes a thread look like it began in the
+middle.
+
+**What you were writing is kept.** Leaving the compose screen — CANCEL, the back gesture,
+or the app being closed behind you — saves the draft, and opening WRITE or replying to the
+same message again brings it back. An empty one is not saved, and a sent one is cleared, so
+nothing accumulates. Until now the message was simply thrown away, and "Not sent. Your
+draft is still here." was not true.
 ## v2.24 — A white sheet while it loads, and no more tiny messages
 
 **The letter is white on its way up.** It was held invisible until the message had painted,

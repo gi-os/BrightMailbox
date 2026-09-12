@@ -138,6 +138,18 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     val html: StateFlow<String?> = _html.asStateFlow()
 
     /** What is attached to the open message. Names and sizes only; no bytes. */
+    /**
+     * The rest of the conversation the open message belongs to, oldest first.
+     *
+     * Shown under the message rather than as a separate conversation view. A thread on a
+     * five-a-day ration is not a stream to scroll, it is context for the letter you were
+     * given — "this is the fourth time this person has written about this" — and the
+     * cheapest way to say that is to list what came before, where you can tap one to read
+     * it.
+     */
+    private val _thread = MutableStateFlow<List<Msg>>(emptyList())
+    val thread: StateFlow<List<Msg>> = _thread.asStateFlow()
+
     private val _attachments =
         MutableStateFlow<List<com.gios.brightmailbox.mail.Attachment>>(emptyList())
     val attachments: StateFlow<List<com.gios.brightmailbox.mail.Attachment>> =
@@ -276,6 +288,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         _body.value = null
         _html.value = null
         _attachments.value = emptyList()
+        _thread.value = emptyList()
         _opened.value = msg
         // Back to the default. The ··· sheet switches the message you are reading, not
         // the setting — leaving the last message's choice in place would make a one-off
@@ -308,6 +321,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         if (cachedHtml == null) _html.value = repo.original(msg)
         // Cheap: the list is cached beside the body and needs no extra round trip once
         // the body has been fetched once.
+        _thread.value = repo.thread(msg)
         _attachments.value = if (msg.hasAttachments) repo.attachments(msg) else emptyList()
         repo.open(msg)
         refreshRation()
@@ -585,11 +599,38 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
 
     /* -------------------------------------------------------------------- writing */
 
-    fun send(accountId: String, msg: Outgoing) = viewModelScope.launch {
+    val drafts = repo.drafts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Keep what is on the compose screen.
+     *
+     * Fire-and-forget on the ViewModel's scope, not the screen's: this is called as the
+     * screen is going away, and a coroutine tied to the composition would be cancelled
+     * halfway through the write that is meant to save it.
+     */
+    fun keepDraft(d: com.gios.brightmailbox.data.Draft, onSaved: (Long) -> Unit = {}) =
+        viewModelScope.launch { onSaved(repo.keepDraft(d)) }
+
+    fun dropDraft(id: Long) = viewModelScope.launch { repo.dropDraft(id) }
+
+    fun send(
+        accountId: String,
+        msg: Outgoing,
+        draftId: Long = 0L,
+        /** Called when it did not go, so the screen can start keeping the draft again. */
+        onFailed: () -> Unit = {},
+    ) = viewModelScope.launch {
         _sending.value = true
         runCatching { repo.send(accountId, msg) }
-            .onSuccess { said("Sent."); go(Screen.Home) }
-            .onFailure { said("Not sent. Your draft is still here.") }
+            .onSuccess {
+                // Only once it is gone. "Not sent. Your draft is still here." has to be
+                // true, and it was not: nothing was keeping the draft at all.
+                repo.dropDraft(draftId)
+                said("Sent.")
+                go(Screen.Home)
+            }
+            .onFailure { onFailed(); said("Not sent. Your draft is still here.") }
         _sending.value = false
     }
 

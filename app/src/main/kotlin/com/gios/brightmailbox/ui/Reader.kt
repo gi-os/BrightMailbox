@@ -132,6 +132,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
         val html by vm.html.collectAsStateWithLifecycle()
         val plainText by vm.plainText.collectAsStateWithLifecycle()
         val attachments by vm.attachments.collectAsStateWithLifecycle()
+        val thread by vm.thread.collectAsStateWithLifecycle()
         val formatted = !plainText && !html.isNullOrBlank()
 
         /*
@@ -303,6 +304,23 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 }
                 Spacer(Modifier.height(g * 1.5f))
             }
+        }
+
+        /*
+         * The conversation this message belongs to, above the bar.
+         *
+         * Above the bar rather than inside the message, because it has to work in both
+         * views and the formatted one is a WebView with no Compose column to append to.
+         * Putting it in the document instead would mean writing the same list twice, in
+         * two languages, and keeping them agreeing forever.
+         *
+         * Collapsed to a single line by default. A thread is context for the letter you
+         * were handed — "there are three of these already" — and a reader who wants the
+         * earlier ones can ask; one that unfolded on its own would bury the message you
+         * actually opened under its own history.
+         */
+        if (thread.isNotEmpty()) {
+            Thread(thread) { vm.open(it) }
         }
 
         if (showWhy) {
@@ -528,6 +546,50 @@ private fun HtmlBody(
                 ?.loadDataWithBaseURL(null, document, "text/html", "UTF-8", null)
         },
     )
+    }
+}
+
+/**
+ * What came before this message.
+ *
+ * One line closed, a short list open. The list is capped at five and says so when there
+ * are more, because this is a reminder that a conversation exists, not a place to read it
+ * from — tapping one opens it properly, in the reader, like any other message.
+ *
+ * Each row is the sender and when, not the subject: inside a thread every subject is the
+ * same subject, so printing it five times says nothing at all.
+ */
+@Composable
+private fun Thread(messages: List<Msg>, onOpen: (Msg) -> Unit) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    var open by remember(messages.firstOrNull()?.key) { mutableStateOf(false) }
+
+    Spacer(Modifier.height(g * 0.5f))
+    T(
+        if (open) "EARLIER — ${messages.size}" else "${messages.size} EARLIER IN THIS THREAD",
+        t.detail,
+        Secondary,
+        Modifier.fillMaxWidth().lightClickable { open = !open }.padding(vertical = g * 0.3f),
+        maxLines = 1,
+    )
+    if (open) {
+        for (m in messages.take(5)) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .lightClickable { onOpen(m) }
+                    .padding(vertical = g * 0.25f),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                T(m.senderName.ifBlank { m.sender }, t.detail, modifier = Modifier.weight(1f), maxLines = 1)
+                Spacer(Modifier.width(g * 0.5f))
+                T(stamp(m.receivedAt), t.superfine, Secondary, maxLines = 1)
+            }
+        }
+        if (messages.size > 5) {
+            T("and ${messages.size - 5} more", t.superfine, Secondary, maxLines = 1)
+        }
     }
 }
 

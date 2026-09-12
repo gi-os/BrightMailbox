@@ -6,6 +6,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,7 +25,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -430,8 +434,34 @@ private fun HtmlBody(
     var webRef by remember(msg.key) { mutableStateOf<WebView?>(null) }
     com.gios.brightmailbox.hw.WheelScroll(webRef)
 
+    /*
+     * The sheet is white before the message arrives, not black.
+     *
+     * The WebView is held invisible until it has painted, so until then there was nothing
+     * there and the app's black ground showed through — a letter that slid up as a black
+     * rectangle and turned white. The sheet is the thing arriving; it should be a sheet
+     * the whole way up.
+     *
+     * Drawn to match the document exactly: 14dp down, the same 14dp top corners, the same
+     * white. At the handoff the document paints an identical shape in the same place, so
+     * there is nothing to see happening even if the two are a frame apart.
+     *
+     * This is not the white flash of v2.6, which was a full-bleed white rectangle over the
+     * whole screen before anything existed. This one is the letter's own shape, and it is
+     * only up while the letter is on its way.
+     */
+    androidx.compose.foundation.layout.Box(modifier.fillMaxWidth()) {
+    if (!painted) {
+        Spacer(
+            Modifier
+                .matchParentSize()
+                .padding(top = 14.dp)
+                .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
+                .background(androidx.compose.ui.graphics.Color.White),
+        )
+    }
     AndroidView(
-        modifier = modifier.fillMaxWidth().alpha(if (painted) 1f else 0f),
+        modifier = Modifier.fillMaxWidth().alpha(if (painted) 1f else 0f),
         factory = { ctx ->
             val web = WebView(ctx).apply {
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -498,6 +528,7 @@ private fun HtmlBody(
                 ?.loadDataWithBaseURL(null, document, "text/html", "UTF-8", null)
         },
     )
+    }
 }
 
 /**
@@ -531,12 +562,43 @@ private fun HtmlBody(
  * Only large, plausible values count. A `width="1"` spacer gif and a `width:100%` are
  * both extremely common and neither says anything about the layout.
  */
-private fun declaredWidth(html: String): Int? =
-    Regex("width\\s*[:=]\\s*[\"']?\\s*(\\d{3,4})\\s*(?:px)?", RegexOption.IGNORE_CASE)
+private fun declaredWidth(html: String): Int? {
+    /*
+     * `(?<![-\w])` is the whole fix for messages rendering tiny in the corner.
+     *
+     * Without it this matched the `width:1200px` *inside* `max-width:1200px` — and
+     * `max-width` means the opposite of what is wanted here. It is the mark of a FLUID
+     * container: "grow to fit, but no further". A message whose content is 400 px wide
+     * inside a `max-width:1200px` wrapper was being laid out at 1200 and then scaled to
+     * fit, so the 400 px of actual content came out at a third of its size in the top-left
+     * corner with white all around it. `min-width` was the same trap.
+     */
+    val found = Regex(
+        "(?<![-\\w])width\\s*[:=]\\s*[\"']?\\s*(\\d{3,4})\\s*(?:px)?",
+        RegexOption.IGNORE_CASE,
+    )
         .findAll(html)
         .mapNotNull { it.groupValues[1].toIntOrNull() }
-        .filter { it in 480..1280 }
-        .maxOrNull()
+        // 1000, not 1280: a declaration above that is almost always a desktop max-width
+        // that slipped through, not a grid anybody built an email on.
+        .filter { it in 480..1000 }
+        .toList()
+
+    if (found.isEmpty()) return null
+
+    /*
+     * The most common width wins, not the largest.
+     *
+     * An email's grid is declared over and over — the outer table, the rows inside it, the
+     * spacer cells — so the real layout width is the one that repeats. Taking the maximum
+     * let a single stray declaration anywhere in the document decide the layout for the
+     * whole message. Ties go to the larger, which is the safer error: too wide scrolls,
+     * too narrow is unreadable.
+     */
+    return found.groupingBy { it }.eachCount().entries
+        .sortedWith(compareByDescending<Map.Entry<Int, Int>> { it.value }.thenByDescending { it.key })
+        .first().key
+}
 
 private fun document(
     html: String,

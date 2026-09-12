@@ -1,3 +1,19 @@
+## v2.24 — A white sheet while it loads, and no more tiny messages
+
+**The letter is white on its way up.** It was held invisible until the message had painted,
+so what slid up was a black rectangle that turned into a letter. The sheet is drawn in its
+final shape and place from the start, so the thing arriving is a sheet the whole way.
+
+**Fixed: some messages rendered tiny in the top-left corner.** Finding the width a message
+was built for was matching the number inside `max-width` — which means the opposite:
+"grow to fit, no further", the mark of a layout that has no fixed width at all. A message
+with 400 pixels of content inside a `max-width:1200px` wrapper was laid out at 1200 and
+scaled down to fit, so its content came out at a third of its size with white all around it.
+
+The width is also now taken from the number that repeats through the message rather than
+the largest one found anywhere, because an email declares its grid over and over — the
+outer table, the rows, the spacer cells — and a single stray declaration should not decide
+the layout for the whole message.
 ## v2.23 — Out of the archive, and back where you were
 
 **Swipe a row in the archive to put it back.** The mirror of the swipe that archived it, so

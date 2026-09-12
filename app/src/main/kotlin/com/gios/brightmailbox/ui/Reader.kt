@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -509,8 +510,21 @@ private fun HtmlBody(
                 .background(androidx.compose.ui.graphics.Color.White),
         )
     }
+    /*
+     * `fillMaxSize`, and the missing word here was the black screen.
+     *
+     * The height used to arrive from the caller: this was `modifier.fillMaxWidth()` where
+     * `modifier` carried the column's `weight(1f)`. Wrapping it in a Box to hold the white
+     * backdrop moved that weight onto the BOX and left the WebView with `fillMaxWidth()`
+     * alone — which inside a Box means wrap-content height, and a WebView measured before
+     * its page exists wraps to nothing. So the letter rendered as a sliver at the top of a
+     * full-height black rectangle: white while loading, black the instant it painted.
+     *
+     * **Moving a weight onto a wrapper strands the child at wrap-content.** The wrapper
+     * fills the space and the thing inside it no longer does.
+     */
     AndroidView(
-        modifier = Modifier.fillMaxWidth().alpha(if (painted) 1f else 0f),
+        modifier = Modifier.fillMaxSize().alpha(if (painted) 1f else 0f),
         factory = { ctx ->
             val web = WebView(ctx).apply {
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)

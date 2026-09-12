@@ -1,3 +1,15 @@
+## v2.27 — The black screen, properly this time
+
+**The message had no height.** Adding the white loading sheet in v2.24 wrapped the message
+view in a box, and the instruction telling the message to fill the screen went to the box
+instead of to the message. The box filled the screen; the message inside it shrank to
+nothing. So a letter loaded white, and turned black the moment it finished — the white was
+the box, and there was nothing in it.
+
+That is the black screen, and it was mine. The fix in v2.26 was a real bug with the same
+symptom — a failed fetch showing an empty message instead of saying it had failed — but it
+was not this one, and this one was hitting every formatted message rather than the occasional
+one.
 ## v2.26 — The black screen, the slow opens, and the app talking to itself
 
 **Fixed: some letters opened to a black screen, permanently.** When the text could not be

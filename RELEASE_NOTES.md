@@ -1,3 +1,49 @@
+## v2.32 — Sent mail, a deeper refresh, and a sheet that follows your finger
+
+**SENT, under the hamburger menu.** Everything this mailbox has written, newest first,
+read straight off the server's sent folder. It is not stored on the phone and never will
+be: sent mail in the same table as the inbox would be caught by ARCHIVE ALL and by the
+sync that reconciles what the inbox holds, both of which address a message by its position
+in the inbox — and a bulk archive would then try to move messages out of a folder that has
+never held them. So the list is fetched each time it opens, which also means it is never
+out of date. A message you wrote opens in the same reader, with FORWARD where reply would
+be and no archive button.
+
+**Pulling a message down now follows your finger.** It used to sit still through the whole
+gesture and then play a fixed slide once you let go, which is the difference between a
+sheet you are holding and a button you pressed. The page moves one-to-one with the drag,
+and letting go either finishes the journey or puts it back — and putting it back is the
+part that makes the gesture safe to try, because an unfinished pull is visibly undone
+rather than silently ignored. Changing your mind mid-drag works too: pulling back up
+returns the sheet before it returns to scrolling the text.
+
+**DEEP REFRESH, in Settings.** CHECK NOW reads the newest thirty messages per account,
+which answers "has anything arrived". DEEP REFRESH walks the whole inbox as far back as
+the history setting allows and re-asks the server about every message the app already
+holds. It is for when the phone and the mailbox have drifted apart, which a week of
+reading on a laptop will do. It never opens the archive, so nothing you have put away
+comes back.
+
+**SEARCH FURTHER BACK,** at the bottom of the search results. Search covers what the phone
+has downloaded; this asks the server to search the rest — sender, subject and body — and
+keeps what it finds, so a result is a real message that opens and can be replied to rather
+than a preview that would need fetching again.
+
+**A progress line at the top of the screen** for anything slow: archiving, sending, a deep
+refresh, a server search. It says what is happening and how far along it is, and a bulk
+archive is one line for the whole job rather than one per batch of twenty-five — the
+batching is how the protocol works, not something worth reporting. The line sits above
+every screen, so walking back to the inbox mid-archive does not make the work look like it
+stopped.
+
+**Dates from a previous year now say which year.** A stamp reading "3 Sep" on a message
+from 2024 is misleading, and a bare weekday on a year-old message means nothing at all.
+Only old mail carries the year; on this year's mail it would be noise on every row.
+
+**Fixed: opening a sent message would have crashed the reader.** The "why is this here"
+sheet looked its pile up in an enum of exactly two values, and sent mail is deliberately in
+neither.
+
 ## v2.31 — Attachments, reply all, and forwarding
 
 **Send files.** ATTACH on the compose screen opens the phone's file picker; attached files

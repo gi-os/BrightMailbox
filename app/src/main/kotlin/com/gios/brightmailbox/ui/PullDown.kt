@@ -34,6 +34,19 @@ class PullDownFrame(context: Context) : FrameLayout(context) {
     /** Committed on lift, once the finger has travelled far enough. */
     var onPull: () -> Unit = {}
 
+    /**
+     * How far the finger has travelled down since the pull began, reported on every move.
+     *
+     * The frame does not draw anything itself — it cannot, the sheet it would have to move
+     * is a Compose layout above it — so it reports and the caller translates. This is what
+     * makes the sheet follow the finger instead of sitting still and then playing a fixed
+     * animation when the finger lifts.
+     */
+    var onDrag: (Float) -> Unit = {}
+
+    /** The finger left the screen. True when it had travelled far enough to dismiss. */
+    var onRelease: (Boolean) -> Unit = {}
+
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
     private val commit = slop * 6   // ~a centimetre; a stray drag should not dismiss
 
@@ -64,16 +77,24 @@ class PullDownFrame(context: Context) : FrameLayout(context) {
 
     override fun onTouchEvent(ev: MotionEvent): Boolean {
         when (ev.actionMasked) {
-            MotionEvent.ACTION_MOVE -> return pulling
+            MotionEvent.ACTION_MOVE -> {
+                if (pulling) onDrag((ev.y - downY - slop).coerceAtLeast(0f))
+                return pulling
+            }
             MotionEvent.ACTION_UP -> {
                 val travelled = ev.y - downY
+                val committed = travelled > commit
+                if (pulling) onRelease(committed)
                 pulling = false
-                if (travelled > commit) {
+                if (committed) {
                     onPull()
                     return true
                 }
             }
-            MotionEvent.ACTION_CANCEL -> pulling = false
+            MotionEvent.ACTION_CANCEL -> {
+                if (pulling) onRelease(false)
+                pulling = false
+            }
         }
         return pulling
     }

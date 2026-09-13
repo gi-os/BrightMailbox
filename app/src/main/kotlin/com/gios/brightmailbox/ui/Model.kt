@@ -60,6 +60,8 @@ sealed interface Screen {
     data object Drafts : Screen
     /** Files saved out of attachments. */
     data object Downloads : Screen
+    /** What you have written. Read off the server, never stored — see [Repo.sent]. */
+    data object Sent : Screen
     /** One box, every pile, archived included. */
     data object Search : Screen
     data object Settings : Screen
@@ -80,6 +82,16 @@ sealed interface Screen {
 enum class WriteMode { NEW, REPLY, REPLY_ALL, FORWARD }
 
 data class SyncProgress(val done: Int, val total: Int, val letters: Int, val notices: Int)
+
+/**
+ * Something slow, happening now.
+ *
+ * [total] of zero means it cannot be counted — sending a message is one step however long
+ * it takes — and the bar sweeps instead of filling. Anything that CAN be counted counts,
+ * which on a bulk archive is the difference between "it is working" and "it is a third of
+ * the way through two hundred messages".
+ */
+data class Work(val label: String, val done: Int = 0, val total: Int = 0)
 
 /**
  * How many messages to fetch the text of before anybody taps one.
@@ -127,6 +139,35 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending.asStateFlow()
+
+    /**
+     * The slow thing currently happening, drawn as a line across the top of the screen.
+     *
+     * One bar for the whole app rather than a spinner per screen: these operations
+     * outlive the screen that started them — archiving two hundred notices continues
+     * while you walk back to the inbox — so the report belongs above every screen, not
+     * inside one.
+     *
+     * A bulk action gets ONE bar for the batch, never one per message.
+     */
+    private val _work = MutableStateFlow<Work?>(null)
+    val work: StateFlow<Work?> = _work.asStateFlow()
+
+    /**
+     * Run something slow with the bar up, and take it down however it ends.
+     *
+     * `finally`, because a thrown exception is exactly the case where a bar left on screen
+     * would be worst: the app would look permanently busy after the one operation that
+     * actually failed.
+     */
+    private suspend fun <T> working(label: String, block: suspend ((Int, Int) -> Unit) -> T): T {
+        _work.value = Work(label)
+        return try {
+            block { done, total -> _work.value = Work(label, done, total) }
+        } finally {
+            _work.value = null
+        }
+    }
 
     /**
      * Which day the Letters list is showing.
@@ -416,8 +457,19 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         // Only worth asking for a message the sorter already recognised as one.
         if (msg.rule == "calendar") _invite.value = repo.invite(msg)
         _attachments.value = if (msg.hasAttachments) repo.attachments(msg) else emptyList()
-        repo.open(msg)
-        refreshRation()
+        /*
+         * A message you wrote is not a message you read.
+         *
+         * `repo.open` stamps the ration day, marks \Seen on the server by INBOX UID, and
+         * feeds the learner a vote that the sender was worth reading. All three are wrong
+         * for sent mail, and the middle one would address a UID in the wrong folder — on
+         * a server that reuses UIDs across folders, it would mark a stranger's message
+         * read.
+         */
+        if (msg.pile != "SENT") {
+            repo.open(msg)
+            refreshRation()
+        }
     }
 
     /**
@@ -500,7 +552,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * version of this that leaves the database honest.
      */
     fun unarchive(msg: Msg) = viewModelScope.launch {
-        val ok = repo.unarchive(msg)
+        val ok = working("Moving back") { repo.unarchive(msg) }
         if (!ok) {
             said("Could not move that back.")
             return@launch
@@ -540,7 +592,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * is also the reassurance that it is all still there.
      */
     fun archiveThese(rows: List<Msg>) = viewModelScope.launch {
-        val n = repo.archiveMany(rows)
+        val n = working("Archiving") { p -> repo.archiveMany(rows, p) }
         said(if (n == 0) "Nothing to archive." else "$n archived.")
     }
 
@@ -568,18 +620,80 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         _archivePage.value = page.coerceAtLeast(0)
     }
 
+    /**
+     * Mail you have sent.
+     *
+     * A plain list rather than a Flow off the database, because it is not in the database
+     * — it is a folder on the server that this app reads and forgets. Empty until the
+     * screen asks, and re-asked every time the screen opens, so it is never stale.
+     */
+    private val _sent = MutableStateFlow<List<Msg>>(emptyList())
+    val sent: StateFlow<List<Msg>> = _sent.asStateFlow()
+    private val _sentLoading = MutableStateFlow(false)
+    val sentLoading: StateFlow<Boolean> = _sentLoading.asStateFlow()
+
+    fun loadSent() = viewModelScope.launch {
+        if (_sentLoading.value) return@launch
+        _sentLoading.value = true
+        _sent.value = runCatching { repo.sent() }.getOrDefault(emptyList())
+        _sentLoading.value = false
+    }
+
     private val _results = MutableStateFlow<List<Msg>>(emptyList())
     val results: StateFlow<List<Msg>> = _results.asStateFlow()
 
     /** Search every pile. Debouncing is the screen's job; this just answers. */
     fun search(q: String) = viewModelScope.launch { _results.value = repo.search(q) }
 
+    /**
+     * Ask the server for mail this app never downloaded, then search again.
+     *
+     * Two steps on purpose: the fetch stores whatever it finds, and the local search then
+     * picks it up along with everything already here — so one list, in one order, rather
+     * than local results with a separate pile of remote ones underneath them.
+     */
+    fun searchFurther(q: String) = viewModelScope.launch {
+        val n = working("Searching the server") { repo.searchServer(q) }
+        _results.value = repo.search(q)
+        said(
+            when (n) {
+                0 -> "Nothing further back."
+                1 -> "1 more found."
+                else -> "$n more found."
+            },
+        )
+    }
+
+    /**
+     * Read the whole inbox again and reconcile everything held.
+     *
+     * Never touches the archive — see [Repo.deepSync]. Reported as a count rather than a
+     * percentage because the total is unknown until it ends: the app is walking back
+     * through a mailbox whose size it does not know.
+     */
+    fun deepRefresh() = viewModelScope.launch {
+        if (_busy.value) return@launch
+        _busy.value = true
+        val added = working("Deep refresh") { p ->
+            repo.deepSync { seen -> p(seen, 0) }
+        }
+        _busy.value = false
+        refreshRation()
+        said(
+            when (added) {
+                0 -> "Nothing new. Everything is up to date."
+                1 -> "1 message added."
+                else -> "$added messages added."
+            },
+        )
+    }
+
     fun downloads(): List<Triple<String, String, String>> = repo.downloads()
 
     /** ARCHIVE ALL from the menu: the whole inbox, both piles, minus what is held. */
     fun archiveInbox() = viewModelScope.launch {
         go(Screen.Home)
-        val n = repo.archiveInbox()
+        val n = working("Archiving") { p -> repo.archiveInbox(p) }
         said(if (n == 0) "Nothing to archive." else "$n archived.")
     }
 
@@ -595,7 +709,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
          * already correct by the time it draws.
          */
         go(Screen.Home)
-        val n = repo.archiveAllNotices()
+        val n = working("Archiving") { p -> repo.archiveAllNotices(p) }
         said(if (n == 0) "Nothing to clear." else "$n archived.")
     }
 
@@ -785,6 +899,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         onFailed: () -> Unit = {},
     ) = viewModelScope.launch {
         _sending.value = true
+        _work.value = Work("Sending")
         runCatching { repo.send(accountId, msg) }
             .onSuccess {
                 // Only once it is gone. "Not sent. Your draft is still here." has to be
@@ -794,6 +909,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
                 go(Screen.Home)
             }
             .onFailure { onFailed(); said("Not sent. Your draft is still here.") }
+        _work.value = null
         _sending.value = false
     }
 

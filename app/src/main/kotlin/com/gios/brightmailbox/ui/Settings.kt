@@ -284,6 +284,27 @@ fun SettingsScreen(vm: MailboxViewModel) {
             }
             Spacer(Modifier.height(g * 0.6f))
             T("CHECK NOW", t.button, modifier = Modifier.lightClickable { vm.syncNow() })
+            Spacer(Modifier.height(g * 1.1f))
+            /*
+             * The thorough one.
+             *
+             * CHECK NOW reads the newest thirty per account, which is right for "has
+             * anything arrived". This walks the whole inbox as far as the history setting
+             * allows and re-asks the server about every message the app holds — for when
+             * the two have drifted apart, which a week of reading on a laptop will do.
+             */
+            T(
+                "DEEP REFRESH",
+                t.button,
+                modifier = Modifier.fillMaxWidth().lightClickable { vm.deepRefresh() },
+            )
+            Spacer(Modifier.height(g * 0.3f))
+            T(
+                "Reads the whole inbox again and re-checks everything already here. " +
+                    "Leaves the archive alone. Takes a while.",
+                t.superfine,
+                Secondary,
+            )
 
             Spacer(Modifier.height(g * 2f))
         }

@@ -59,6 +59,7 @@ fun MenuScreen(vm: MailboxViewModel) {
 
         MenuItem("SEARCH", "Every pile, archive included.") { vm.go(Screen.Search) }
         MenuItem("VIEW ARCHIVE", "Mail you have put away.") { vm.go(Screen.Archive) }
+        MenuItem("SENT", "What you have written.") { vm.go(Screen.Sent) }
         MenuItem("DRAFTS", "Messages you started and did not send.") { vm.go(Screen.Drafts) }
         MenuItem("DOWNLOADS", "Files saved out of attachments.") { vm.go(Screen.Downloads) }
         MenuItem("ARCHIVE ALL", "Clear the inbox. Nothing is deleted.") { vm.archiveInbox() }
@@ -177,6 +178,79 @@ fun ArchiveScreen(vm: MailboxViewModel) {
             left = "BACK" to { vm.go(Screen.Menu) },
             middle = if (page > 0) "‹ NEWER" to { vm.archiveGo(page - 1) } else null,
             right = if (last < total) "OLDER ›" to { vm.archiveGo(page + 1) } else null,
+        )
+    }
+}
+
+/* -------------------------------------------------------------------------- sent */
+
+/**
+ * What you have written.
+ *
+ * Read off the server's sent folder each time this opens and held nowhere — the one list
+ * in this app that is not a query. Sent mail has no unread state, no ration, no pile and
+ * nothing to archive, so the row is the same row with the recipient where the sender
+ * would be, and there is no swipe and no hold on it.
+ *
+ * Sixty messages, which is a long way back for a phone that is not meant to be a desk.
+ */
+@Composable
+fun SentScreen(vm: MailboxViewModel) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    val rows by vm.sent.collectAsStateWithLifecycle()
+    val loading by vm.sentLoading.collectAsStateWithLifecycle()
+
+    // Every open, not just the first: something sent a minute ago should be at the top.
+    LaunchedEffect(Unit) { vm.loadSent() }
+
+    Frame {
+        Row(
+            Modifier.fillMaxWidth().height(g.topBar),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            T("SENT", t.subheading)
+            T(if (rows.isEmpty()) "" else "${'$'}{rows.size}", t.detail, Secondary)
+        }
+
+        if (rows.isEmpty()) {
+            Spacer(Modifier.height(g * 3f))
+            /*
+             * Two sentences, and which one depends on whether the server has answered.
+             *
+             * This is the only list in the app that can be empty because it has not
+             * arrived yet, and "Nothing sent yet" would be a lie for the second or two
+             * that takes.
+             */
+            T(if (loading) "Reading the sent folder…" else "Nothing sent yet.", t.copy)
+            if (!loading) {
+                Spacer(Modifier.height(g * 0.6f))
+                T(
+                    "Anything you send from this phone, or from anywhere else, appears " +
+                        "here. It is read off the server and kept nowhere.",
+                    t.detail,
+                    Secondary,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+        } else {
+            val list = rememberLazyListState()
+            WheelScroll(list)
+            LazyColumn(
+                Modifier.weight(1f),
+                state = list,
+                verticalArrangement = Arrangement.spacedBy(g * 0.9f),
+            ) {
+                items(rows, key = { it.key }) { m ->
+                    LetterRow(m, onClick = { vm.open(m, Screen.Sent) }, onHold = {})
+                }
+            }
+        }
+
+        ActionBar(
+            left = "BACK" to { vm.go(Screen.Menu) },
+            right = if (rows.isEmpty()) null else "REFRESH" to { vm.loadSent() },
         )
     }
 }
@@ -379,6 +453,30 @@ fun SearchScreen(vm: MailboxViewModel) {
         ) {
             items(results, key = { it.key }) { m ->
                 LetterRow(m, onClick = { vm.open(m, Screen.Search) }, onHold = { vm.star(m) })
+            }
+            /*
+             * The end of what the phone holds is not the end of the mailbox.
+             *
+             * Local search covers what has been downloaded, which under a short history
+             * setting is a few weeks. This asks the server to search the rest — sender,
+             * subject and body — and stores what it finds, so a result is a real message
+             * that opens and can be replied to rather than a preview.
+             *
+             * At the bottom, after the local results, because that is where you arrive
+             * having decided the answer is not here.
+             */
+            if (query.text.length >= 2) {
+                item {
+                    Column(Modifier.fillMaxWidth().padding(top = g * 0.8f)) {
+                        T(
+                            "SEARCH FURTHER BACK",
+                            t.button,
+                            modifier = Modifier.lightClickable { vm.searchFurther(query.text) },
+                        )
+                        Spacer(Modifier.height(g * 0.2f))
+                        T("Asks the server for mail this phone never downloaded.", t.superfine, Secondary)
+                    }
+                }
             }
         }
 

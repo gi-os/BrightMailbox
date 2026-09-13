@@ -42,6 +42,7 @@ import com.gios.brightmailbox.ui.DownloadsScreen
 import com.gios.brightmailbox.ui.DraftsScreen
 import com.gios.brightmailbox.ui.MenuScreen
 import com.gios.brightmailbox.ui.SearchScreen
+import com.gios.brightmailbox.ui.SentScreen
 import com.gios.brightmailbox.ui.ClientIdScreen
 import com.gios.brightmailbox.ui.FirstSyncScreen
 import com.gios.brightmailbox.ui.HomeScreen
@@ -214,6 +215,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Notices -> "Notices"
                         Screen.Menu -> "Menu"
                         Screen.Archive -> "Archive"
+                        Screen.Sent -> "Sent"
                         Screen.Drafts -> "Drafts"
                         Screen.Downloads -> "Downloads"
                         Screen.Search -> "Search"
@@ -297,6 +299,7 @@ class MainActivity : ComponentActivity() {
                     Screen.Notices -> NoticesScreen(vm)
                     Screen.Menu -> MenuScreen(vm)
                     Screen.Archive -> ArchiveScreen(vm)
+                    Screen.Sent -> SentScreen(vm)
                     Screen.Drafts -> DraftsScreen(vm)
                     Screen.Downloads -> DownloadsScreen(vm)
                     Screen.Search -> SearchScreen(vm)
@@ -322,6 +325,18 @@ class MainActivity : ComponentActivity() {
                  * overlay that wants to align itself would not compile.
                  */
                 Box(Modifier.fillMaxSize()) {
+                    /*
+                     * The progress line, hard against the top edge and above every screen.
+                     *
+                     * In the overlay rather than in a screen because the work outlives the
+                     * screen that started it: a bulk archive keeps running while you walk
+                     * back to the inbox, and a bar drawn inside Notices would disappear
+                     * mid-way and read as having stopped.
+                     */
+                    com.gios.brightmailbox.ui.WorkBar(
+                        vm,
+                        Modifier.align(Alignment.TopCenter),
+                    )
                     /*
                      * What the app just said, over whatever screen is up.
                      *

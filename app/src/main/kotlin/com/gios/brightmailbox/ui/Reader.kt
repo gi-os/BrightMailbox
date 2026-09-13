@@ -11,15 +11,21 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,7 +41,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,7 +61,10 @@ import com.gios.brightmailbox.ui.theme.Secondary
 import com.gios.brightmailbox.ui.theme.T
 import com.gios.brightmailbox.ui.theme.lightClickable
 import com.gios.brightmailbox.ui.theme.readerLeading
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -122,7 +135,58 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
         return
     }
 
+    /*
+     * The sheet follows the finger.
+     *
+     * It used to sit still through the whole gesture and then play a fixed 280ms slide
+     * once the finger lifted, which is the difference between a sheet you are holding and
+     * a button you pressed. Dragging now moves the page one-to-one and letting go either
+     * finishes the journey or puts it back — and putting it back is the part that makes
+     * the gesture safe to try, because an unfinished pull is visibly undone rather than
+     * silently ignored.
+     *
+     * One [Animatable] for both body kinds. The plain-text page feeds it through a
+     * nested-scroll connection and the formatted one through [PullDownFrame], for the
+     * reasons each of those explains, but what they drive is the same number.
+     */
+    val scope = rememberCoroutineScope()
+    val pull = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    // Far enough that a stray drag does not dismiss, short enough that a deliberate one
+    // does not feel like work. The same distance PullDownFrame used for its own commit.
+    val commitPx = with(density) { 56.dp.toPx() }
+    val screenPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
+    LaunchedEffect(msg.key) { pull.snapTo(0f) }
+
+    /*
+     * Let go.
+     *
+     * Past the threshold the sheet carries on out of the bottom under its own power and
+     * the screen changes only once it is gone — so the exit never cuts from a
+     * half-dragged sheet to a fixed animation starting from nowhere. Short of it, it
+     * springs back.
+     */
+    fun release(committed: Boolean) {
+        scope.launch {
+            if (committed) {
+                pull.animateTo(screenPx, tween(180))
+                /*
+                 * And nothing resets it afterwards, deliberately.
+                 *
+                 * This composition is the one leaving; MainActivity keeps it alive for the
+                 * length of its exit transition, and snapping the offset back to zero here
+                 * would yank the sheet up to the top of the screen and slide it out again.
+                 * Reopening builds a fresh reader whose Animatable starts at zero.
+                 */
+                vm.leaveReader()
+            } else {
+                pull.animateTo(0f, tween(220))
+            }
+        }
+    }
+
     key(msg.key) {
+    Box(Modifier.fillMaxSize().offset { IntOffset(0, pull.value.roundToInt()) }) {
     Frame {
         /*
          * No top bar at all. The message is the screen.
@@ -203,7 +267,8 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 attachments = attachments,
                 modifier = Modifier.weight(1f),
                 onAttachment = openFile,
-                onDismiss = { vm.leaveReader() },
+                onPullDrag = { dy -> scope.launch { pull.snapTo(dy) } },
+                onPullEnd = { committed -> release(committed) },
             ) { url ->
                 runCatching {
                     context.startActivity(
@@ -235,31 +300,64 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
              * arrives as a stream of small deltas and any single one of them is under any
              * sane threshold.
              */
-            var overscroll by remember(msg.key) { mutableStateOf(0f) }
-            val pull = remember(msg.key) {
+            val drag = remember(msg.key) {
                 object : NestedScrollConnection {
                     override fun onPostScroll(
                         consumed: Offset,
                         available: Offset,
                         source: NestedScrollSource,
                     ): Offset {
+                        // Down past the top: take it, and move the sheet by exactly that.
                         if (available.y > 0f) {
-                            overscroll += available.y
-                            if (overscroll > 140f) {
-                                overscroll = 0f
-                                vm.leaveReader()
-                            }
-                        } else if (available.y < 0f) {
-                            overscroll = 0f
+                            scope.launch { pull.snapTo(pull.value + available.y) }
+                            return Offset(0f, available.y)
+                        }
+                        /*
+                         * Up again, while the sheet is off its mark.
+                         *
+                         * Without this the gesture is one-way: pulling down a little and
+                         * changing your mind mid-drag would scroll the text instead of
+                         * putting the sheet back, and the two would be out of step for the
+                         * rest of the drag. Only as much as the sheet owes is taken; the
+                         * remainder falls through to the scroller as usual.
+                         */
+                        if (pull.value > 0f) {
+                            val give = minOf(pull.value, -available.y)
+                            scope.launch { pull.snapTo(pull.value - give) }
+                            return Offset(0f, -give)
                         }
                         return Offset.Zero
+                    }
+
+                    /*
+                     * The finger left the screen.
+                     *
+                     * A nested-scroll connection has no touch-up callback; the fling is
+                     * the closest thing to one, and it is delivered whether or not there
+                     * was any velocity. Returning the whole velocity swallows the fling,
+                     * which is right: the sheet is already moving under its own decision
+                     * and a fling on top of it would fight the settle.
+                     */
+                    override suspend fun onPreFling(available: Velocity): Velocity {
+                        if (pull.value <= 0f) return Velocity.Zero
+                        release(pull.value > commitPx)
+                        return available
+                    }
+
+                    /** A fling that ran into the top can leave the sheet held out. */
+                    override suspend fun onPostFling(
+                        consumed: Velocity,
+                        available: Velocity,
+                    ): Velocity {
+                        if (pull.value > 0f) release(pull.value > commitPx)
+                        return Velocity.Zero
                     }
                 }
             }
             Column(
                 Modifier
                     .weight(1f)
-                    .nestedScroll(pull)
+                    .nestedScroll(drag)
                     .verticalScroll(scroll),
             ) {
                 Spacer(Modifier.height(g * 1.4f))
@@ -407,10 +505,25 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 BarIcon(R.drawable.ic_back_white, "Back") { vm.leaveReader() }
-                BarIcon(R.drawable.ic_reply_white, "Reply") {
-                    vm.go(Screen.Write(msg, mode = WriteMode.REPLY))
+                /*
+                 * Sent mail answers to a different bar.
+                 *
+                 * Replying to yourself is not a thing, and ARCHIVE would address an INBOX
+                 * UID for a message that has never been in the inbox — at best a no-op, at
+                 * worst a move applied to whatever else holds that UID. Forwarding is the
+                 * one verb that makes sense on something you wrote, so it takes reply's
+                 * slot and the archive icon is simply absent.
+                 */
+                if (msg.pile == "SENT") {
+                    BarIcon(R.drawable.ic_forward_white, "Forward") {
+                        vm.go(Screen.Write(msg, mode = WriteMode.FORWARD))
+                    }
+                } else {
+                    BarIcon(R.drawable.ic_reply_white, "Reply") {
+                        vm.go(Screen.Write(msg, mode = WriteMode.REPLY))
+                    }
+                    BarIcon(R.drawable.ic_archive_white, "Archive") { vm.archive(msg) }
                 }
-                BarIcon(R.drawable.ic_archive_white, "Archive") { vm.archive(msg) }
                 T(
                     "···",
                     t.button,
@@ -420,6 +533,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 )
             }
         }
+    }
     }
     }
 }
@@ -473,7 +587,10 @@ private fun HtmlBody(
     attachments: List<Attachment>,
     modifier: Modifier = Modifier,
     onAttachment: (Attachment) -> Unit,
-    onDismiss: () -> Unit,
+    /** How far the finger has pulled the sheet down, live. See [PullDownFrame]. */
+    onPullDrag: (Float) -> Unit,
+    /** The finger lifted; true when it had gone far enough to dismiss. */
+    onPullEnd: (Boolean) -> Unit,
     onLink: (String) -> Unit,
 ) {
     /*
@@ -620,7 +737,10 @@ private fun HtmlBody(
             PullDownFrame(ctx).apply {
                 addView(web)
                 atTop = { web.scrollY == 0 }
-                onPull = onDismiss
+                onDrag = onPullDrag
+                // The frame's own commit threshold is not consulted: the reader owns that
+                // decision now, so both body kinds dismiss at the same distance.
+                onRelease = onPullEnd
             }
         },
         update = { frame ->
@@ -980,12 +1100,23 @@ $openZoom$html$closeZoom
 private fun WhySheet(vm: MailboxViewModel, msg: Msg, onClose: () -> Unit) {
     val g = LocalGrid.current
     val t = LocalType.current
-    val here = Pile.valueOf(msg.pile)
+    /*
+     * `Pile.valueOf` throws on anything that is not LETTER or NOTICE, and sent mail is
+     * pile "SENT" on purpose — it is not in either pile and must not be sortable into one.
+     * A hard enum lookup here would have crashed the reader the moment a sent message was
+     * opened, which is exactly the kind of thing a sealed set of two makes easy to miss.
+     */
+    val here = Pile.entries.firstOrNull { it.name == msg.pile }
     val other = if (here == Pile.LETTER) Pile.NOTICE else Pile.LETTER
 
     Column(Modifier.fillMaxWidth().padding(bottom = g * 0.8f)) {
         T(
-            "${if (here == Pile.LETTER) "Letter" else "Notice"} — ${msg.reason}",
+            when (here) {
+                Pile.LETTER -> "Letter — ${msg.reason}"
+                Pile.NOTICE -> "Notice — ${msg.reason}"
+                // Sent: there is no verdict to explain, because nothing sorted it.
+                null -> "Sent by you. Read from the server, kept nowhere."
+            },
             t.detail,
             Secondary,
             Modifier.padding(vertical = g * 0.5f),
@@ -1002,14 +1133,17 @@ private fun WhySheet(vm: MailboxViewModel, msg: Msg, onClose: () -> Unit) {
             Modifier.fillMaxWidth().padding(vertical = g * 0.4f),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            T(
-                "REPLY ALL",
-                t.button,
-                modifier = Modifier.lightClickable {
-                    vm.go(Screen.Write(msg, mode = WriteMode.REPLY_ALL))
-                },
-                maxLines = 1,
-            )
+            // Replying-all to your own message would put you on your own To line.
+            if (here != null) {
+                T(
+                    "REPLY ALL",
+                    t.button,
+                    modifier = Modifier.lightClickable {
+                        vm.go(Screen.Write(msg, mode = WriteMode.REPLY_ALL))
+                    },
+                    maxLines = 1,
+                )
+            }
             T(
                 "FORWARD",
                 t.button,
@@ -1020,12 +1154,15 @@ private fun WhySheet(vm: MailboxViewModel, msg: Msg, onClose: () -> Unit) {
             )
         }
 
-        T(
-            if (other == Pile.LETTER) "MOVE TO LETTERS" else "MOVE TO NOTICES",
-            t.button,
-            modifier = Modifier.fillMaxWidth().lightClickable { vm.move(msg, other) }
-                .padding(vertical = g * 0.4f),
-        )
+        // Nothing sorted a sent message, so there is nowhere to move it to.
+        if (here != null) {
+            T(
+                if (other == Pile.LETTER) "MOVE TO LETTERS" else "MOVE TO NOTICES",
+                t.button,
+                modifier = Modifier.fillMaxWidth().lightClickable { vm.move(msg, other) }
+                    .padding(vertical = g * 0.4f),
+            )
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             val plainText by vm.plainText.collectAsStateWithLifecycle()
             val html by vm.html.collectAsStateWithLifecycle()
@@ -1045,5 +1182,17 @@ private fun WhySheet(vm: MailboxViewModel, msg: Msg, onClose: () -> Unit) {
     }
 }
 
-private fun longStamp(at: Long): String =
-    SimpleDateFormat("EEE h:mma", Locale.getDefault()).format(Date(at)).lowercase()
+/**
+ * The date line under the sender: "mon 9:12am", and "mon 3 sep 2024, 9:12am" for anything
+ * that is not from this year.
+ *
+ * A weekday on its own is a date that means nothing once a message is a year old — "tue"
+ * is true of fifty-two days a year. The reader has a whole line for this, unlike the list,
+ * so the old ones get the full date rather than an abbreviation.
+ */
+private fun longStamp(at: Long): String {
+    val thisYear = Calendar.getInstance().get(Calendar.YEAR) ==
+        Calendar.getInstance().apply { timeInMillis = at }.get(Calendar.YEAR)
+    val pattern = if (thisYear) "EEE h:mma" else "EEE d MMM yyyy, h:mma"
+    return SimpleDateFormat(pattern, Locale.getDefault()).format(Date(at)).lowercase()
+}

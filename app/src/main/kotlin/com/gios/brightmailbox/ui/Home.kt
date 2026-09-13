@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,6 +28,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightmailbox.R
 import com.gios.brightmailbox.data.Msg
 import com.gios.brightmailbox.data.Ration
+import androidx.compose.animation.core.animateFloat
+import com.gios.brightmailbox.ui.theme.Background
 import com.gios.brightmailbox.ui.theme.Content
 import com.gios.brightmailbox.ui.theme.LocalGrid
 import com.gios.brightmailbox.ui.theme.LocalType
@@ -563,6 +566,63 @@ private fun Star() {
     )
 }
 
+/* ---------------------------------------------------------------------- progress */
+
+/**
+ * A line across the very top of the screen while something slow runs.
+ *
+ * Two units tall and hard against the top edge, above every screen — because the work
+ * outlives the screen that started it. Archiving two hundred notices keeps going while you
+ * walk back to the inbox, and a bar that lived inside the Notices screen would vanish
+ * halfway through and look like it had stopped.
+ *
+ * Counted work fills; uncounted work sweeps. A bar that pretends to know a proportion it
+ * does not is worse than one that admits it — and on a matte panel a sweeping block is the
+ * only honest "still going" there is, since there are no spinners anywhere in this app.
+ */
+@Composable
+fun WorkBar(vm: MailboxViewModel, modifier: Modifier = Modifier) {
+    val work by vm.work.collectAsStateWithLifecycle()
+    val w = work ?: return
+    val g = LocalGrid.current
+    val t = LocalType.current
+
+    val fraction = if (w.total > 0) (w.done.toFloat() / w.total).coerceIn(0f, 1f) else 0f
+    // A slow, endless left-to-right sweep for work that cannot be counted.
+    val sweep = androidx.compose.animation.core.rememberInfiniteTransition(label = "sweep")
+    val offset by sweep.animateFloat(
+        initialValue = -0.35f,
+        targetValue = 1f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(1100, easing = androidx.compose.animation.core.LinearEasing),
+        ),
+        label = "offset",
+    )
+
+    Column(modifier.fillMaxWidth().background(Background)) {
+        Box(Modifier.fillMaxWidth().height(3.dp)) {
+            if (w.total > 0) {
+                Box(Modifier.fillMaxWidth(fraction).height(3.dp).background(Content))
+            } else {
+                Box(
+                    Modifier
+                        .fillMaxWidth(0.35f)
+                        .height(3.dp)
+                        .offset { androidx.compose.ui.unit.IntOffset((offset * 1000).toInt(), 0) }
+                        .background(Content),
+                )
+            }
+        }
+        T(
+            if (w.total > 0) "${w.label} ${w.done} of ${w.total}" else w.label,
+            t.superfine,
+            Secondary,
+            Modifier.padding(horizontal = g.inset, vertical = g * 0.2f),
+            maxLines = 1,
+        )
+    }
+}
+
 /* ------------------------------------------------------------------------- toast */
 
 /**
@@ -695,18 +755,28 @@ fun ActionBar(
 
 /* ----------------------------------------------------------------------- format */
 
-/** "9:12a" today, "Mon" this week, "3 Sep" beyond. A date column of noise helps nobody. */
+/**
+ * "9:12a" today, "Mon" this week, "3 Sep" beyond — and "3 Sep 24" beyond this year.
+ *
+ * The year appears only when it is not the current one, which is the whole rule: on a
+ * screen where every stamp is this year, printing the year on all of them is four
+ * characters of noise per row, and on the one message from 2023 its absence is a lie.
+ *
+ * Two digits, not four. The column has to fit beside a subject on a 3.9" panel, and
+ * nobody has mail from 1924 to disambiguate it from.
+ */
 fun stamp(at: Long): String {
     val now = Calendar.getInstance()
     val then = Calendar.getInstance().apply { timeInMillis = at }
+    val sameYear = now.get(Calendar.YEAR) == then.get(Calendar.YEAR)
     return when {
-        now.get(Calendar.YEAR) == then.get(Calendar.YEAR) &&
-            now.get(Calendar.DAY_OF_YEAR) == then.get(Calendar.DAY_OF_YEAR) ->
+        sameYear && now.get(Calendar.DAY_OF_YEAR) == then.get(Calendar.DAY_OF_YEAR) ->
             SimpleDateFormat("h:mma", Locale.getDefault()).format(Date(at))
                 .lowercase().removeSuffix("m")
-        now.timeInMillis - at < 6L * 24 * 3600 * 1000 ->
+        sameYear && now.timeInMillis - at < 6L * 24 * 3600 * 1000 ->
             SimpleDateFormat("EEE", Locale.getDefault()).format(Date(at))
-        else -> SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(at))
+        sameYear -> SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(at))
+        else -> SimpleDateFormat("d MMM yy", Locale.getDefault()).format(Date(at))
     }
 }
 

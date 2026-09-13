@@ -3,6 +3,15 @@ package com.gios.brightmailbox.mail
 import com.gios.brightmailbox.sort.Envelope
 
 /** A message as both services can describe it. */
+/**
+ * The mark on a provider id that says "this UID was issued by the sent folder".
+ *
+ * A UID is meaningless without the folder that issued it, and every other id in this app
+ * is an INBOX one. Sent mail is the single exception, so it is the only thing that has to
+ * say where it came from.
+ */
+const val SENT = "SENT:"
+
 data class Message(
     /** Provider id, unique within the account. */
     val id: String,
@@ -171,6 +180,21 @@ interface MailService {
      */
     suspend fun unarchive(messageId: String): Boolean
 
+    /**
+     * Ask the SERVER to find messages this app has never downloaded.
+     *
+     * **INBOX only, and that is not a shortcut.** [content] fetches a body by UID inside
+     * INBOX, so a message found anywhere else would be listed and then fail to open — the
+     * search would produce rows that look like mail and behave like a broken app. Finding
+     * archived mail needs the Message-ID route [unarchive] uses, which is a different
+     * feature.
+     *
+     * On Gmail this still reaches years back: INBOX holds everything never archived,
+     * whatever its age, and what the app is missing is simply everything past the depth
+     * the first sync walked.
+     */
+    suspend fun search(query: String, limit: Int): List<Message>
+
     suspend fun send(msg: Outgoing)
 
     /**
@@ -181,4 +205,18 @@ interface MailService {
      * a slow schedule, because it changes slowly and costs a full folder scan.
      */
     suspend fun sentTo(limit: Int): List<String>
+
+    /**
+     * Mail this account has sent, newest first.
+     *
+     * Read live off the server every time the screen opens and **never stored**, which is
+     * deliberate. Sent mail in the `messages` table would be caught by the inbox queries
+     * that drive ARCHIVE ALL and reconciliation — both of which address a message by its
+     * INBOX UID — and a bulk archive would try to move messages out of a folder that has
+     * never held them.
+     *
+     * The ids carry a "SENT:" prefix so [content] and [attachment] know to open the sent
+     * folder rather than INBOX. A UID means nothing without the folder it was issued in.
+     */
+    suspend fun sent(limit: Int): List<Message>
 }

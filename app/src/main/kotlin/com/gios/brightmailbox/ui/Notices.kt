@@ -96,7 +96,10 @@ private fun dayLabel(at: Long): String {
         sameYear && dd in 2..6 ->
             java.text.SimpleDateFormat("EEEE", java.util.Locale.getDefault())
                 .format(java.util.Date(at))
-        else -> java.text.SimpleDateFormat("d MMMM", java.util.Locale.getDefault())
+        // The year only when it is not this one — see `stamp` in Home.kt for the rule.
+        sameYear -> java.text.SimpleDateFormat("d MMMM", java.util.Locale.getDefault())
+            .format(java.util.Date(at))
+        else -> java.text.SimpleDateFormat("d MMMM yyyy", java.util.Locale.getDefault())
             .format(java.util.Date(at))
     }
 }

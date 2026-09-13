@@ -103,7 +103,7 @@ class Imap(
     }
 
     override suspend fun content(id: String): Content = io {
-        withFolder("INBOX", write = false) { f ->
+        withFolder(folderOf(id), write = false) { f ->
             val m = f.getMessageByUID(uidOf(id)) ?: return@withFolder Content(null, null)
             var text: String? = null
             var html: String? = null
@@ -179,7 +179,7 @@ class Imap(
      * the only handle that survives.
      */
     override suspend fun attachment(id: String, part: String): ByteArray? = io {
-        withFolder("INBOX", write = false) { f ->
+        withFolder(folderOf(id), write = false) { f ->
             val m = f.getMessageByUID(uidOf(id)) ?: return@withFolder null
             var here: Part = m
             for (step in part.split('.').filter { it.isNotBlank() }) {
@@ -336,6 +336,45 @@ class Imap(
         }
     }
 
+    /**
+     * IMAP SEARCH over sender, subject and body.
+     *
+     * Body included deliberately: the whole point of going to the server is finding what
+     * is not on the phone, and the phone can already match a sender and a subject. The
+     * server does the reading, which is what makes it affordable at all.
+     *
+     * `search` returns matches in sequence order — oldest first — so the NEWEST matches
+     * are at the end. Taking the first `limit` of a decade's mail would hand back the
+     * oldest results and look like the search had missed everything recent.
+     */
+    override suspend fun search(query: String, limit: Int): List<Message> = io {
+        val q = query.trim()
+        if (q.length < 2) return@io emptyList()
+        withFolder("INBOX", write = false) { f ->
+            val validity = f.getUIDValidity()
+            val term = jakarta.mail.search.OrTerm(
+                arrayOf(
+                    jakarta.mail.search.SubjectTerm(q),
+                    jakarta.mail.search.FromStringTerm(q),
+                    jakarta.mail.search.BodyTerm(q),
+                ),
+            )
+            val found = runCatching { f.search(term) }.getOrNull() ?: return@withFolder emptyList()
+            if (found.isEmpty()) return@withFolder emptyList<Message>()
+            val take = found.takeLast(limit).toTypedArray()
+            f.fetch(
+                take,
+                FetchProfile().apply {
+                    add(UIDFolder.FetchProfileItem.UID)
+                    add(IMAPFolder.FetchProfileItem.HEADERS)
+                    add(FetchProfile.Item.FLAGS)
+                    add(FetchProfile.Item.ENVELOPE)
+                },
+            )
+            take.reversed().mapNotNull { runCatching { convert(f, it, validity) }.getOrNull() }
+        }
+    }
+
     override suspend fun send(msg: Outgoing) {
         io {
             val me = auth.accounts().firstOrNull { it.id == accountId }?.email.orEmpty()
@@ -382,9 +421,35 @@ class Imap(
         }
     }
 
+    override suspend fun sent(limit: Int): List<Message> = io {
+        val name = sentFolder() ?: return@io emptyList()
+        withFolder(name, write = false) { f ->
+            val validity = f.getUIDValidity()
+            val total = f.messageCount
+            if (total <= 0) return@withFolder emptyList<Message>()
+            val msgs = f.getMessages(maxOf(1, total - limit + 1), total)
+            f.fetch(
+                msgs,
+                FetchProfile().apply {
+                    add(UIDFolder.FetchProfileItem.UID)
+                    add(IMAPFolder.FetchProfileItem.HEADERS)
+                    add(FetchProfile.Item.ENVELOPE)
+                },
+            )
+            msgs.reversed().mapNotNull {
+                runCatching { convert(f, it, validity, SENT) }.getOrNull()
+            }
+        }
+    }
+
     /* ----------------------------------------------------------------- conversion */
 
-    private fun convert(f: IMAPFolder, m: JavaMailMessage, validity: Long): Message {
+    private fun convert(
+        f: IMAPFolder,
+        m: JavaMailMessage,
+        validity: Long,
+        prefix: String = "",
+    ): Message {
         val headers = HashMap<String, String>()
         runCatching {
             // getAllHeaders() is declared as a RAW Enumeration, so Kotlin types
@@ -404,7 +469,7 @@ class Imap(
         val references = headers["references"]?.trim()
 
         return Message(
-            id = "$validity-$uid",
+            id = "$prefix$validity-$uid",
             threadId = threadKey(messageId, references, headers["in-reply-to"]),
             accountId = accountId,
             from = Addr.address(fromRaw) ?: "",
@@ -451,6 +516,19 @@ class Imap(
     /** "" + 2 -> "2"; "1" + 0 -> "1.0". Dotted, so it survives a round trip as a string. */
     private fun join(path: String, index: Int): String =
         if (path.isEmpty()) index.toString() else "$path.$index"
+
+    private suspend fun sentFolder(): String? =
+        special(store(), "\\Sent", null, servers.sentNames)?.fullName
+
+    /**
+     * Which folder a provider id belongs to.
+     *
+     * Everything the app stores is an INBOX UID; only sent mail, which is fetched live and
+     * never stored, comes from somewhere else. `substringAfterLast('-')` in [uidOf] reads
+     * the UID out of either shape unchanged, so the prefix costs nothing anywhere else.
+     */
+    private suspend fun folderOf(id: String): String =
+        if (id.startsWith(SENT)) sentFolder() ?: "INBOX" else "INBOX"
 
     private fun uidOf(id: String): Long =
         id.substringAfterLast('-').toLongOrNull()

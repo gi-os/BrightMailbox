@@ -210,9 +210,8 @@ class Repo private constructor(private val app: Context) {
     }
 
     /** Everything in the inbox, both piles, minus what is held. For ARCHIVE ALL. */
-    suspend fun archiveInbox(): Int = withContext(Dispatchers.IO) {
-        archiveMany(dao.inboxList())
-    }
+    suspend fun archiveInbox(onProgress: (Int, Int) -> Unit = { _, _ -> }): Int =
+        withContext(Dispatchers.IO) { archiveMany(dao.inboxList(), onProgress) }
 
     /**
      * Files this app has saved to the phone, newest first.
@@ -453,8 +452,19 @@ class Repo private constructor(private val app: Context) {
             while (taken < perAccount) {
                 val (messages, next) = runCatching { svc.list(50, token) }.getOrNull() ?: break
                 if (messages.isEmpty()) break
-                val rows = messages.map { classify(it, sorter, mine) }
-                dao.put(rows)
+                /*
+                 * Only rows that are NEW.
+                 *
+                 * `put` is REPLACE, so writing every fetched message back would reset
+                 * `readHere`, `starred`, `readDay` and `archived` on everything already
+                 * held — asking for more history would silently mark the whole mailbox
+                 * unread and un-archive it. A deeper sync is meant to ADD the past, not
+                 * rewrite the present.
+                 */
+                val rows = messages
+                    .filter { dao.get("${'$'}{it.accountId}/${'$'}{it.id}") == null }
+                    .map { classify(it, sorter, mine) }
+                if (rows.isNotEmpty()) dao.put(rows)
                 rows.forEach { if (it.pile == Pile.LETTER.name) letters++ else notices++ }
                 done += rows.size
                 taken += rows.size
@@ -465,6 +475,155 @@ class Repo private constructor(private val app: Context) {
 
         retrain()
         lastSync = System.currentTimeMillis()
+    }
+
+    /**
+     * Walk the whole inbox again, thoroughly, and reconcile everything held.
+     *
+     * The ordinary sync reads the newest thirty per account — enough to notice new mail
+     * and nothing more. This pages back through INBOX as far as the depth setting allows,
+     * adds anything missing, and then asks the server about every non-archived row the app
+     * holds, so reads and archives done elsewhere land here in one pass.
+     *
+     * **It never touches the archive.** Reconciliation already asks only about
+     * non-archived rows, and nothing here re-adds an archived one: a message put away is a
+     * decision, and a refresh that undid it would make the archive untrustworthy. The
+     * ARCHIVE folder is not even opened.
+     *
+     * @return how many messages were added.
+     */
+    suspend fun deepSync(onProgress: (Int) -> Unit = {}): Int = withContext(Dispatchers.IO) {
+        val mine = myAddresses()
+        val overrides = dao.allRules().associate { it.address to Pile.valueOf(it.pile) }
+        val replies = dao.correspondents().associate { it.address to it.replies }
+        val sorter = Sorter(learner, overrides, replies)
+        var added = 0
+
+        for (account in auth.accounts()) {
+            val svc = serviceFor(account.id) ?: continue
+            var token: String? = null
+            var seen = 0
+            while (seen < depth.perAccount) {
+                val (messages, next) = runCatching { svc.list(50, token) }.getOrNull() ?: break
+                if (messages.isEmpty()) break
+                seen += messages.size
+                val rows = messages
+                    .filter { dao.get("${'$'}{account.id}/${'$'}{it.id}") == null }
+                    .map { classify(it, sorter, mine) }
+                if (rows.isNotEmpty()) {
+                    dao.put(rows)
+                    added += rows.size
+                }
+                onProgress(seen)
+                token = next ?: break
+            }
+
+            // The other direction, over everything held rather than the newest page.
+            runCatching {
+                val live = dao.liveFor(account.id)
+                if (live.isNotEmpty()) {
+                    val states = svc.states(live.map { it.providerId })
+                    val gone = live.filter { it.providerId !in states }.map { it.key }
+                    if (gone.isNotEmpty()) dao.archiveAll(gone)
+                    val readElsewhere = live.filter { m ->
+                        (m.unread || !m.readHere) && states[m.providerId] == false
+                    }.map { it.key }
+                    if (readElsewhere.isNotEmpty()) dao.markSeen(readElsewhere, today())
+                }
+            }
+        }
+        lastSync = System.currentTimeMillis()
+        added
+    }
+
+    /**
+     * Ask the server to find mail the app never downloaded, and keep what it finds.
+     *
+     * The rows are stored, so a result is a real message that opens, threads and can be
+     * replied to — not a preview that would need fetching again. They land in whichever
+     * pile the sorter puts them in, which is the same treatment a message gets when it
+     * arrives normally.
+     *
+     * @return how many were new.
+     */
+    suspend fun searchServer(query: String, limit: Int = 40): Int = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.length < 2) return@withContext 0
+        val mine = myAddresses()
+        val overrides = dao.allRules().associate { it.address to Pile.valueOf(it.pile) }
+        val replies = dao.correspondents().associate { it.address to it.replies }
+        val sorter = Sorter(learner, overrides, replies)
+        var added = 0
+
+        for (account in auth.accounts()) {
+            val svc = serviceFor(account.id) ?: continue
+            val found = runCatching { svc.search(q, limit) }.getOrDefault(emptyList())
+            val rows = found
+                .filter { dao.get("${'$'}{account.id}/${'$'}{it.id}") == null }
+                .map { classify(it, sorter, mine) }
+            if (rows.isNotEmpty()) {
+                dao.put(rows)
+                added += rows.size
+            }
+        }
+        added
+    }
+
+    /**
+     * What this mailbox has sent, newest first, across every account.
+     *
+     * Fetched fresh and returned rather than stored — see [MailService.sent] for why the
+     * database is the wrong place for it. The rows are ordinary [Msg] objects so the same
+     * list row and the same reader draw them, but nothing will ever find them in a query:
+     * they exist for as long as the screen does.
+     *
+     * `pile` is "SENT", which no query in this app matches. That is the point.
+     */
+    suspend fun sent(limit: Int = 60): List<Msg> = withContext(Dispatchers.IO) {
+        val out = ArrayList<Msg>()
+        for (account in auth.accounts()) {
+            val svc = serviceFor(account.id) ?: continue
+            val found = runCatching { svc.sent(limit) }.getOrDefault(emptyList())
+            for (m in found) {
+                /*
+                 * A sent message is shown by who it went TO.
+                 *
+                 * Every row in this app puts the other person on the left, and on a sent
+                 * message the other person is the recipient — a column of your own name
+                 * would be a list of nothing. The rest of the recipients are counted into
+                 * the line under it rather than listed, which on a 3.9" panel is the
+                 * difference between a row and a paragraph.
+                 */
+                val first = m.to.firstOrNull().orEmpty()
+                val others = m.to.size + m.cc.size - 1
+                out.add(
+                    Msg(
+                        key = "${'$'}{m.accountId}/${'$'}{m.id}",
+                        accountId = m.accountId,
+                        providerId = m.id,
+                        threadId = m.threadId,
+                        sender = first,
+                        senderName = first.substringBefore('@').ifBlank { "(no recipient)" },
+                        subject = m.subject.ifBlank { "(no subject)" },
+                        snippet = if (others > 0) "and $others more" else "",
+                        receivedAt = m.receivedAt,
+                        // Nothing you wrote is unread, and nothing here is rationed.
+                        unread = false,
+                        pile = "SENT",
+                        reason = "",
+                        rule = "sent",
+                        score = 0.0,
+                        messageId = m.messageId,
+                        references = m.references,
+                        hasAttachments = m.hasAttachments,
+                        readHere = true,
+                        toAddrs = m.to.joinToString(","),
+                        ccAddrs = m.cc.joinToString(","),
+                    ),
+                )
+            }
+        }
+        out.sortedByDescending { it.receivedAt }.take(limit)
     }
 
     private fun classify(m: Message, sorter: Sorter, mine: Set<String>): Msg {
@@ -835,15 +994,33 @@ class Repo private constructor(private val app: Context) {
      * saying "not this one", and a bulk action that ignores it is one nobody can press
      * safely.
      */
-    suspend fun archiveMany(rows: List<Msg>): Int = withContext(Dispatchers.IO) {
-        val keep = rows.filterNot { it.starred }
-        if (keep.isEmpty()) return@withContext 0
-        dao.archiveAll(keep.map { it.key })
-        keep.groupBy { it.accountId }.forEach { (acct, list) ->
-            runCatching { serviceFor(acct)?.archive(list.map { it.providerId }) }
+    suspend fun archiveMany(rows: List<Msg>, onProgress: (Int, Int) -> Unit = { _, _ -> }): Int =
+        withContext(Dispatchers.IO) {
+            val keep = rows.filterNot { it.starred }
+            if (keep.isEmpty()) return@withContext 0
+            // Local first and all at once: the screen must empty immediately, whatever the
+            // network does next.
+            dao.archiveAll(keep.map { it.key })
+
+            /*
+             * The server move, in chunks of twenty-five.
+             *
+             * Not one command per message — that would be hundreds of round trips — and
+             * not one command for everything either, which gives no progress to report and
+             * hands the server a MOVE with two thousand UIDs in it. Twenty-five is a
+             * reasonable command and a reasonable tick of a progress bar.
+             */
+            var done = 0
+            keep.groupBy { it.accountId }.forEach { (acct, list) ->
+                val svc = serviceFor(acct)
+                list.chunked(25).forEach { chunk ->
+                    runCatching { svc?.archive(chunk.map { it.providerId }) }
+                    done += chunk.size
+                    onProgress(done, keep.size)
+                }
+            }
+            keep.size
         }
-        keep.size
-    }
 
     /**
      * Clear the whole Notices pile.
@@ -858,15 +1035,22 @@ class Repo private constructor(private val app: Context) {
      * never un-archives) — the cost of that is one notice that has to be cleared again on
      * the web, and the alternative is a button that appears to do nothing for ten seconds.
      */
-    suspend fun archiveAllNotices(): Int = withContext(Dispatchers.IO) {
-        val rows = dao.noticeList()
-        if (rows.isEmpty()) return@withContext 0
-        dao.archiveAllNotices()
-        rows.groupBy { it.accountId }.forEach { (acct, list) ->
-            runCatching { serviceFor(acct)?.archive(list.map { it.providerId }) }
+    suspend fun archiveAllNotices(onProgress: (Int, Int) -> Unit = { _, _ -> }): Int =
+        withContext(Dispatchers.IO) {
+            val rows = dao.noticeList()
+            if (rows.isEmpty()) return@withContext 0
+            dao.archiveAllNotices()
+            var done = 0
+            rows.groupBy { it.accountId }.forEach { (acct, list) ->
+                val svc = serviceFor(acct)
+                list.chunked(25).forEach { chunk ->
+                    runCatching { svc?.archive(chunk.map { it.providerId }) }
+                    done += chunk.size
+                    onProgress(done, rows.size)
+                }
+            }
+            rows.size
         }
-        rows.size
-    }
 
     /**
      * Move a sender between piles, and teach the model.

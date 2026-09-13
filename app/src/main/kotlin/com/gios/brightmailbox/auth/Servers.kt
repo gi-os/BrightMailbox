@@ -97,5 +97,22 @@ data class Preset(
         )
 
         fun of(key: String?): Preset? = ALL.firstOrNull { it.key == key }
+
+        /*
+         * Deliberately absent: Proton and Tuta.
+         *
+         * **Proton** has no IMAP. It has Bridge, which is paid-plan-only, desktop-only,
+         * and binds to `127.0.0.1:1143` — a phone can never reach that, so a preset
+         * pointing at it would be a button that cannot work. Run Bridge on a machine that
+         * stays on, expose its IMAP on the network, and add it under "Something else"
+         * with that machine's address and port 1143.
+         *
+         * **Tuta** has no IMAP, POP or SMTP at all, and no Bridge. That is the
+         * architecture rather than an omission: every message is encrypted in the client
+         * before it reaches their servers, and those protocols assume a server that can
+         * read what it routes. There is an unofficial third-party bridge; it asks for full
+         * credentials to an end-to-end encrypted mailbox, which is exactly the thing not
+         * to hand to an unofficial tool, and its own README says Tuta does not endorse it.
+         */
     }
 }

@@ -124,10 +124,42 @@ object Addr {
             sb.append("References: ").append(m.references?.plus(" ")?.plus(it) ?: it).append("\r\n")
         }
         sb.append("MIME-Version: 1.0\r\n")
+
+        val body = m.body.replace("\r\n", "\n").replace("\n", "\r\n")
+        val ics = m.calendarReply
+        if (ics == null) {
+            sb.append("Content-Type: text/plain; charset=UTF-8\r\n")
+            sb.append("Content-Transfer-Encoding: 8bit\r\n")
+            sb.append("\r\n")
+            sb.append(body)
+            return sb.toString()
+        }
+
+        /*
+         * An invitation reply is multipart/alternative, text first.
+         *
+         * Two parts saying the same thing in two languages: the sentence a person reads,
+         * and the object a calendar reads. `alternative` rather than `mixed` is what tells
+         * the receiving client they are the same content — as `mixed` the calendar part
+         * would be shown as a file to download and the organizer's calendar would never
+         * process it.
+         *
+         * `method=REPLY` on the part's own Content-Type is the half that matters most.
+         * Without it Exchange treats the part as an event to add rather than an answer to
+         * one, and the organizer is never told anything.
+         */
+        val boundary = "bm-" + java.util.UUID.randomUUID().toString().replace("-", "")
+        sb.append("Content-Type: multipart/alternative; boundary=\"").append(boundary).append("\"\r\n")
+        sb.append("\r\n")
+        sb.append("--").append(boundary).append("\r\n")
         sb.append("Content-Type: text/plain; charset=UTF-8\r\n")
         sb.append("Content-Transfer-Encoding: 8bit\r\n")
-        sb.append("\r\n")
-        sb.append(m.body.replace("\r\n", "\n").replace("\n", "\r\n"))
+        sb.append("\r\n").append(body).append("\r\n")
+        sb.append("--").append(boundary).append("\r\n")
+        sb.append("Content-Type: text/calendar; method=REPLY; charset=UTF-8\r\n")
+        sb.append("Content-Transfer-Encoding: 8bit\r\n")
+        sb.append("\r\n").append(ics).append("\r\n")
+        sb.append("--").append(boundary).append("--\r\n")
         return sb.toString()
     }
 

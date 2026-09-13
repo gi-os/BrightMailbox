@@ -15,6 +15,7 @@ import com.gios.brightmailbox.sort.Learner
 import com.gios.brightmailbox.sort.Pile
 import com.gios.brightmailbox.sort.Sorter
 import com.gios.brightmailbox.text.Clean
+import com.gios.brightmailbox.text.Ics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -746,6 +747,50 @@ class Repo private constructor(private val app: Context) {
         if (moved) dao.forget(msg.key)
         moved
     }
+
+    /**
+     * The invitation in this message, if it holds one we can answer.
+     *
+     * Fetched rather than cached: an invite is rare, the calendar part is small, and
+     * caching it would mean another file per message keyed the same way as the body — a
+     * fourth copy of the same fetch for something most mail does not have.
+     */
+    suspend fun invite(msg: Msg): Ics.Invite? = withContext(Dispatchers.IO) {
+        val svc = serviceFor(msg.accountId) ?: return@withContext null
+        val c = runCatching { svc.content(msg.providerId) }.getOrNull() ?: return@withContext null
+        val ics = c.calendar?.takeIf { it.isNotBlank() } ?: return@withContext null
+        Ics.parse(ics)?.takeIf { it.isRequest && it.organizer.isNotBlank() }
+    }
+
+    /**
+     * Answer an invitation: an ordinary email carrying a `text/calendar; method=REPLY`.
+     *
+     * Sent from the account the invitation arrived at, which is not always the first one —
+     * replying to a work invitation from a personal address tells the organizer's calendar
+     * about an attendee it has never heard of, and it files the answer against nobody.
+     */
+    suspend fun rsvp(msg: Msg, invite: Ics.Invite, answer: Ics.Answer): Boolean =
+        withContext(Dispatchers.IO) {
+            val account = auth.accounts().firstOrNull { it.id == msg.accountId }
+                ?: return@withContext false
+            val stamp = java.text.SimpleDateFormat("yyyyMMdd'T'HHmmss'Z'", java.util.Locale.US)
+                .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+                .format(java.util.Date())
+            val body = Ics.reply(invite, account.email, account.name, answer, stamp)
+            runCatching {
+                serviceFor(msg.accountId)?.send(
+                    Outgoing(
+                        to = listOf(invite.organizer),
+                        subject = Ics.subject(invite, answer),
+                        // The sentence a person reads. The calendar reads the part below it.
+                        body = "${answer.word}.",
+                        inReplyTo = msg.messageId,
+                        references = msg.references,
+                        calendarReply = body,
+                    ),
+                ) ?: return@withContext false
+            }.isSuccess
+        }
 
     /**
      * Hold a message, or let it go.

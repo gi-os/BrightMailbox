@@ -1,3 +1,16 @@
+## v2.30 — Answer an invitation
+
+**ACCEPTED / DECLINED / TENTATIVE, under a meeting invitation.** Tapping one sends the
+organizer a real reply — not a note saying you accepted, but the thing their calendar
+reads and files against the event. Nothing else on this phone can do that: it is an email,
+and only a mail client sends those.
+
+Invitations still go to Notices, which is right. One is not correspondence and should not
+spend one of the day's five letters. But a notice you can act on is not a contradiction.
+
+The reply is sent from the mailbox the invitation arrived at, which matters more than it
+sounds: answering a work invitation from a personal address tells the organizer's calendar
+about an attendee it has never heard of, and the answer is filed against nobody.
 ## v2.29 — Notifications actually work
 
 **New letters notify again, and that is a fix rather than a feature.** Permission to post

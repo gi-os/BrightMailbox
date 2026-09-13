@@ -193,6 +193,19 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     private val _thread = MutableStateFlow<List<Msg>>(emptyList())
     val thread: StateFlow<List<Msg>> = _thread.asStateFlow()
 
+    /**
+     * The invitation in the open message, when there is one to answer.
+     *
+     * Invitations go to Notices — nothing here can show you a week — but answering one is
+     * a mail action, not a calendar action: it is an email with a `method=REPLY` part, and
+     * this app is the only one on the phone that can send it.
+     */
+    private val _invite = MutableStateFlow<com.gios.brightmailbox.text.Ics.Invite?>(null)
+    val invite: StateFlow<com.gios.brightmailbox.text.Ics.Invite?> = _invite.asStateFlow()
+
+    private val _rsvpSent = MutableStateFlow<String?>(null)
+    val rsvpSent: StateFlow<String?> = _rsvpSent.asStateFlow()
+
     private val _attachments =
         MutableStateFlow<List<com.gios.brightmailbox.mail.Attachment>>(emptyList())
     val attachments: StateFlow<List<com.gios.brightmailbox.mail.Attachment>> =
@@ -350,6 +363,8 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         _html.value = null
         _attachments.value = emptyList()
         _thread.value = emptyList()
+        _invite.value = null
+        _rsvpSent.value = null
         _opened.value = msg
         // Back to the default. The ··· sheet switches the message you are reading, not
         // the setting — leaving the last message's choice in place would make a one-off
@@ -385,6 +400,8 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         // Cheap: the list is cached beside the body and needs no extra round trip once
         // the body has been fetched once.
         _thread.value = repo.thread(msg)
+        // Only worth asking for a message the sorter already recognised as one.
+        if (msg.rule == "calendar") _invite.value = repo.invite(msg)
         _attachments.value = if (msg.hasAttachments) repo.attachments(msg) else emptyList()
         repo.open(msg)
         refreshRation()
@@ -435,6 +452,19 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Leave the message, back to the list it was opened from. */
     fun leaveReader() = go(cameFrom)
+
+    /** Accept, decline or maybe. Sends the reply the organizer's calendar reads. */
+    fun rsvp(msg: Msg, answer: com.gios.brightmailbox.text.Ics.Answer) = viewModelScope.launch {
+        val inv = _invite.value ?: return@launch
+        said("Sending ${answer.word.lowercase()}…")
+        val ok = repo.rsvp(msg, inv, answer)
+        if (ok) {
+            _rsvpSent.value = answer.word
+            said("${answer.word}. The organizer has been told.")
+        } else {
+            said("Could not send that reply.")
+        }
+    }
 
     fun archive(msg: Msg) = viewModelScope.launch {
         repo.archive(msg)

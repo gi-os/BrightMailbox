@@ -107,6 +107,7 @@ class Imap(
             val m = f.getMessageByUID(uidOf(id)) ?: return@withFolder Content(null, null)
             var text: String? = null
             var html: String? = null
+            var calendar: String? = null
             val attachments = ArrayList<Attachment>()
 
             /** [path] is the MIME tree address — "1.2" is part 2 inside part 1. */
@@ -137,6 +138,19 @@ class Imap(
                     part.isMimeType("text/html") ->
                         if (html == null) html = runCatching { part.content as? String }.getOrNull()
 
+                    // An invitation. Checked before multipart/* only because it is a leaf;
+                    // it arrives as a sibling of the text and html parts.
+                    part.isMimeType("text/calendar") ->
+                        if (calendar == null) {
+                            calendar = runCatching {
+                                when (val c = part.content) {
+                                    is String -> c
+                                    is java.io.InputStream -> c.reader(Charsets.UTF_8).readText()
+                                    else -> null
+                                }
+                            }.getOrNull()
+                        }
+
                     part.isMimeType("multipart/*") -> {
                         val mp = runCatching { part.content as? Multipart }.getOrNull() ?: return
                         for (i in 0 until mp.count) {
@@ -153,7 +167,7 @@ class Imap(
                 }
             }
             walk(m, 0, "")
-            Content(text, html, attachments)
+            Content(text, html, attachments, calendar)
         }
     }
 

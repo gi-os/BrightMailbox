@@ -57,6 +57,14 @@ data class Content(
     val text: String?,
     val html: String?,
     val attachments: List<Attachment> = emptyList(),
+    /**
+     * The raw `text/calendar` part, when the message carries one.
+     *
+     * Captured separately from [attachments] because an invitation's calendar part usually
+     * has no filename at all — it is the message, not a file hung off it — so the
+     * attachment walk skips it entirely.
+     */
+    val calendar: String? = null,
 )
 
 /** A message to send. */
@@ -67,6 +75,15 @@ data class Outgoing(
     val body: String,
     /** Set when replying, so the thread stays intact on both services. */
     val inReplyTo: String? = null,
+    /**
+     * An iCalendar REPLY body, for answering an invitation.
+     *
+     * When present the message goes out as `multipart/alternative` with the text part
+     * first and this second — which is the shape every calendar client sends and every
+     * organizer's server expects. A reply sent as a plain message with the calendar
+     * attached is read by a human and ignored by the calendar.
+     */
+    val calendarReply: String? = null,
     val references: String? = null,
     val threadId: String? = null,
 )

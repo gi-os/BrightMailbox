@@ -355,6 +355,41 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             Thread(thread) { vm.open(it) }
         }
 
+        /*
+         * Answering an invitation.
+         *
+         * Above the bar with the thread, for the same reason: it has to appear in both
+         * views and the formatted one is a WebView. Three words rather than three buttons
+         * — the SDK's bar allows three items with text and this is not the bar, so they
+         * are set at `button` tracking and spaced like one.
+         *
+         * The invite still lives in Notices, which is right: it is not correspondence and
+         * should not spend one of the day's five. But a notice you can act on is not a
+         * contradiction, and this is the one action only a mail client can take.
+         */
+        val invite by vm.invite.collectAsStateWithLifecycle()
+        val answered by vm.rsvpSent.collectAsStateWithLifecycle()
+        invite?.let {
+            Spacer(Modifier.height(g * 0.5f))
+            if (answered != null) {
+                T("$answered — the organizer has been told.", t.detail, Secondary, maxLines = 1)
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = g * 0.3f),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    for (a in com.gios.brightmailbox.text.Ics.Answer.entries) {
+                        T(
+                            a.word.uppercase(),
+                            t.button,
+                            modifier = Modifier.lightClickable { vm.rsvp(msg, a) },
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+
         if (showWhy) {
             WhySheet(vm, msg) { showWhy = false }
         } else {

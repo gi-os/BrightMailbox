@@ -4,12 +4,32 @@ import com.gios.brightmailbox.sort.Envelope
 
 /** A message as both services can describe it. */
 /**
- * The mark on a provider id that says "this UID was issued by the sent folder".
+ * Which folder issued a message's UID.
  *
- * A UID is meaningless without the folder that issued it, and every other id in this app
- * is an INBOX one. Sent mail is the single exception, so it is the only thing that has to
- * say where it came from.
+ * A UID means nothing without it. Everything this app stores came from INBOX, which is why
+ * the inbox tag is the empty string — every id written before v2.32 is still read
+ * correctly, and no migration was needed to introduce this. Anything from elsewhere says
+ * so in its own id, and [Imap] opens that folder rather than INBOX to fetch the body.
+ *
+ * The alternative was a second column, which would have had to be threaded through every
+ * query, every cache filename and both directions of the sync. The id is the one string
+ * that already travels everywhere a message goes.
  */
+enum class Box(val tag: String) {
+    INBOX(""),
+    SENT("SENT:"),
+    ARCHIVE("ARCH:"),
+    TRASH("TRASH:"),
+    JUNK("JUNK:");
+
+    companion object {
+        /** Which folder an id belongs to. Untagged means INBOX, which is most of them. */
+        fun of(id: String): Box =
+            entries.firstOrNull { it.tag.isNotEmpty() && id.startsWith(it.tag) } ?: INBOX
+    }
+}
+
+/** Kept for readability at the call sites that only ever mean sent mail. */
 const val SENT = "SENT:"
 
 data class Message(
@@ -193,7 +213,7 @@ interface MailService {
      * whatever its age, and what the app is missing is simply everything past the depth
      * the first sync walked.
      */
-    suspend fun search(query: String, limit: Int): List<Message>
+    suspend fun search(query: String, limit: Int, box: Box = Box.INBOX): List<Message>
 
     suspend fun send(msg: Outgoing)
 
@@ -219,4 +239,14 @@ interface MailService {
      * folder rather than INBOX. A UID means nothing without the folder it was issued in.
      */
     suspend fun sent(limit: Int): List<Message>
+
+    /**
+     * Move messages into [box] — the general form of [archive].
+     *
+     * Trash and Junk are the two that matter: this app has never had a delete, so the only
+     * way to get rid of a message was to archive it, which on Gmail means keeping it for
+     * ever under a different label. Junk is a move as well rather than a flag, because
+     * that is what every provider's spam filter actually learns from.
+     */
+    suspend fun moveTo(ids: List<String>, box: Box)
 }

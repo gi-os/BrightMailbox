@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -57,15 +59,37 @@ fun MenuScreen(vm: MailboxViewModel) {
         TopBar("MENU")
         Spacer(Modifier.height(g * 1.2f))
 
-        MenuItem("SEARCH", "Every pile, archive included.") { vm.go(Screen.Search) }
-        MenuItem("VIEW ARCHIVE", "Mail you have put away.") { vm.go(Screen.Archive) }
-        MenuItem("SENT", "What you have written.") { vm.go(Screen.Sent) }
-        MenuItem("DRAFTS", "Messages you started and did not send.") { vm.go(Screen.Drafts) }
-        MenuItem("DOWNLOADS", "Files saved out of attachments.") { vm.go(Screen.Downloads) }
-        MenuItem("ARCHIVE ALL", "Clear the inbox. Nothing is deleted.") { vm.archiveInbox() }
-        MenuItem("SETTINGS", "Ration, sound, accounts, signature.") { vm.go(Screen.Settings) }
-
-        Spacer(Modifier.weight(1f))
+        /*
+         * The list scrolls, because it outgrew the screen.
+         *
+         * Five destinations fitted; seven do not — each is two lines and about three and a
+         * half grid units, and SENT pushed SETTINGS under the action bar on a 472 dp panel
+         * at any font scale above the default. This is the same failure the setup screen
+         * had in v2.8, and it has the same shape: a fixed Column plus a `weight(1f)` that
+         * assumed the content fitted, so the overflow is silently unreachable rather than
+         * visibly cut off. A menu that hides one of its own items is worse than no menu.
+         */
+        val scroll = rememberScrollState()
+        WheelScroll(scroll)
+        Column(Modifier.weight(1f).verticalScroll(scroll)) {
+            MenuItem("SEARCH", "Every pile, archive included.") { vm.go(Screen.Search) }
+            MenuItem("VIEW ARCHIVE", "Mail you have put away.") { vm.go(Screen.Archive) }
+            MenuItem("SENT", "What you have written.") { vm.go(Screen.Sent) }
+            val waiting by vm.queued.collectAsStateWithLifecycle()
+            MenuItem(
+                "DRAFTS",
+                // A queued message is a draft that will send itself, and this is the only
+                // place anybody would look for it — so this line has to say so.
+                when (waiting) {
+                    0 -> "Messages you started and did not send."
+                    1 -> "1 waiting to go out."
+                    else -> "$waiting waiting to go out."
+                },
+            ) { vm.go(Screen.Drafts) }
+            MenuItem("DOWNLOADS", "Files saved out of attachments.") { vm.go(Screen.Downloads) }
+            MenuItem("ARCHIVE ALL", "Clear the inbox. Nothing is deleted.") { vm.archiveInbox() }
+            MenuItem("SETTINGS", "Ration, sound, accounts, signature.") { vm.go(Screen.Settings) }
+        }
         ActionBar(left = "BACK" to { vm.go(Screen.Home) }, right = null)
     }
 }

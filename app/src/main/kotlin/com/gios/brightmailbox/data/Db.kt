@@ -82,6 +82,23 @@ data class Msg(
      */
     @ColumnInfo(defaultValue = "0") val starred: Boolean = false,
     /**
+     * The raw RFC 2369 `List-Unsubscribe` value, angle brackets and all.
+     *
+     * Kept raw because it is a list and the choice between its entries is a decision made
+     * at the moment somebody presses the button, not at sync: a `mailto:` costs a message
+     * and an `https:` costs a page load, and which is preferable depends on
+     * [oneClick] — which is a different header entirely.
+     */
+    @ColumnInfo(defaultValue = "") val unsubscribe: String = "",
+    /**
+     * The sender published RFC 8058 `List-Unsubscribe-Post`.
+     *
+     * That is a promise that one POST is enough — no page, no form, no "manage your
+     * preferences" account wall. It is the difference between a button that works and a
+     * button that opens a browser, so it is worth its own column.
+     */
+    @ColumnInfo(defaultValue = "0") val oneClick: Boolean = false,
+    /**
      * Who else was on it, comma-joined — the other recipients, and the copied ones.
      *
      * Stored because **reply-all is a question about the original message**, and the
@@ -129,6 +146,17 @@ data class Draft(
     val references: String?,
     val threadId: String?,
     val updatedAt: Long,
+    /**
+     * Waiting to go out.
+     *
+     * The outbox is the drafts table with a flag, not a second table. A queued message IS
+     * a draft in every way that matters — same fields, same screen, same edit — and the
+     * only difference is that something will try to send it again without being asked. A
+     * separate table would have duplicated all of that to express one boolean.
+     */
+    @ColumnInfo(defaultValue = "0") val queued: Boolean = false,
+    /** How many attempts have failed. Stops an unsendable message retrying for ever. */
+    @ColumnInfo(defaultValue = "0") val tries: Int = 0,
 )
 
 @Dao
@@ -221,6 +249,17 @@ interface MailDao {
 
     @Query("UPDATE messages SET archived = 1 WHERE key = :key")
     suspend fun archive(key: String)
+
+    /**
+     * The preview line, written after the body has been fetched.
+     *
+     * Separate from [put] because it arrives later than the row does: IMAP hands over
+     * headers in one batch and bodies one at a time, so the row exists for a second or two
+     * before there is anything to preview. Writing it back through `put` would need the
+     * whole Msg and would clobber whatever the user did to it in the meantime.
+     */
+    @Query("UPDATE messages SET snippet = :snippet WHERE key = :key")
+    suspend fun setSnippet(key: String, snippet: String)
 
     @Query("UPDATE messages SET starred = :on WHERE key = :key")
     suspend fun setStarred(key: String, on: Boolean)
@@ -394,11 +433,21 @@ interface MailDao {
 
     @Query("DELETE FROM drafts WHERE id = :id")
     suspend fun dropDraft(id: Long)
+
+    /** The outbox: what is waiting to go, oldest first so a queue stays a queue. */
+    @Query("SELECT * FROM drafts WHERE queued AND tries < 5 ORDER BY updatedAt ASC")
+    suspend fun queuedDrafts(): List<Draft>
+
+    @Query("SELECT COUNT(*) FROM drafts WHERE queued")
+    fun queuedCount(): Flow<Int>
+
+    @Query("UPDATE drafts SET queued = :on, tries = :tries WHERE id = :id")
+    suspend fun setQueued(id: Long, on: Boolean, tries: Int)
 }
 
 @Database(
     entities = [Msg::class, SenderRule::class, Correspondent::class, Draft::class],
-    version = 4,
+    version = 6,
     exportSchema = false,
 )
 abstract class MailDb : RoomDatabase() {
@@ -435,6 +484,30 @@ abstract class MailDb : RoomDatabase() {
          * sender alone — which is the safe direction to be wrong in. New mail carries them
          * from the next sync onwards.
          */
+        /**
+         * v4 → v5: what a sender said about unsubscribing.
+         *
+         * Stored on the row rather than re-fetched, because the header is on the message
+         * and the message is on the server: offering UNSUBSCRIBE would otherwise mean a
+         * round trip per row just to find out whether the button should exist. Blank for
+         * everything already here, which reads as "no link" — the safe direction, and the
+         * next sync fills it in for anything new.
+         */
+        /** v5 → v6: the outbox, which is two columns on the drafts table. */
+        val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE drafts ADD COLUMN queued INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE drafts ADD COLUMN tries INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN unsubscribe TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE messages ADD COLUMN oneClick INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE messages ADD COLUMN toAddrs TEXT NOT NULL DEFAULT ''")

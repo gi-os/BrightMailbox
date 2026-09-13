@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,6 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -44,7 +45,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.viewinterop.AndroidView
@@ -62,7 +62,6 @@ import com.gios.brightmailbox.ui.theme.T
 import com.gios.brightmailbox.ui.theme.lightClickable
 import com.gios.brightmailbox.ui.theme.readerLeading
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -155,6 +154,16 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
     // Far enough that a stray drag does not dismiss, short enough that a deliberate one
     // does not feel like work. The same distance PullDownFrame used for its own commit.
     val commitPx = with(density) { 56.dp.toPx() }
+    /*
+     * One settle per gesture.
+     *
+     * A nested-scroll connection is told the finger has gone twice — `onPreFling` and then
+     * `onPostFling` — and the second call used to read a `pull` that was already mid-flight
+     * back to zero, then start a second animation against the first. Two animators on one
+     * value is a fight, and it looks like one. This also ignores drag events that arrive
+     * during the settle, which is the same fight from the other side.
+     */
+    var settling by remember { mutableStateOf(false) }
     val screenPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
     LaunchedEffect(msg.key) { pull.snapTo(0f) }
 
@@ -167,6 +176,8 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
      * springs back.
      */
     fun release(committed: Boolean) {
+        if (settling) return
+        settling = true
         scope.launch {
             if (committed) {
                 pull.animateTo(screenPx, tween(180))
@@ -182,11 +193,30 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             } else {
                 pull.animateTo(0f, tween(220))
             }
+            settling = false
         }
     }
 
     key(msg.key) {
-    Box(Modifier.fillMaxSize().offset { IntOffset(0, pull.value.roundToInt()) }) {
+    /*
+     * Drawn lower, not laid out lower — and that distinction is the whole bug.
+     *
+     * `Modifier.offset` moves the node in the layout, and the node it was moving is the
+     * one the gesture lives inside. Compose reports a drag as the difference between two
+     * pointer positions **in that node's own coordinates**, so every pixel the sheet moved
+     * was subtracted from the next delta it was told about: the sheet fed its own input,
+     * and the two chased each other up and down for the length of the gesture. The
+     * WebView had the same loop through `MotionEvent.y`, which is also view-relative.
+     *
+     * A draw-phase translation moves the pixels and nothing else. Hit testing, layout and
+     * every pointer coordinate stay where they were, so the finger and the sheet agree.
+     * Safe precisely because this gesture ends in the screen going away.
+     */
+    Box(
+        Modifier.fillMaxSize().drawWithContent {
+            translate(top = pull.value) { this@drawWithContent.drawContent() }
+        },
+    ) {
     Frame {
         /*
          * No top bar at all. The message is the screen.
@@ -267,7 +297,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 attachments = attachments,
                 modifier = Modifier.weight(1f),
                 onAttachment = openFile,
-                onPullDrag = { dy -> scope.launch { pull.snapTo(dy) } },
+                onPullDrag = { dy -> if (!settling) scope.launch { pull.snapTo(dy) } },
                 onPullEnd = { committed -> release(committed) },
             ) { url ->
                 runCatching {
@@ -307,6 +337,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                         available: Offset,
                         source: NestedScrollSource,
                     ): Offset {
+                        if (settling) return Offset.Zero
                         // Down past the top: take it, and move the sheet by exactly that.
                         if (available.y > 0f) {
                             scope.launch { pull.snapTo(pull.value + available.y) }
@@ -1106,6 +1137,8 @@ private fun WhySheet(vm: MailboxViewModel, msg: Msg, onClose: () -> Unit) {
      * A hard enum lookup here would have crashed the reader the moment a sent message was
      * opened, which is exactly the kind of thing a sealed set of two makes easy to miss.
      */
+    // null until one of the two destructive verbs has been pressed once.
+    var confirm by remember(msg.key) { mutableStateOf<String?>(null) }
     val here = Pile.entries.firstOrNull { it.name == msg.pile }
     val other = if (here == Pile.LETTER) Pile.NOTICE else Pile.LETTER
 
@@ -1153,6 +1186,101 @@ private fun WhySheet(vm: MailboxViewModel, msg: Msg, onClose: () -> Unit) {
                 maxLines = 1,
             )
         }
+
+        /*
+         * UNSUBSCRIBE, when the sender published a way out.
+         *
+         * The header this reads has been parsed since v2.0 — its presence is one of the
+         * facts that makes a message a Notice — and until now the app only ever used it to
+         * sort. For a mailbox built on a daily ration, the fastest route to fewer letters
+         * is fewer senders, and this is the one button that reduces mail instead of moving
+         * it around.
+         */
+        if (msg.unsubscribe.isNotBlank()) {
+            val context = LocalContext.current
+            T(
+                "UNSUBSCRIBE",
+                t.button,
+                modifier = Modifier.fillMaxWidth().lightClickable {
+                    vm.unsubscribe(msg) { url ->
+                        runCatching {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }.onFailure { vm.said("No browser here to open that.") }
+                    }
+                }.padding(vertical = g * 0.4f),
+            )
+            T(
+                if (msg.oneClick) "One tap. They promised it is enough."
+                else "Sends them a message, or opens their page.",
+                t.superfine,
+                Secondary,
+            )
+            Spacer(Modifier.height(g * 0.4f))
+        }
+
+        /*
+         * Delete and junk, behind one tap that asks.
+         *
+         * The only two verbs in this app that take mail away, so they are the only two
+         * that ask first — and they ask in place, by replacing themselves with the
+         * question, rather than in a dialog. A dialog for "are you sure" on a 3.9" screen
+         * is a second screen for a decision that is one word long.
+         *
+         * Not on the bar: the bar is back, reply, archive and this sheet, and a delete
+         * next to archive is a delete somebody presses by accident.
+         */
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = g * 0.4f),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            if (confirm == null) {
+                T(
+                    "DELETE",
+                    t.button,
+                    Secondary,
+                    Modifier.lightClickable { confirm = "delete" },
+                    maxLines = 1,
+                )
+                if (here != null) {
+                    T(
+                        "JUNK",
+                        t.button,
+                        Secondary,
+                        Modifier.lightClickable { confirm = "junk" },
+                        maxLines = 1,
+                    )
+                }
+            } else {
+                T(
+                    if (confirm == "delete") "DELETE — SURE?" else "JUNK — SURE?",
+                    t.button,
+                    modifier = Modifier.lightClickable {
+                        if (confirm == "delete") vm.delete(msg) else vm.junk(msg)
+                    },
+                    maxLines = 1,
+                )
+                T(
+                    "NO",
+                    t.button,
+                    Secondary,
+                    Modifier.lightClickable { confirm = null },
+                    maxLines = 1,
+                )
+            }
+        }
+        T(
+            when (confirm) {
+                "delete" -> "Moves it to Trash, where your provider keeps it for a while."
+                "junk" -> "Moves it to Junk and sends this sender to Notices from now on."
+                else -> "Archive keeps a message. These two do not."
+            },
+            t.superfine,
+            Secondary,
+        )
+        Spacer(Modifier.height(g * 0.4f))
 
         // Nothing sorted a sent message, so there is nowhere to move it to.
         if (here != null) {

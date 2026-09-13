@@ -279,12 +279,15 @@ class Imap(
      * runs only on a server that does not, and it copies first so a failure leaves the
      * message where it was.
      */
-    override suspend fun archive(ids: List<String>) {
+    override suspend fun archive(ids: List<String>) = moveTo(ids, Box.ARCHIVE)
+
+    override suspend fun moveTo(ids: List<String>, box: Box) {
         if (ids.isEmpty()) return
         io {
+            val name = folder(box) ?: throw IOException("no ${box.name.lowercase()} folder on this account")
             withFolder("INBOX", write = true) { f ->
-                val target = special(f.store, "\\All", "\\Archive", servers.archiveNames)
-                    ?: throw IOException("no archive folder on this account")
+                val target = f.store.getFolder(name)
+                    ?: throw IOException("no ${box.name.lowercase()} folder on this account")
                 val msgs = f.getMessagesByUID(uids(ids)).filterNotNull().toTypedArray()
                 if (msgs.isEmpty()) return@withFolder
                 try {
@@ -347,10 +350,11 @@ class Imap(
      * are at the end. Taking the first `limit` of a decade's mail would hand back the
      * oldest results and look like the search had missed everything recent.
      */
-    override suspend fun search(query: String, limit: Int): List<Message> = io {
+    override suspend fun search(query: String, limit: Int, box: Box): List<Message> = io {
         val q = query.trim()
         if (q.length < 2) return@io emptyList()
-        withFolder("INBOX", write = false) { f ->
+        val name = folder(box) ?: return@io emptyList()
+        withFolder(name, write = false) { f ->
             val validity = f.getUIDValidity()
             val term = jakarta.mail.search.OrTerm(
                 arrayOf(
@@ -371,7 +375,9 @@ class Imap(
                     add(FetchProfile.Item.ENVELOPE)
                 },
             )
-            take.reversed().mapNotNull { runCatching { convert(f, it, validity) }.getOrNull() }
+            take.reversed().mapNotNull {
+                runCatching { convert(f, it, validity, box.tag) }.getOrNull()
+            }
         }
     }
 
@@ -422,7 +428,7 @@ class Imap(
     }
 
     override suspend fun sent(limit: Int): List<Message> = io {
-        val name = sentFolder() ?: return@io emptyList()
+        val name = folder(Box.SENT) ?: return@io emptyList()
         withFolder(name, write = false) { f ->
             val validity = f.getUIDValidity()
             val total = f.messageCount
@@ -517,18 +523,29 @@ class Imap(
     private fun join(path: String, index: Int): String =
         if (path.isEmpty()) index.toString() else "$path.$index"
 
-    private suspend fun sentFolder(): String? =
-        special(store(), "\\Sent", null, servers.sentNames)?.fullName
+    /**
+     * The server's name for one of the well-known folders.
+     *
+     * SPECIAL-USE first, the name list only for servers that do not advertise it. Null
+     * when the account genuinely has no such folder — some IMAP servers have no Junk at
+     * all — and every caller has to have an answer for that other than "throw".
+     */
+    private suspend fun folder(box: Box): String? = when (box) {
+        Box.INBOX -> "INBOX"
+        Box.SENT -> special(store(), "\\Sent", null, servers.sentNames)?.fullName
+        Box.ARCHIVE -> special(store(), "\\All", "\\Archive", servers.archiveNames)?.fullName
+        Box.TRASH -> special(store(), "\\Trash", null, servers.trashNames)?.fullName
+        Box.JUNK -> special(store(), "\\Junk", null, servers.junkNames)?.fullName
+    }
 
     /**
      * Which folder a provider id belongs to.
      *
-     * Everything the app stores is an INBOX UID; only sent mail, which is fetched live and
-     * never stored, comes from somewhere else. `substringAfterLast('-')` in [uidOf] reads
-     * the UID out of either shape unchanged, so the prefix costs nothing anywhere else.
+     * `substringAfterLast('-')` in [uidOf] reads the UID out of a tagged id unchanged, so
+     * the tag costs nothing anywhere else — and an untagged id still means INBOX, which is
+     * everything this app stored before v2.32.
      */
-    private suspend fun folderOf(id: String): String =
-        if (id.startsWith(SENT)) sentFolder() ?: "INBOX" else "INBOX"
+    private suspend fun folderOf(id: String): String = folder(Box.of(id)) ?: "INBOX"
 
     private fun uidOf(id: String): Long =
         id.substringAfterLast('-').toLongOrNull()

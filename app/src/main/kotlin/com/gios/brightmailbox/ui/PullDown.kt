@@ -50,6 +50,14 @@ class PullDownFrame(context: Context) : FrameLayout(context) {
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
     private val commit = slop * 6   // ~a centimetre; a stray drag should not dismiss
 
+    /*
+     * Screen coordinates, not view coordinates.
+     *
+     * `ev.y` is relative to this frame, so once the caller starts drawing the sheet lower
+     * in response to the pull, `ev.y` shrinks by the same amount and the reported travel
+     * collapses — the gesture reads its own output as input. `rawY` is the finger's
+     * position on the panel and nothing this app draws can move it.
+     */
     private var downY = 0f
     private var downX = 0f
     private var pulling = false
@@ -57,13 +65,13 @@ class PullDownFrame(context: Context) : FrameLayout(context) {
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                downY = ev.y
-                downX = ev.x
+                downY = ev.rawY
+                downX = ev.rawX
                 pulling = false
             }
             MotionEvent.ACTION_MOVE -> {
-                val dy = ev.y - downY
-                val dx = abs(ev.x - downX)
+                val dy = ev.rawY - downY
+                val dx = abs(ev.rawX - downX)
                 // Downward, past the slop, and more vertical than horizontal — and only
                 // from a top the content has nowhere left to scroll from.
                 if (dy > slop && dy > dx * 1.5f && atTop()) {
@@ -78,11 +86,11 @@ class PullDownFrame(context: Context) : FrameLayout(context) {
     override fun onTouchEvent(ev: MotionEvent): Boolean {
         when (ev.actionMasked) {
             MotionEvent.ACTION_MOVE -> {
-                if (pulling) onDrag((ev.y - downY - slop).coerceAtLeast(0f))
+                if (pulling) onDrag((ev.rawY - downY - slop).coerceAtLeast(0f))
                 return pulling
             }
             MotionEvent.ACTION_UP -> {
-                val travelled = ev.y - downY
+                val travelled = ev.rawY - downY
                 val committed = travelled > commit
                 if (pulling) onRelease(committed)
                 pulling = false

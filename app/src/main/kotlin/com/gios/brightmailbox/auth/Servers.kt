@@ -22,6 +22,8 @@ data class Servers(
     /** Fallbacks for when the server does not advertise SPECIAL-USE. */
     val archiveNames: List<String> = listOf("Archive", "Archives"),
     val sentNames: List<String> = listOf("Sent", "Sent Items", "Sent Messages"),
+    val trashNames: List<String> = listOf("Trash", "Deleted Items", "Deleted Messages", "Bin"),
+    val junkNames: List<String> = listOf("Junk", "Spam", "Junk E-mail", "Bulk Mail"),
 ) {
     val valid: Boolean get() = imapHost.isNotBlank() && imapPort in 1..65535
 

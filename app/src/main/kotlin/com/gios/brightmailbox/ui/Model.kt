@@ -688,6 +688,80 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /**
+     * Throw a message away.
+     *
+     * Leaves the reader first, then moves it — the message on screen is about to stop
+     * existing, and a reader that keeps drawing it while the row underneath is deleted is
+     * a screen showing something that is not there. Same ordering as ARCHIVE ALL, and for
+     * the same reason.
+     *
+     * The confirmation is the screen's job, not this one's: this is the verb, and by the
+     * time it is called the answer is yes.
+     */
+    fun delete(msg: Msg) = viewModelScope.launch {
+        leaveReader()
+        val ok = working("Deleting") { repo.delete(msg) }
+        said(if (ok) "Moved to Trash." else "Could not delete that — no Trash folder?")
+    }
+
+    /** Report as junk: a move to the Junk folder plus a local rule. See [Repo.junk]. */
+    fun junk(msg: Msg) = viewModelScope.launch {
+        leaveReader()
+        val ok = working("Reporting") { repo.junk(msg) }
+        said(
+            if (ok) "Moved to Junk. Mail from ${msg.senderName.ifBlank { msg.sender }} " +
+                "will go to Notices."
+            else "Could not report that — no Junk folder?",
+        )
+    }
+
+    /**
+     * Leave a mailing list.
+     *
+     * The page case is handed back rather than opened here — a ViewModel has no business
+     * starting an activity, and the screen already owns the one browser intent in this
+     * app. Everything else finishes without leaving.
+     *
+     * Archives the message afterwards on success. Unsubscribing from something and then
+     * leaving it sitting in the pile is half a decision.
+     */
+    fun unsubscribe(msg: Msg, openPage: (String) -> Unit) = viewModelScope.launch {
+        when (val out = working("Unsubscribing") { repo.unsubscribe(msg) }) {
+            is Repo.Left.Done -> {
+                repo.archive(msg)
+                leaveReader()
+                said("Unsubscribed. It may take a few days to take effect.")
+            }
+            is Repo.Left.Page -> {
+                said("Opening their page…")
+                openPage(out.url)
+            }
+            is Repo.Left.None -> said("This sender offers no way to unsubscribe.")
+            is Repo.Left.Failed -> said("Could not unsubscribe — ${out.why}.")
+        }
+    }
+
+    /**
+     * Addresses this mailbox has dealt with, newest first.
+     *
+     * `recentCorrespondents()` has been in the DAO since v1 with **no callers at all** —
+     * the table was written on every send and never once read back. Loaded as a plain list
+     * and filtered in the composition rather than queried per keystroke: it is a few
+     * hundred strings, and a database round trip per letter typed on a phone keyboard is
+     * how a text field starts to stutter.
+     */
+    private val _addressBook = MutableStateFlow<List<String>>(emptyList())
+    val addressBook: StateFlow<List<String>> = _addressBook.asStateFlow()
+
+    fun loadAddressBook() = viewModelScope.launch {
+        if (_addressBook.value.isEmpty()) _addressBook.value = repo.addressBook()
+    }
+
+    /** How many messages are waiting to go out. Zero almost always. */
+    val queued = repo.queuedCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
     fun downloads(): List<Triple<String, String, String>> = repo.downloads()
 
     /** ARCHIVE ALL from the menu: the whole inbox, both piles, minus what is held. */
@@ -908,7 +982,40 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
                 said("Sent.")
                 go(Screen.Home)
             }
-            .onFailure { onFailed(); said("Not sent. Your draft is still here.") }
+            .onFailure {
+                /*
+                 * Queue it rather than hand it back.
+                 *
+                 * "Your draft is still here" was true and still asked the person to be the
+                 * retry loop: press send, walk into a tunnel, remember later. A queued
+                 * message goes out on the next sync, which is on open and every fifteen
+                 * minutes — so send means will send.
+                 *
+                 * `onFailed()` still runs: the compose screen has to start keeping its
+                 * draft again, because the row it is about to be saved into is the very
+                 * one that is now queued.
+                 */
+                onFailed()
+                val id = repo.queue(
+                    com.gios.brightmailbox.data.Draft(
+                        id = draftId,
+                        accountId = accountId,
+                        to = msg.to.joinToString(", "),
+                        cc = msg.cc.joinToString(", "),
+                        subject = msg.subject,
+                        body = msg.body,
+                        inReplyTo = msg.inReplyTo,
+                        references = msg.references,
+                        threadId = msg.threadId,
+                        updatedAt = System.currentTimeMillis(),
+                    ),
+                )
+                said(
+                    if (msg.files.isEmpty()) "No connection. It will go out on the next check."
+                    else "No connection. Kept in Drafts — the files need attaching again.",
+                )
+                if (id != 0L && msg.files.isEmpty()) go(Screen.Home)
+            }
         _work.value = null
         _sending.value = false
     }

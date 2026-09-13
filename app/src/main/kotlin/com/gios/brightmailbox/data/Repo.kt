@@ -3,12 +3,18 @@ package com.gios.brightmailbox.data
 import android.content.Context
 import androidx.room.Room
 import com.gios.brightmailbox.auth.AuthManager
+import com.gios.brightmailbox.mail.Addr
 import com.gios.brightmailbox.mail.Attachment
+import com.gios.brightmailbox.mail.Box
 import com.gios.brightmailbox.mail.Content
 import com.gios.brightmailbox.mail.Imap
 import com.gios.brightmailbox.mail.MailService
 import com.gios.brightmailbox.mail.Message
 import com.gios.brightmailbox.mail.Outgoing
+import com.gios.brightmailbox.mail.Unsub
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import com.gios.brightmailbox.notify.Chime
 import com.gios.brightmailbox.sort.Envelope
 import com.gios.brightmailbox.sort.Learner
@@ -92,7 +98,13 @@ class Repo private constructor(private val app: Context) {
         .build()
 
     private val db = Room.databaseBuilder(app, MailDb::class.java, "mailbox.db")
-        .addMigrations(MailDb.MIGRATION_1_2, MailDb.MIGRATION_2_3, MailDb.MIGRATION_3_4)
+        .addMigrations(
+            MailDb.MIGRATION_1_2,
+            MailDb.MIGRATION_2_3,
+            MailDb.MIGRATION_3_4,
+            MailDb.MIGRATION_4_5,
+            MailDb.MIGRATION_5_6,
+        )
         .fallbackToDestructiveMigration()
         .build()
 
@@ -295,6 +307,16 @@ class Repo private constructor(private val app: Context) {
         var first: Msg? = null
         var worked = 0
         val failures = ArrayList<String>()
+
+        /*
+         * Anything waiting to go, before anything coming in.
+         *
+         * The sync is the only thing in this app that runs on its own schedule and knows
+         * the network is up, which makes it the right place — and going out first means a
+         * message queued in a tunnel leaves the moment the phone can see a server again,
+         * rather than one fetch later.
+         */
+        runCatching { flushOutbox() }
 
         for (account in auth.accounts()) {
             val svc = serviceFor(account.id)
@@ -557,16 +579,150 @@ class Repo private constructor(private val app: Context) {
 
         for (account in auth.accounts()) {
             val svc = serviceFor(account.id) ?: continue
-            val found = runCatching { svc.search(q, limit) }.getOrDefault(emptyList())
-            val rows = found
-                .filter { dao.get("${'$'}{account.id}/${'$'}{it.id}") == null }
-                .map { classify(it, sorter, mine) }
-            if (rows.isNotEmpty()) {
-                dao.put(rows)
-                added += rows.size
+            /*
+             * The inbox and the archive, as two searches.
+             *
+             * IMAP SEARCH is per-folder, and the archive is where most of a mailbox's
+             * history actually lives — on Gmail it is All Mail, which holds everything the
+             * account has ever received. Searching only INBOX meant "further back" reached
+             * further back through the one folder people empty.
+             *
+             * An archive hit is stored `archived = true`, which keeps it out of the two
+             * piles and out of the reconciliation that asks INBOX about every live row.
+             * Its id carries the ARCH: tag, so opening it fetches from the right folder.
+             */
+            for (box in listOf(Box.INBOX, Box.ARCHIVE)) {
+                val found = runCatching { svc.search(q, limit, box) }.getOrDefault(emptyList())
+                val rows = found
+                    .filter { dao.get("${'$'}{account.id}/${'$'}{it.id}") == null }
+                    .map { classify(it, sorter, mine) }
+                    .map { if (box == Box.ARCHIVE) it.copy(archived = true) else it }
+                if (rows.isNotEmpty()) {
+                    dao.put(rows)
+                    added += rows.size
+                }
             }
         }
         added
+    }
+
+    /* ---------------------------------------------------------------- unsubscribe */
+
+    /** What happened, and what the screen has to do about it. */
+    sealed interface Left {
+        /** Done, with nothing more to do. */
+        data object Done : Left
+        /** The only way out is a web page. The screen hands this to a browser. */
+        data class Page(val url: String) : Left
+        /*
+         * Named None, not Nothing.
+         *
+         * `Nothing` is a real Kotlin type — the bottom type — and declaring an object with
+         * that name inside this class shadows it for every line in the file. The compiler
+         * allows it and the next person to write a `Nothing` return type here would spend
+         * an afternoon on the error message.
+         */
+        data object None : Left
+        data class Failed(val why: String) : Left
+    }
+
+    /**
+     * Stop a sender sending.
+     *
+     * Three routes, in the order of how little they ask of the person:
+     *
+     * 1. **RFC 8058 one-click** — a POST with a fixed body, when the sender published
+     *    `List-Unsubscribe-Post`. That header is a promise that this single request is the
+     *    whole transaction, and it is the only route that finishes without leaving the app.
+     * 2. **mailto** — an email, sent from the account the message arrived at, because a
+     *    list keyed the address it mails and a reply from a different mailbox matches
+     *    nothing.
+     * 3. **A web page**, handed back for a browser. Last because it is a page load, a
+     *    cookie banner and often a sign-in on a phone with a 3.9" screen.
+     *
+     * A GET is never issued. Mail clients that prefetched unsubscribe URLs are the reason
+     * RFC 8058 had to exist: a link that unsubscribes on GET will be followed by a scanner
+     * eventually, and the person never pressed anything.
+     */
+    suspend fun unsubscribe(msg: Msg): Left = withContext(Dispatchers.IO) {
+        val ways = Unsub.parse(msg.unsubscribe)
+        if (!ways.any) return@withContext Left.None
+
+        if (msg.oneClick && ways.http != null) {
+            val ok = runCatching {
+                val body = Unsub.ONE_CLICK_BODY.toRequestBody(
+                    "application/x-www-form-urlencoded".toMediaType(),
+                )
+                http.newCall(Request.Builder().url(ways.http).post(body).build())
+                    .execute().use { it.isSuccessful }
+            }.getOrDefault(false)
+            if (ok) return@withContext Left.Done
+            // Fall through rather than fail: the other routes are still there.
+        }
+
+        ways.mailto?.let { to ->
+            val sent = runCatching {
+                serviceFor(msg.accountId)?.send(
+                    Outgoing(
+                        to = listOf(to),
+                        subject = ways.subject ?: "unsubscribe",
+                        // Some list managers read the body, most read the address they
+                        // were written to. One word satisfies both and says nothing else.
+                        body = "unsubscribe",
+                    ),
+                ) != null
+            }.getOrDefault(false)
+            if (sent) return@withContext Left.Done
+        }
+
+        ways.http?.let { return@withContext Left.Page(it) }
+        Left.Failed("that sender's unsubscribe did not answer")
+    }
+
+    /* --------------------------------------------------------------- throwing away */
+
+    /**
+     * Delete, and it is the only verb here that takes mail away.
+     *
+     * A move to Trash, never a `\Deleted` flag and an expunge — an expunged message is
+     * gone from the server with nothing to undo it from, and the point of Trash is that a
+     * provider keeps it for a month. The local row is dropped rather than marked, because
+     * a row marked deleted would be a second kind of archive with no screen to show it on.
+     *
+     * Server first: a row that stays on the phone after a failed delete is a message you
+     * can still read, which is the safe direction. See [unarchive] for the same ordering
+     * and the same reason.
+     */
+    suspend fun delete(msg: Msg): Boolean = withContext(Dispatchers.IO) {
+        move(msg, Box.TRASH)
+    }
+
+    /**
+     * Report as junk.
+     *
+     * A move into the Junk folder, which is what every provider's filter actually learns
+     * from — flagging is a client-side opinion nobody reads. Also writes a local rule, so
+     * the sorter agrees with the decision even for mail that arrives before the server has
+     * caught up.
+     */
+    suspend fun junk(msg: Msg): Boolean = withContext(Dispatchers.IO) {
+        val ok = move(msg, Box.JUNK)
+        if (ok && msg.sender.isNotBlank()) {
+            runCatching {
+                dao.putRule(SenderRule(msg.sender, Pile.NOTICE.name, System.currentTimeMillis()))
+            }
+        }
+        ok
+    }
+
+    private suspend fun move(msg: Msg, box: com.gios.brightmailbox.mail.Box): Boolean {
+        val svc = serviceFor(msg.accountId) ?: return false
+        val moved = runCatching { svc.moveTo(listOf(msg.providerId), box) }.isSuccess
+        if (moved) {
+            dao.forget(msg.key)
+            runCatching { bodyFile(msg.key).delete(); htmlFile(msg.key).delete() }
+        }
+        return moved
     }
 
     /**
@@ -648,6 +804,9 @@ class Repo private constructor(private val app: Context) {
             hasAttachments = m.hasAttachments,
             toAddrs = m.to.joinToString(","),
             ccAddrs = m.cc.joinToString(","),
+            unsubscribe = m.headers["list-unsubscribe"].orEmpty(),
+            // Presence is the promise; the value is always the same token.
+            oneClick = m.headers.containsKey("list-unsubscribe-post"),
         )
     }
 
@@ -752,10 +911,47 @@ class Repo private constructor(private val app: Context) {
     suspend fun prefetchBodies(letters: List<Msg>, notices: List<Msg> = emptyList()) =
         withContext(Dispatchers.IO) {
             for (m in letters + notices) {
-                if (bodyFile(m.key).exists()) continue
-                runCatching { body(m) }
+                val have = bodyFile(m.key).exists()
+                if (have && m.snippet.isNotBlank()) continue
+                /*
+                 * The preview line, taken from the body the prefetch was fetching anyway.
+                 *
+                 * **IMAP carries no snippet** and asking for one per message costs a round
+                 * trip each, which is the whole reason this transport is fast — so for
+                 * seven versions a row was sender and subject and nothing else. But the
+                 * prefetch already downloads the bodies of everything on screen, for the
+                 * unrelated reason that a tapped message should open instantly. The text
+                 * is sitting in a file by the time the row is drawn; it just was not being
+                 * read back.
+                 *
+                 * Nothing extra goes over the network. A message whose body has already
+                 * been fetched and already has a preview is skipped before the disk read.
+                 */
+                val text = if (have) {
+                    runCatching { Clean.body(bodyFile(m.key).readText()).text }.getOrNull()
+                } else {
+                    runCatching { body(m)?.text }.getOrNull()
+                }
+                if (m.snippet.isBlank()) {
+                    preview(text).takeIf { it.isNotBlank() }?.let { dao.setSnippet(m.key, it) }
+                }
             }
         }
+
+    /**
+     * The first line of a message, as one line.
+     *
+     * Newlines out, runs of space collapsed, and cut at a word rather than mid-syllable —
+     * a row is one line at `superfine` and about 90 characters is what fits on a 3.9"
+     * panel before the ellipsis does the rest. Leading blank lines are extremely common in
+     * mail that came from HTML, which is why the trim happens first.
+     */
+    private fun preview(raw: String?): String {
+        val flat = raw.orEmpty().replace(Regex("\\s+"), " ").trim()
+        if (flat.length <= 90) return flat
+        val cut = flat.take(90)
+        return cut.substringBeforeLast(' ', cut).trimEnd(',', '.', ';', ':', '-') + "…"
+    }
 
     /**
      * The sender's HTML, or null for a plain-text message.
@@ -1103,6 +1299,73 @@ class Repo private constructor(private val app: Context) {
 
     suspend fun dropDraft(id: Long) = withContext(Dispatchers.IO) {
         if (id != 0L) dao.dropDraft(id)
+    }
+
+    /* ------------------------------------------------------------------- outbox */
+
+    fun queuedCount(): Flow<Int> = dao.queuedCount()
+
+    /** Everyone this mailbox has written to or heard from, most recent first. */
+    suspend fun addressBook(): List<String> = withContext(Dispatchers.IO) {
+        dao.recentCorrespondents(400).map { it.address }
+    }
+
+    /**
+     * Keep a message that would not go, and mean it.
+     *
+     * "Not sent. Your draft is still here." was true but not enough: on a phone that walks
+     * into a subway, pressing send and then having to remember to press it again later is
+     * the app asking the person to be its retry loop. A queued draft goes out on the next
+     * sync, which is on open and every fifteen minutes.
+     *
+     * @return the row id it was kept under.
+     */
+    suspend fun queue(d: Draft): Long = withContext(Dispatchers.IO) {
+        dao.putDraft(d.copy(queued = true, updatedAt = System.currentTimeMillis()))
+    }
+
+    /**
+     * Try the outbox.
+     *
+     * **Five attempts, then it stops and stays a draft.** A message refused because the
+     * address does not exist will be refused for ever, and a queue that retries for ever
+     * is a queue that sends the same failure notification twice an hour until somebody
+     * uninstalls the app. Five is enough to cross a tunnel and not enough to nag.
+     *
+     * Called from the sync, so a phone that reconnects sends without being told to.
+     *
+     * @return how many went.
+     */
+    suspend fun flushOutbox(): Int = withContext(Dispatchers.IO) {
+        var sent = 0
+        for (d in dao.queuedDrafts()) {
+            val out = Outgoing(
+                to = Addr.addresses(d.to),
+                cc = Addr.addresses(d.cc),
+                subject = d.subject,
+                body = d.body,
+                inReplyTo = d.inReplyTo,
+                references = d.references,
+                threadId = d.threadId,
+            )
+            /*
+             * Attachments do not survive the queue, and that is on purpose.
+             *
+             * An Outfile holds the bytes, and storing a queued message's files would mean
+             * putting somebody's 8 MB deck in the database — where it would be backed up,
+             * synced, and kept long after the message went. A send with files that fails
+             * stays a plain draft and says so; the person re-attaches. Rare, and the
+             * alternative is worse.
+             */
+            val ok = runCatching { send(d.accountId, out) }.isSuccess
+            if (ok) {
+                dao.dropDraft(d.id)
+                sent++
+            } else {
+                dao.setQueued(d.id, true, d.tries + 1)
+            }
+        }
+        sent
     }
 
     /* ------------------------------------------------------------------- sending */

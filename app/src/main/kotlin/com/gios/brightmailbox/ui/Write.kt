@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.TextRange
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightmailbox.data.Msg
 import com.gios.brightmailbox.mail.Addr
@@ -271,6 +273,48 @@ fun WriteScreen(
 
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).imePadding()) {
             Field("To", to, { to = it }, g, t)
+
+            /*
+             * Who you have written to before.
+             *
+             * The correspondents table has been written on every send since v1 and read by
+             * nothing — the app knew everyone you had ever emailed and still made you type
+             * the whole address on a 3.9" keyboard.
+             *
+             * Matches on any part of the address, not just the start: people search for
+             * somebody by the half they remember, and on this phone that is as often the
+             * domain as the name. Three suggestions, because a fourth line pushes the body
+             * off the fold, and only after two characters — one letter matches everyone.
+             */
+            val book by vm.addressBook.collectAsStateWithLifecycle()
+            LaunchedEffect(Unit) { vm.loadAddressBook() }
+            val typed = to.text.substringAfterLast(',').trim()
+            val hits = if (typed.length < 2) {
+                emptyList()
+            } else {
+                book.filter {
+                    it.contains(typed, ignoreCase = true) && !it.equals(typed, ignoreCase = true)
+                }.take(3)
+            }
+            for (hit in hits) {
+                T(
+                    hit,
+                    t.detail,
+                    Secondary,
+                    Modifier
+                        .fillMaxWidth()
+                        .lightClickable {
+                            // Replace the fragment being typed, keep any addresses before
+                            // it, and leave the caret after a separator ready for the next.
+                            val before = to.text.substringBeforeLast(',', "")
+                            val whole =
+                                (if (before.isBlank()) "" else before.trimEnd() + ", ") + hit + ", "
+                            to = TextFieldValue(whole, TextRange(whole.length))
+                        }
+                        .padding(vertical = g * 0.3f),
+                    maxLines = 1,
+                )
+            }
             if (editingSubject) {
                 Spacer(Modifier.height(g * 0.8f))
                 Field("Subject", subject, { subject = it }, g, t)

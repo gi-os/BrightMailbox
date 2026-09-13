@@ -471,6 +471,21 @@ fun LetterRow(
             Spacer(Modifier.width(g * 0.5f))
             T(stamp(m.receivedAt), t.detail, Secondary, maxLines = 1)
         }
+        /*
+         * The preview, and only on a Letter.
+         *
+         * A Letter row is meant to put roughly 2.3x the lit pixels on the panel that a
+         * Notice does — that ratio is what reads as loudness on a black ground, and it is
+         * the design. A third line here widens it rather than muddying it, and a Notice
+         * stays two lines, which is the point of being a Notice.
+         *
+         * Absent rather than blank when there is nothing yet: an empty line of its own
+         * height would make rows jump as the prefetch filled them in.
+         */
+        if (m.snippet.isNotBlank()) {
+            Spacer(Modifier.height(g * 0.15f))
+            T(m.snippet, t.superfine, Secondary, maxLines = 1)
+        }
     }
     }
 }

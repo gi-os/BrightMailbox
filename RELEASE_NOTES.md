@@ -1,3 +1,54 @@
+## v2.33 — Unsubscribe, delete, previews, and an outbox
+
+**UNSUBSCRIBE, under the ··· in a message.** The `List-Unsubscribe` header has been read
+since v2.0 — its presence is one of the facts that makes a message a Notice rather than a
+Letter — and until now the app only ever used it to sort. Three routes, in the order of
+how little each asks of you: a one-click POST when the sender published RFC 8058, an email
+from the account the message arrived at, and failing both, their web page. A GET is never
+issued, which is the whole reason RFC 8058 had to exist: a link that unsubscribes on GET
+gets followed by a scanner eventually, and nobody pressed anything. Unsubscribing archives
+the message too — leaving it in the pile is half a decision.
+
+**Delete and report as junk.** Until now archive was the only way out, which on Gmail means
+keeping a message forever under a different label. DELETE moves to Trash, where your
+provider holds it for a while; JUNK moves to the Junk folder, which is what a spam filter
+actually learns from, and sends that sender to Notices from then on. Both ask first, in
+place, by replacing themselves with the question — the only two verbs here that take mail
+away are the only two that ask.
+
+**Rows have a preview line now.** IMAP carries no snippet and asking for one per message
+costs a round trip each, which is why a row has been sender and subject for thirty
+releases. But the app already downloads the bodies of everything on screen so a tapped
+message opens instantly — the text was sitting in a file by the time the row was drawn, and
+nothing read it back. Nothing extra goes over the network. Letters only: a Notice stays two
+lines, which is the point of being a Notice.
+
+**An outbox.** "Not sent. Your draft is still here" was true and still asked you to be the
+retry loop — press send, walk into a tunnel, remember later. A message that will not go is
+now queued and goes out on the next check, which is on open and every fifteen minutes.
+Five attempts, then it stops and stays a draft: a message refused because the address does
+not exist will be refused forever, and a queue that retries forever is one you uninstall.
+DRAFTS says how many are waiting.
+
+**The To field suggests people you have written to.** That list has been kept since v1 and
+read by nothing, so the app knew everyone you had ever emailed and still made you type the
+whole address. It matches any part of an address, not just the start, because on a phone
+the half you remember is as often the domain as the name.
+
+**Search further back now reaches the archive,** not just the inbox — which is where most of
+a mailbox's history lives.
+
+**The menu scrolls.** Adding SENT pushed SETTINGS under the action bar on a 3.9" screen, and
+it was not cut off so much as silently unreachable. A menu that hides one of its own items
+is worse than no menu.
+
+**Fixed: the pull-down jumped up and down through the whole gesture.** The sheet was moved
+with a layout offset, and the node it was moving is the one the gesture lives inside —
+every pixel the sheet moved got subtracted from the next drag it was told about, so the
+sheet fed its own input and the two chased each other. It is drawn lower now instead of
+laid out lower, which moves the pixels and leaves every pointer coordinate where it was.
+The settle is also allowed to happen once per gesture rather than twice.
+
 ## v2.32 — Sent mail, a deeper refresh, and a sheet that follows your finger
 
 **SENT, under the hamburger menu.** Everything this mailbox has written, newest first,

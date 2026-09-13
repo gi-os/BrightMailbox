@@ -59,6 +59,7 @@ fun MenuScreen(vm: MailboxViewModel) {
 
         MenuItem("SEARCH", "Every pile, archive included.") { vm.go(Screen.Search) }
         MenuItem("VIEW ARCHIVE", "Mail you have put away.") { vm.go(Screen.Archive) }
+        MenuItem("DRAFTS", "Messages you started and did not send.") { vm.go(Screen.Drafts) }
         MenuItem("DOWNLOADS", "Files saved out of attachments.") { vm.go(Screen.Downloads) }
         MenuItem("ARCHIVE ALL", "Clear the inbox. Nothing is deleted.") { vm.archiveInbox() }
         MenuItem("SETTINGS", "Ration, sound, accounts, signature.") { vm.go(Screen.Settings) }
@@ -104,6 +105,11 @@ fun ArchiveScreen(vm: MailboxViewModel) {
     val g = LocalGrid.current
     val t = LocalType.current
     val rows by vm.archived.collectAsStateWithLifecycle()
+    val total by vm.archivedTotal.collectAsStateWithLifecycle()
+    val page by vm.archivePage.collectAsStateWithLifecycle()
+    val size = vm.archivePageSize
+    val first = page * size + 1
+    val last = (page * size + rows.size)
 
     Frame {
         Row(
@@ -112,7 +118,14 @@ fun ArchiveScreen(vm: MailboxViewModel) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             T("ARCHIVE", t.subheading)
-            T("${rows.size}", t.detail, Secondary)
+            // Which part of how much, not just how many are on screen — a page has to
+            // say where it sits or it reads as the whole archive.
+            T(
+                if (total == 0) "0" else "$first–$last of $total",
+                t.detail,
+                Secondary,
+                maxLines = 1,
+            )
         }
 
         if (rows.isEmpty()) {
@@ -150,6 +163,88 @@ fun ArchiveScreen(vm: MailboxViewModel) {
                         onSwipe = { vm.unarchive(m) },
                         swipeLabel = "UNARCHIVE",
                     )
+                }
+            }
+        }
+
+        /*
+         * Page back and forward, and only when there is somewhere to go.
+         *
+         * A disabled control on a three-item bar is worth less than the space it takes:
+         * on the first page there is no "previous", so there is nothing drawn there.
+         */
+        ActionBar(
+            left = "BACK" to { vm.go(Screen.Menu) },
+            middle = if (page > 0) "‹ NEWER" to { vm.archiveGo(page - 1) } else null,
+            right = if (last < total) "OLDER ›" to { vm.archiveGo(page + 1) } else null,
+        )
+    }
+}
+
+/* ------------------------------------------------------------------------ drafts */
+
+/**
+ * Messages you started and did not send.
+ *
+ * This screen exists because of a bug it fixes rather than a feature anybody asked for.
+ * The compose screen restores "the newest draft with no reply target", so writing two
+ * separate messages and leaving both saved the older one somewhere with no way back to
+ * it. A draft the app has kept and will not show you is worse than one it threw away.
+ */
+@Composable
+fun DraftsScreen(vm: MailboxViewModel) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    val drafts by vm.drafts.collectAsStateWithLifecycle()
+
+    Frame {
+        Row(
+            Modifier.fillMaxWidth().height(g.topBar),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            T("DRAFTS", t.subheading)
+            T("${drafts.size}", t.detail, Secondary)
+        }
+
+        if (drafts.isEmpty()) {
+            Spacer(Modifier.height(g * 3f))
+            T("Nothing half-written.", t.copy)
+            Spacer(Modifier.height(g * 0.6f))
+            T(
+                "Leaving the compose screen keeps what you had typed, and it waits here.",
+                t.detail,
+                Secondary,
+            )
+            Spacer(Modifier.weight(1f))
+        } else {
+            val list = rememberLazyListState()
+            WheelScroll(list)
+            LazyColumn(
+                Modifier.weight(1f),
+                state = list,
+                verticalArrangement = Arrangement.spacedBy(g * 0.8f),
+            ) {
+                items(drafts.size, key = { i -> drafts[i].id }) { i ->
+                    val d = drafts[i]
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .lightClickable { vm.go(Screen.Write(draftId = d.id)) },
+                    ) {
+                        T(
+                            d.to.ifBlank { "(no recipient)" },
+                            t.copy,
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.height(g * 0.2f))
+                        T(
+                            d.subject.ifBlank { d.body.take(60).ifBlank { "(empty)" } },
+                            t.detail,
+                            Secondary,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
         }

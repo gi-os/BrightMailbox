@@ -186,7 +186,8 @@ class Repo private constructor(private val app: Context) {
     fun notices(): Flow<List<Msg>> = dao.notices()
     fun unreadNotices(): Flow<Int> = dao.unreadNotices()
     fun noticeTotal(): Flow<Int> = dao.noticeTotal()
-    fun archived(): Flow<List<Msg>> = dao.archived()
+    fun archived(page: Int): Flow<List<Msg>> = dao.archived(ARCHIVE_PAGE, page * ARCHIVE_PAGE)
+    fun archivedTotal(): Flow<Int> = dao.archivedTotal()
 
     /**
      * The rest of [msg]'s conversation, oldest first, itself excluded.
@@ -958,6 +959,9 @@ class Repo private constructor(private val app: Context) {
     }
 
     companion object {
+        /** Rows per page in the archive. */
+        const val ARCHIVE_PAGE = 100
+
         @Volatile private var instance: Repo? = null
 
         fun get(context: Context): Repo =

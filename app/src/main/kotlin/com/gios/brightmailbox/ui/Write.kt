@@ -44,7 +44,7 @@ import com.gios.brightmailbox.ui.theme.lightClickable
  * scrolls to keep the cursor visible.
  */
 @Composable
-fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?) {
+fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?, openDraftId: Long = 0L) {
     val g = LocalGrid.current
     val t = LocalType.current
     // Not vm.busy — that is on for every background sync, and this screen is asking a
@@ -63,17 +63,25 @@ fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?) {
     /*
      * The draft this screen is editing, 0 until it has been written once.
      *
-     * Restored on open: the most recent draft for this reply, or the most recent standalone
-     * one. There is no draft list screen and this is deliberate — on a phone with a
-     * five-a-day ration, a folder of abandoned half-messages is another pile to feel bad
-     * about. What people actually want is for the thing they were writing to still be
-     * there, which is this.
+     * Restored on open: the one the drafts screen named, or the most recent draft for this
+     * conversation. Both matter — "the newest standalone draft" alone was what stranded a
+     * second unsent message, because every one of them matches it and only the first is
+     * ever offered.
      */
     var draftId by remember { mutableStateOf(0L) }
     val drafts by vm.drafts.collectAsStateWithLifecycle()
     androidx.compose.runtime.LaunchedEffect(drafts.isNotEmpty()) {
         if (draftId != 0L) return@LaunchedEffect
-        val mine = drafts.firstOrNull { it.inReplyTo == replyTo?.messageId } ?: return@LaunchedEffect
+        /*
+         * The named draft wins, then the newest one for this conversation.
+         *
+         * Without the first clause every standalone draft matched `inReplyTo == null` and
+         * the same one was restored every time, so a second unsent message was kept and
+         * never offered again. The drafts screen passes an id; this honours it.
+         */
+        val mine = drafts.firstOrNull { openDraftId != 0L && it.id == openDraftId }
+            ?: drafts.firstOrNull { openDraftId == 0L && it.inReplyTo == replyTo?.messageId }
+            ?: return@LaunchedEffect
         draftId = mine.id
         accountId = mine.accountId.ifBlank { accountId }
         if (mine.to.isNotBlank()) to = TextFieldValue(mine.to)

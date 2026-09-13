@@ -40,11 +40,20 @@ sealed interface Screen {
     data object Home : Screen
     data class Read(val key: String) : Screen
     data object Notices : Screen
-    data class Write(val replyTo: Msg? = null) : Screen
+    /**
+     * Compose. [draftId] reopens one that was saved rather than starting a new message.
+     *
+     * Needed because a draft could otherwise be stranded: the compose screen restores "the
+     * newest draft with no reply target", so writing two separate messages and leaving
+     * both meant the older one was saved and never offered again, with nowhere to find it.
+     */
+    data class Write(val replyTo: Msg? = null, val draftId: Long = 0L) : Screen
     /** The list behind the hamburger: everything that is not reading today's mail. */
     data object Menu : Screen
     /** Mail that has been put away — archive is a place, not a deletion. */
     data object Archive : Screen
+    /** Messages started and not sent. */
+    data object Drafts : Screen
     /** Files saved out of attachments. */
     data object Downloads : Screen
     /** One box, every pile, archived included. */
@@ -77,6 +86,7 @@ private const val PREFETCH_NOTICES = 12
 class MailboxViewModel(app: Application) : AndroidViewModel(app) {
 
     val repo = Repo.get(app)
+    private val notifier = com.gios.brightmailbox.notify.Notifier(app)
 
     private val _screen = MutableStateFlow<Screen>(
         if (repo.auth.isSignedIn) Screen.Home else Screen.Setup,
@@ -491,8 +501,29 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         said(if (n == 0) "Nothing to archive." else "$n archived.")
     }
 
-    val archived = repo.archived()
+    /**
+     * Which page of the archive is on screen, and the page itself.
+     *
+     * Paged rather than capped at 500. A cap is invisible: message 501 is simply not
+     * there, which looks exactly like mail that has gone missing. A page says which
+     * hundred of how many you are looking at, and has somewhere to go next.
+     */
+    private val _archivePage = MutableStateFlow(0)
+    val archivePage: StateFlow<Int> = _archivePage.asStateFlow()
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val archived = _archivePage
+        .flatMapLatest { repo.archived(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val archivedTotal = repo.archivedTotal()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    val archivePageSize: Int get() = com.gios.brightmailbox.data.Repo.ARCHIVE_PAGE
+
+    fun archiveGo(page: Int) {
+        _archivePage.value = page.coerceAtLeast(0)
+    }
 
     private val _results = MutableStateFlow<List<Msg>>(emptyList())
     val results: StateFlow<List<Msg>> = _results.asStateFlow()
@@ -638,6 +669,23 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         lastAutoSync = System.currentTimeMillis()
         runCatching { repo.sync(limit = 30) }
             .onSuccess { r ->
+                /*
+                 * Notify from HERE too, not only from the background worker.
+                 *
+                 * `Notifier.letters` had exactly one caller — `SyncWorker` — so pressing
+                 * refresh and finding mail made no sound at all. The sound is not a
+                 * property of *who asked* for the sync, it is a property of mail having
+                 * arrived, and it belongs on every path that can discover that.
+                 */
+                if (r.newLetters > 0) {
+                    notifier.letters(
+                        r.newLetters,
+                        r.firstLetter?.senderName,
+                        r.firstLetter?.subject,
+                        repo.chime,
+                        repo.customSound,
+                    )
+                }
                 when {
                     r.failures.isNotEmpty() -> said(r.failures.first())
                     !announce -> Unit

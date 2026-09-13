@@ -284,9 +284,21 @@ interface MailDao {
     )
     suspend fun thread(threadId: String, accountId: String, exclude: String): List<Msg>
 
-    /** Everything put away, newest first. Archive is a place, not a deletion. */
-    @Query("SELECT * FROM messages WHERE archived ORDER BY receivedAt DESC LIMIT :limit")
-    fun archived(limit: Int = 500): Flow<List<Msg>>
+    /**
+     * One page of the archive, newest first.
+     *
+     * Paged rather than capped. It used to be `LIMIT 500` with no offset, which is not a
+     * limit anybody can see past: mail number 501 was simply not there, and nothing said
+     * so — indistinguishable from mail that had been lost.
+     */
+    @Query(
+        "SELECT * FROM messages WHERE archived ORDER BY receivedAt DESC LIMIT :limit OFFSET :offset",
+    )
+    fun archived(limit: Int, offset: Int): Flow<List<Msg>>
+
+    /** How much is in the archive, so a page can say which part of it you are looking at. */
+    @Query("SELECT COUNT(*) FROM messages WHERE archived")
+    fun archivedTotal(): Flow<Int>
 
     /**
      * Search every pile, archived included.

@@ -1,3 +1,23 @@
+## v2.29 — Notifications actually work
+
+**New letters notify again, and that is a fix rather than a feature.** Permission to post
+notifications was declared but never asked for, and since Android 13 not asking means
+denied — so nothing was ever posted, and the code quietly swallowed the refusal. No banner
+on BrightControl, no sound, no lock-screen row, and nothing anywhere saying why. The app
+asks once, after you have signed in.
+
+**A refresh that finds mail makes a sound.** Announcing new letters had exactly one caller,
+the background check — so pressing refresh and finding three letters was silent. The sound
+belongs to mail having arrived, not to who went looking.
+
+**The archive is paged, a hundred at a time**, with the count saying which hundred of how
+many. It was capped at 500 with nothing to say so, which for a heavily archived mailbox is
+indistinguishable from mail having gone missing.
+
+**A second unsent message can no longer be stranded.** The compose screen restored "the
+newest draft with no reply target" — so starting two separate messages and leaving both
+saved the older one somewhere with no way back to it. There is a DRAFTS screen in the menu
+now, and opening one from there opens that one.
 ## v2.28 — Any IMAP mailbox
 
 **Fastmail, iCloud, Zoho, and anything else that speaks IMAP.** Setup lists them by name,

@@ -39,6 +39,7 @@ import com.gios.brightmailbox.sync.SyncWorker
 import com.gios.brightmailbox.ui.AccountDetailScreen
 import com.gios.brightmailbox.ui.ArchiveScreen
 import com.gios.brightmailbox.ui.DownloadsScreen
+import com.gios.brightmailbox.ui.DraftsScreen
 import com.gios.brightmailbox.ui.MenuScreen
 import com.gios.brightmailbox.ui.SearchScreen
 import com.gios.brightmailbox.ui.ClientIdScreen
@@ -146,6 +147,32 @@ class MainActivity : ComponentActivity() {
                 }
 
                 /*
+                 * Ask for permission to notify.
+                 *
+                 * It was declared in the manifest and **never requested**, which since
+                 * Android 13 means denied — so `nm.notify` posted nothing, and the
+                 * `runCatching` around it swallowed the refusal without a word. No banner
+                 * on BrightControl, no sound, no lock-face row, and nothing anywhere
+                 * saying why. The one permission the app's whole premise rests on.
+                 *
+                 * Asked after sign-in rather than on first launch: a prompt before anyone
+                 * has seen what the app does is a prompt people refuse, and this one
+                 * cannot be asked twice.
+                 */
+                val notify = androidx.activity.compose.rememberLauncherForActivityResult(
+                    androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+                ) { }
+                LaunchedEffect(screen) {
+                    if (!vm.repo.auth.isSignedIn) return@LaunchedEffect
+                    if (android.os.Build.VERSION.SDK_INT < 33) return@LaunchedEffect
+                    val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                        this@MainActivity,
+                        android.Manifest.permission.POST_NOTIFICATIONS,
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (!granted) notify.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+
+                /*
                  * Start the WebView engine now, while nobody is waiting for it.
                  *
                  * The first `WebView(ctx)` in a process loads the whole rendering engine,
@@ -187,6 +214,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Notices -> "Notices"
                         Screen.Menu -> "Menu"
                         Screen.Archive -> "Archive"
+                        Screen.Drafts -> "Drafts"
                         Screen.Downloads -> "Downloads"
                         Screen.Search -> "Search"
                         is Screen.Write -> "Write"
@@ -269,11 +297,12 @@ class MainActivity : ComponentActivity() {
                     Screen.Notices -> NoticesScreen(vm)
                     Screen.Menu -> MenuScreen(vm)
                     Screen.Archive -> ArchiveScreen(vm)
+                    Screen.Drafts -> DraftsScreen(vm)
                     Screen.Downloads -> DownloadsScreen(vm)
                     Screen.Search -> SearchScreen(vm)
                     Screen.Settings -> SettingsScreen(vm)
                     Screen.Rules -> RulesScreen(vm)
-                    is Screen.Write -> WriteScreen(vm, s.replyTo)
+                    is Screen.Write -> WriteScreen(vm, s.replyTo, s.draftId)
                     is Screen.AccountScreen -> AccountDetailScreen(vm, s.id)
                     is Screen.ClientId -> ClientIdScreen(vm, s.service)
                     is Screen.Read -> {

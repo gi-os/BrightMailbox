@@ -257,7 +257,12 @@ class MainActivity : ComponentActivity() {
                 when (val s = current) {
                     Screen.Setup -> SetupScreen(vm)
                     is Screen.Password ->
-                        PasswordScreen(vm, s.service, onScan = { vm.go(Screen.Scan(s.service)) })
+                        PasswordScreen(
+                            vm,
+                            s.service,
+                            s.preset,
+                            onScan = { vm.go(Screen.Scan(s.service)) },
+                        )
                     is Screen.Scan -> ScanScreen(vm, s.service)
                     Screen.FirstSync -> FirstSyncScreen(vm)
                     Screen.Home -> HomeScreen(vm)

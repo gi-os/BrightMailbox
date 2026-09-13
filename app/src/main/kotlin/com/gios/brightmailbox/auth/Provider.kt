@@ -111,7 +111,36 @@ enum class Service(
          * Android will not match an android:path unless a host is declared too.
          */
         redirectSuffix = "://oauth2redirect",
+    ),
+
+    /**
+     * Any other IMAP mailbox.
+     *
+     * No hosts of its own: an account on this service carries its own [Servers], either
+     * from a named preset or typed in. Everything downstream — the sorter, the piles, the
+     * archive, threading — never knew which provider it was talking to, so this costs
+     * nothing beyond letting the address be configurable.
+     *
+     * App password rather than OAuth because there is no OAuth to do: a client registered
+     * with nobody in particular has no client id anywhere, and every provider worth adding
+     * this way issues app passwords for exactly this purpose.
+     */
+    IMAP(
+        key = "imap",
+        label = "mail",
+        authKind = AuthKind.APP_PASSWORD,
+        imapHost = "",
+        imapPort = 993,
+        smtpHosts = emptyList(),
+        smtpPort = 465,
+        smtpSsl = true,
+        archiveNames = listOf("Archive", "Archives"),
+        sentNames = listOf("Sent", "Sent Items", "Sent Messages"),
     );
+
+    /** This service's own hosts, for accounts that do not carry their own. */
+    val servers: Servers
+        get() = Servers(imapHost, imapPort, smtpHosts, smtpPort, smtpSsl, archiveNames, sentNames)
 
     val usesOAuth: Boolean get() = authKind == AuthKind.OAUTH
 

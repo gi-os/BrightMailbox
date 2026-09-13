@@ -260,7 +260,9 @@ class Repo private constructor(private val app: Context) {
      */
     private fun serviceFor(id: String): MailService? {
         val acct = auth.accounts().firstOrNull { it.id == id } ?: return null
-        return Imap(id, auth, acct.service)
+        // Where this mailbox lives is a property of the ACCOUNT now, not of the provider:
+        // Service.IMAP has no hosts of its own. See AuthManager.servers.
+        return Imap(id, auth, acct.service, auth.servers(id))
     }
 
     /** Every address the user owns, so "was this addressed to me" can be answered. */

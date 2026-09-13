@@ -34,12 +34,20 @@ data class Account(
     val service: Service,
     val email: String,
     val name: String = "",
+    /**
+     * What to call the provider when the service cannot say.
+     *
+     * [Service.IMAP] is every mailbox that is not Gmail or Outlook, so its own label is
+     * the useless word "mail". A mailbox added as Fastmail should say fastmail, and one
+     * typed in by hand should say whatever its host is called.
+     */
+    val provider: String = "",
 ) {
     /** The provider, for the setup screen, which is talking about services not mailboxes. */
-    val label: String get() = service.label
+    val label: String get() = provider.ifBlank { service.label }
 
     /** What to call this account anywhere it is named. The user's word wins. */
-    val word: String get() = name.ifBlank { service.label }
+    val word: String get() = name.ifBlank { label }
 
     /** Full identification, for the settings list. */
     val title: String get() = name.ifBlank { email }
@@ -142,9 +150,30 @@ class AuthManager(context: Context) {
                     svc,
                     prefs.getString("email_$id", "") ?: "",
                     prefs.getString("name_$id", "") ?: "",
+                    prefs.getString("provider_$id", "") ?: "",
                 )
             }
             .sortedBy { it.email }
+
+    /**
+     * Where this account's mail lives.
+     *
+     * The account's own hosts when it has them, the service's constants otherwise. Every
+     * connection in the app resolves through here rather than reading [Service] directly,
+     * which is what lets one transport serve a provider nobody wrote code for.
+     */
+    fun servers(accountId: String): Servers {
+        val host = prefs.getString("imaphost_$accountId", null)?.takeIf { it.isNotBlank() }
+            ?: return (Service.of(prefs.getString("svc_$accountId", null)) ?: Service.GOOGLE).servers
+        return Servers(
+            imapHost = host,
+            imapPort = prefs.getInt("imapport_$accountId", 993),
+            smtpHosts = prefs.getString("smtphost_$accountId", "").orEmpty()
+                .split(',').map { it.trim() }.filter { it.isNotEmpty() },
+            smtpPort = prefs.getInt("smtpport_$accountId", 465),
+            smtpSsl = prefs.getBoolean("smtpssl_$accountId", true),
+        )
+    }
 
     /**
      * Rename a mailbox, or clear the name by passing a blank one.
@@ -171,7 +200,9 @@ class AuthManager(context: Context) {
             .putStringSet(KEY_ACCOUNTS, set)
             .remove("svc_$id").remove("email_$id").remove("secret_$id").remove("name_$id")
             .remove("refresh_$id").remove("access_$id").remove("expiry_$id")
-            .remove("pass_$id")
+            .remove("pass_$id").remove("provider_$id")
+            .remove("imaphost_$id").remove("imapport_$id")
+            .remove("smtphost_$id").remove("smtpport_$id").remove("smtpssl_$id")
             .apply()
         // Leave no open IMAP connection authenticated as an account we just forgot.
         Imap.disconnect(id)
@@ -190,6 +221,10 @@ class AuthManager(context: Context) {
         service: Service,
         rawEmail: String,
         rawPassword: String,
+        /** For [Service.IMAP]: where this mailbox lives. Null uses the service's own. */
+        servers: Servers? = null,
+        /** What to call the provider, when the service is the generic one. */
+        provider: String = "",
     ): Result<Account> {
         val email = Imap.emailOf(rawEmail)
             ?: return Result.failure(IOException("That does not look like an email address."))
@@ -198,20 +233,44 @@ class AuthManager(context: Context) {
         val password = rawPassword.filterNot { it.isWhitespace() }
         if (password.isEmpty()) return Result.failure(IOException("Enter the app password."))
 
-        Imap.verify(service, email, password)?.let { return Result.failure(IOException(it)) }
+        val where = servers ?: service.servers
+        if (!where.valid) return Result.failure(IOException("Enter the incoming server."))
 
-        val id = service.key + ":" + email
+        Imap.verify(where, service.usesOAuth, email, password)
+            ?.let { return Result.failure(IOException(it)) }
+
+        /*
+         * The id carries the host for a generic account, not just the service key.
+         *
+         * `imap:alex@x.com` would collide for the same address on two different servers —
+         * a work mailbox and a personal one behind the same domain is not a strange thing
+         * to have. The built-in services keep their old ids untouched, so existing
+         * accounts are unaffected.
+         */
+        val id = if (service == Service.IMAP) {
+            "${service.key}:${where.imapHost}:$email"
+        } else {
+            service.key + ":" + email
+        }
         lock.withLock {
             val set = (prefs.getStringSet(KEY_ACCOUNTS, emptySet()) ?: emptySet()).toMutableSet()
             set.add(id)
-            prefs.edit()
-                .putStringSet(KEY_ACCOUNTS, set)
-                .putString("svc_$id", service.key)
-                .putString("email_$id", email)
-                .putString("pass_$id", password)
-                .apply()
+            prefs.edit().apply {
+                putStringSet(KEY_ACCOUNTS, set)
+                putString("svc_$id", service.key)
+                putString("email_$id", email)
+                putString("pass_$id", password)
+                if (provider.isNotBlank()) putString("provider_$id", provider)
+                if (servers != null) {
+                    putString("imaphost_$id", servers.imapHost)
+                    putInt("imapport_$id", servers.imapPort)
+                    putString("smtphost_$id", servers.smtpHosts.joinToString(","))
+                    putInt("smtpport_$id", servers.smtpPort)
+                    putBoolean("smtpssl_$id", servers.smtpSsl)
+                }
+            }.apply()
         }
-        return Result.success(Account(id, service, email))
+        return Result.success(Account(id, service, email, provider = provider))
     }
 
     /**

@@ -49,6 +49,15 @@ class Imap(
     override val accountId: String,
     private val auth: AuthManager,
     private val service: Service,
+    /**
+     * Where this account's mail lives.
+     *
+     * Passed in rather than read off [service], which is what lets one transport serve a
+     * provider nobody wrote code for — see [com.gios.brightmailbox.auth.Servers]. The
+     * service is still needed for the one thing the address cannot say: whether to
+     * authenticate with XOAUTH2 or a password.
+     */
+    private val servers: com.gios.brightmailbox.auth.Servers = service.servers,
 ) : MailService {
 
     /* ------------------------------------------------------------------- reading */
@@ -260,7 +269,7 @@ class Imap(
         if (ids.isEmpty()) return
         io {
             withFolder("INBOX", write = true) { f ->
-                val target = special(f.store, "\\All", "\\Archive", service.archiveNames)
+                val target = special(f.store, "\\All", "\\Archive", servers.archiveNames)
                     ?: throw IOException("no archive folder on this account")
                 val msgs = f.getMessagesByUID(uids(ids)).filterNotNull().toTypedArray()
                 if (msgs.isEmpty()) return@withFolder
@@ -290,7 +299,7 @@ class Imap(
      */
     override suspend fun unarchive(messageId: String): Boolean = io {
         val store = store()
-        val source = special(store, "\\All", "\\Archive", service.archiveNames) as? IMAPFolder
+        val source = special(store, "\\All", "\\Archive", servers.archiveNames) as? IMAPFolder
             ?: return@io false
         val inbox = store.getFolder("INBOX") ?: return@io false
         source.open(Folder.READ_WRITE)
@@ -323,12 +332,12 @@ class Imap(
             // threading has. Outgoing.threadId is a Gmail/Graph concept and is ignored.
             val raw = Addr.rfc5322(me, msg).toByteArray(Charsets.UTF_8)
 
-            for (host in service.smtpHosts) {
+            for (host in servers.smtpHosts) {
                 try {
                     val session = Session.getInstance(smtpProps(host))
                     val mime = MimeMessage(session, ByteArrayInputStream(raw))
                     session.getTransport("smtp").use { t ->
-                        t.connect(host, service.smtpPort, me, credential)
+                        t.connect(host, servers.smtpPort, me, credential)
                         t.sendMessage(mime, mime.allRecipients ?: emptyArray())
                     }
                     return@io
@@ -341,7 +350,7 @@ class Imap(
     }
 
     override suspend fun sentTo(limit: Int): List<String> = io {
-        val name = special(store(), "\\Sent", null, service.sentNames)?.fullName
+        val name = special(store(), "\\Sent", null, servers.sentNames)?.fullName
             ?: return@io emptyList()
         withFolder(name, write = false) { f ->
             val total = f.messageCount
@@ -464,7 +473,7 @@ class Imap(
         return Pool.get(accountId) {
             val session = Session.getInstance(imapProps())
             session.getStore("imap").also {
-                it.connect(service.imapHost, service.imapPort, email, credential)
+                it.connect(servers.imapHost, servers.imapPort, email, credential)
             }
         }
     }
@@ -510,8 +519,8 @@ class Imap(
 
     private fun imapProps() = Properties().apply {
         put("mail.store.protocol", "imap")
-        put("mail.imap.host", service.imapHost)
-        put("mail.imap.port", service.imapPort.toString())
+        put("mail.imap.host", servers.imapHost)
+        put("mail.imap.port", servers.imapPort.toString())
         put("mail.imap.ssl.enable", "true")
         put("mail.imap.ssl.protocols", "TLSv1.2 TLSv1.3")
         put("mail.imap.connectiontimeout", "20000")
@@ -526,9 +535,9 @@ class Imap(
     private fun smtpProps(host: String) = Properties().apply {
         put("mail.transport.protocol", "smtp")
         put("mail.smtp.host", host)
-        put("mail.smtp.port", service.smtpPort.toString())
+        put("mail.smtp.port", servers.smtpPort.toString())
         put("mail.smtp.auth", "true")
-        if (service.smtpSsl) {
+        if (servers.smtpSsl) {
             put("mail.smtp.ssl.enable", "true")
         } else {
             put("mail.smtp.starttls.enable", "true")
@@ -603,7 +612,12 @@ class Imap(
          * Returns null on success, or a short sentence to show the user. Deliberately
          * not an exception: every caller wants the sentence.
          */
-        suspend fun verify(service: Service, email: String, credential: String): String? =
+        suspend fun verify(
+            servers: com.gios.brightmailbox.auth.Servers,
+            oauth: Boolean,
+            email: String,
+            credential: String,
+        ): String? =
             withContext(Dispatchers.IO) {
                 val props = Properties().apply {
                     put("mail.store.protocol", "imap")
@@ -611,7 +625,7 @@ class Imap(
                     put("mail.imap.ssl.protocols", "TLSv1.2 TLSv1.3")
                     put("mail.imap.connectiontimeout", "20000")
                     put("mail.imap.timeout", "20000")
-                    if (service.usesOAuth) {
+                    if (oauth) {
                         put("mail.imap.auth.mechanisms", "XOAUTH2")
                     } else {
                         put("mail.imap.auth.mechanisms", "PLAIN LOGIN")
@@ -619,20 +633,30 @@ class Imap(
                 }
                 try {
                     Session.getInstance(props).getStore("imap").use { store ->
-                        store.connect(service.imapHost, service.imapPort, email, credential)
+                        store.connect(servers.imapHost, servers.imapPort, email, credential)
                         store.getFolder("INBOX").let {
                             if (!it.exists()) return@withContext "Signed in, but there is no inbox."
                         }
                     }
                     null
                 } catch (e: jakarta.mail.AuthenticationFailedException) {
-                    if (service.usesOAuth) {
-                        "Outlook refused the sign-in. Try again."
+                    /*
+                     * Name the server, not the provider.
+                     *
+                     * This said "Gmail refused that" for every password sign-in, which
+                     * was true while Gmail was the only one. Fastmail, iCloud, Zoho and a
+                     * bridge all issue app passwords of their own, and being told Gmail
+                     * rejected your Fastmail password is the kind of message that sends
+                     * somebody looking in entirely the wrong account.
+                     */
+                    if (oauth) {
+                        "The sign-in was refused. Try again."
                     } else {
-                        "Gmail refused that. Check it is an app password, not your Google password."
+                        "${servers.imapHost} refused that. Check it is an app password, " +
+                            "not your account password."
                     }
                 } catch (e: Exception) {
-                    "Could not reach ${service.imapHost}. Check the connection."
+                    "Could not reach ${servers.imapHost}. Check the connection."
                 }
             }
 

@@ -23,8 +23,17 @@ import kotlinx.coroutines.launch
 /** Where the app is. Flat on purpose — LightOS supplies the back button. */
 sealed interface Screen {
     data object Setup : Screen
-    /** Typing an app password for a service that uses one. */
-    data class Password(val service: com.gios.brightmailbox.auth.Service) : Screen
+    /**
+     * Typing an app password for a service that uses one.
+     *
+     * [preset] names which provider was picked for the generic IMAP service — it decides
+     * the servers, the title and the line telling you where to make the password. Null for
+     * the two built-in services, which know all three already.
+     */
+    data class Password(
+        val service: com.gios.brightmailbox.auth.Service,
+        val preset: String? = null,
+    ) : Screen
     /** The viewfinder, reading a sign-in code off the companion page. */
     data class Scan(val service: com.gios.brightmailbox.auth.Service) : Screen
     data object FirstSync : Screen
@@ -549,10 +558,12 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         service: com.gios.brightmailbox.auth.Service,
         email: String,
         password: String,
+        servers: com.gios.brightmailbox.auth.Servers? = null,
+        provider: String = "",
         onDone: (String?) -> Unit,
     ) = viewModelScope.launch {
         _busy.value = true
-        val result = repo.auth.signInWithPassword(service, email, password)
+        val result = repo.auth.signInWithPassword(service, email, password, servers, provider)
         _busy.value = false
         result.fold(
             onSuccess = { onDone(null); refreshAccounts(); firstSync() },

@@ -24,6 +24,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightmailbox.auth.AuthKind
+import com.gios.brightmailbox.auth.Preset
+import com.gios.brightmailbox.auth.Servers
 import com.gios.brightmailbox.auth.Service
 import com.gios.brightmailbox.ui.theme.Content
 import com.gios.brightmailbox.ui.theme.LocalGrid
@@ -73,7 +75,7 @@ fun SetupScreen(vm: MailboxViewModel) {
         )
         Spacer(Modifier.height(g * 2f))
 
-        for (s in Service.entries) {
+        for (s in Service.entries.filter { it != Service.IMAP }) {
             val ready = vm.repo.auth.isConfigured(s)
             Column(
                 Modifier
@@ -121,6 +123,35 @@ fun SetupScreen(vm: MailboxViewModel) {
                 )
             }
         }
+        /*
+         * Everything that is not Gmail or Outlook.
+         *
+         * Named rather than a bare "other IMAP", because nobody should have to know their
+         * own hostname to read their own mail — and the four that cover most of it are
+         * four lines. "Something else" underneath is the escape hatch: a work mailbox, a
+         * self-hosted box, or a bridge running on a machine at home.
+         */
+        Spacer(Modifier.height(g * 0.6f))
+        T("ANY OTHER MAILBOX", t.detail, Secondary)
+        Spacer(Modifier.height(g * 0.2f))
+        T("Each of these uses an app password too.", t.superfine, Secondary)
+        Spacer(Modifier.height(g * 0.8f))
+
+        for (p in Preset.ALL) {
+            Column(
+                Modifier
+                    .fillMaxWidth(0.8f)
+                    .lightClickable { vm.go(Screen.Password(Service.IMAP, p.key)) }
+                    .padding(bottom = g * 0.9f),
+            ) {
+                T(p.label.uppercase(), t.button)
+                Spacer(Modifier.height(g * 0.3f))
+                Box(Modifier.fillMaxWidth().height(2.dp).background(Content))
+                Spacer(Modifier.height(g * 0.25f))
+                T(p.note, t.superfine, Secondary, maxLines = 2)
+            }
+        }
+
         Spacer(Modifier.height(g * 1.4f))
         }
     }
@@ -136,7 +167,12 @@ fun SetupScreen(vm: MailboxViewModel) {
  * syncs.
  */
 @Composable
-fun PasswordScreen(vm: MailboxViewModel, service: Service, onScan: () -> Unit = {}) {
+fun PasswordScreen(
+    vm: MailboxViewModel,
+    service: Service,
+    presetKey: String? = null,
+    onScan: () -> Unit = {},
+) {
     val g = LocalGrid.current
     val t = LocalType.current
     val busy by vm.busy.collectAsStateWithLifecycle()
@@ -145,12 +181,31 @@ fun PasswordScreen(vm: MailboxViewModel, service: Service, onScan: () -> Unit = 
     var password by remember { mutableStateOf(TextFieldValue("")) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    val preset = Preset.of(presetKey)
+    /*
+     * Only "Something else" asks where the mailbox is.
+     *
+     * A named provider already knows, and putting four server fields in front of someone
+     * adding a Fastmail account would be asking them to confirm something they have no
+     * way to check.
+     */
+    val asksForServer = preset != null && preset.servers == null
+    var imapHost by remember { mutableStateOf(TextFieldValue("")) }
+    var imapPort by remember { mutableStateOf(TextFieldValue("993")) }
+    var smtpHost by remember { mutableStateOf(TextFieldValue("")) }
+    var smtpPort by remember { mutableStateOf(TextFieldValue("465")) }
+
     Frame {
-        TopBar(service.label.uppercase())
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+        TopBar((preset?.label ?: service.label).uppercase())
         Spacer(Modifier.height(g * 1.4f))
         T("An app\npassword.", t.title)
         Spacer(Modifier.height(g * 0.8f))
-        T("Not your Google password. A separate sixteen characters.", t.detail, Secondary)
+        T(
+            preset?.note ?: "Not your Google password. A separate sixteen characters.",
+            t.detail,
+            Secondary,
+        )
 
         /*
          * The code route first, because it is the better one and almost nobody would
@@ -163,32 +218,77 @@ fun PasswordScreen(vm: MailboxViewModel, service: Service, onScan: () -> Unit = 
          * action bar sits on the fold. Adding a third line of prose here pushes CONNECT
          * off the bottom, where nothing hints that it exists.
          */
-        Spacer(Modifier.height(g * 1.3f))
-        Column(
-            Modifier
-                .fillMaxWidth(0.8f)
-                .lightClickable(enabled = !busy) { error = null; onScan() },
-        ) {
-            T("SCAN A CODE", t.button, if (busy) Secondary else Content)
-            Spacer(Modifier.height(g * 0.35f))
-            Box(Modifier.fillMaxWidth().height(2.dp).background(Content))
-            Spacer(Modifier.height(g * 0.25f))
-            T("make one at gi-os.github.io/BrightMailbox", t.superfine, Secondary)
+        /*
+         * The companion page only knows how to make a Gmail code, so the scan route is
+         * offered only where it leads somewhere. Showing it to a Fastmail account would
+         * be a button that produces a code the app then rejects.
+         */
+        if (service == Service.GOOGLE) {
+            Spacer(Modifier.height(g * 1.3f))
+            Column(
+                Modifier
+                    .fillMaxWidth(0.8f)
+                    .lightClickable(enabled = !busy) { error = null; onScan() },
+            ) {
+                T("SCAN A CODE", t.button, if (busy) Secondary else Content)
+                Spacer(Modifier.height(g * 0.35f))
+                Box(Modifier.fillMaxWidth().height(2.dp).background(Content))
+                Spacer(Modifier.height(g * 0.25f))
+                T("make one at gi-os.github.io/BrightMailbox", t.superfine, Secondary)
+            }
+            Spacer(Modifier.height(g * 1.3f))
+            T("OR TYPE IT", t.detail, Secondary)
         }
-
-        Spacer(Modifier.height(g * 1.3f))
-        T("OR TYPE IT", t.detail, Secondary)
-        Spacer(Modifier.height(g * 0.4f))
+        Spacer(Modifier.height(g * 0.8f))
         Field("ADDRESS", email, { email = it; error = null }, g, t)
         Spacer(Modifier.height(g * 1.1f))
         Field("APP PASSWORD", password, { password = it; error = null }, g, t, mask = true)
+
+        if (asksForServer) {
+            Spacer(Modifier.height(g * 1.1f))
+            Field(
+                "INCOMING SERVER",
+                imapHost,
+                {
+                    imapHost = it
+                    error = null
+                    // Guess the outgoing side as they type, until they touch it
+                    // themselves. imap.x / smtp.x is how nearly every provider names the
+                    // pair, and a wrong guess is one field away from being corrected.
+                    if (smtpHost.text.isBlank() || smtpHost.text == Servers.guess(imapHost.text).smtpHosts.firstOrNull()) {
+                        smtpHost = TextFieldValue(Servers.guess(it.text).smtpHosts.firstOrNull().orEmpty())
+                    }
+                },
+                g,
+                t,
+            )
+            Spacer(Modifier.height(g * 0.9f))
+            Field("PORT", imapPort, { imapPort = it; error = null }, g, t)
+            Spacer(Modifier.height(g * 0.9f))
+            Field("OUTGOING SERVER", smtpHost, { smtpHost = it; error = null }, g, t)
+            Spacer(Modifier.height(g * 0.9f))
+            Field("PORT", smtpPort, { smtpPort = it; error = null }, g, t)
+            Spacer(Modifier.height(g * 0.4f))
+            T(
+                "993 and 465 are the usual pair. A bridge running on a machine at home " +
+                    "uses its own — Proton's is 1143, and it has to be reachable from " +
+                    "this phone, not only from that computer.",
+                t.superfine,
+                Secondary,
+            )
+        }
 
         error?.let {
             Spacer(Modifier.height(g * 0.7f))
             T(it, t.detail)
         }
 
-        Spacer(Modifier.weight(1f))
+        // Room for the keyboard, and for the bar below, which is outside the scroller so
+        // it never leaves the fold - the v2.8 lesson: a setup screen its reader cannot
+        // get past is a wall.
+        Spacer(Modifier.height(g * 2f))
+        }
+
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             T(
                 "BACK",
@@ -205,10 +305,28 @@ fun PasswordScreen(vm: MailboxViewModel, service: Service, onScan: () -> Unit = 
                 Modifier
                     .align(Alignment.CenterVertically)
                     .lightClickable(enabled = !busy) {
+                        val servers = when {
+                            preset?.servers != null -> preset.servers
+                            asksForServer -> Servers(
+                                imapHost = imapHost.text.trim(),
+                                imapPort = imapPort.text.trim().toIntOrNull() ?: 993,
+                                smtpHosts = listOfNotNull(
+                                    smtpHost.text.trim().takeIf { it.isNotBlank() },
+                                ),
+                                smtpPort = smtpPort.text.trim().toIntOrNull() ?: 465,
+                                // 465 is implicit TLS; anything else is STARTTLS, which
+                                // is what a bridge on 1025 and an old server on 587 both
+                                // expect.
+                                smtpSsl = (smtpPort.text.trim().toIntOrNull() ?: 465) == 465,
+                            )
+                            else -> null
+                        }
                         vm.signInWithPassword(
                             service,
                             email.text,
                             password.text,
+                            servers,
+                            preset?.label.orEmpty().lowercase(),
                         ) { failure -> error = failure }
                     },
             )

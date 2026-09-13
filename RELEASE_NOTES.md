@@ -1,3 +1,24 @@
+## v2.28 — Any IMAP mailbox
+
+**Fastmail, iCloud, Zoho, and anything else that speaks IMAP.** Setup lists them by name,
+because nobody should need to know their own mail server's hostname to read their own mail.
+Each uses an app password, the same as Gmail already did, and the screen says where to make
+one.
+
+**Something else** is the fourth option: type the incoming server and the app fills in the
+likely outgoing one. That covers a mailbox at work, one you host yourself, and a bridge
+running on a machine at home — Proton's, for instance, which is the only way Proton speaks
+IMAP at all. A bridge has to be reachable from the phone, not just from the computer it
+runs on.
+
+Nothing else in the app changed, and that is the point: the transport underneath has been
+plain IMAP since v2.0, and the only thing stopping it from talking to the rest of the world
+was that the addresses were written into the code. Sorting, threading, the archive and
+search never knew which provider they were dealing with.
+
+Tuta is the exception and always will be. It has no IMAP, no POP and no SMTP — not an
+omission but the architecture, since those protocols assume a server that can read what it
+is routing and Tuta's cannot.
 ## v2.27 — The black screen, properly this time
 
 **The message had no height.** Adding the white loading sheet in v2.24 wrapped the message

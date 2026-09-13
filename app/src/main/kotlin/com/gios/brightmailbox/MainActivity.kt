@@ -302,7 +302,7 @@ class MainActivity : ComponentActivity() {
                     Screen.Search -> SearchScreen(vm)
                     Screen.Settings -> SettingsScreen(vm)
                     Screen.Rules -> RulesScreen(vm)
-                    is Screen.Write -> WriteScreen(vm, s.replyTo, s.draftId)
+                    is Screen.Write -> WriteScreen(vm, s.replyTo, s.draftId, s.mode)
                     is Screen.AccountScreen -> AccountDetailScreen(vm, s.id)
                     is Screen.ClientId -> ClientIdScreen(vm, s.service)
                     is Screen.Read -> {

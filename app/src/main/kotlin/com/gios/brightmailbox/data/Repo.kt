@@ -92,7 +92,7 @@ class Repo private constructor(private val app: Context) {
         .build()
 
     private val db = Room.databaseBuilder(app, MailDb::class.java, "mailbox.db")
-        .addMigrations(MailDb.MIGRATION_1_2, MailDb.MIGRATION_2_3)
+        .addMigrations(MailDb.MIGRATION_1_2, MailDb.MIGRATION_2_3, MailDb.MIGRATION_3_4)
         .fallbackToDestructiveMigration()
         .build()
 
@@ -487,6 +487,8 @@ class Repo private constructor(private val app: Context) {
             messageId = m.messageId,
             references = m.references,
             hasAttachments = m.hasAttachments,
+            toAddrs = m.to.joinToString(","),
+            ccAddrs = m.cc.joinToString(","),
         )
     }
 

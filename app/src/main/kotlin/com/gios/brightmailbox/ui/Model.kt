@@ -47,7 +47,11 @@ sealed interface Screen {
      * newest draft with no reply target", so writing two separate messages and leaving
      * both meant the older one was saved and never offered again, with nowhere to find it.
      */
-    data class Write(val replyTo: Msg? = null, val draftId: Long = 0L) : Screen
+    data class Write(
+        val replyTo: Msg? = null,
+        val draftId: Long = 0L,
+        val mode: WriteMode = WriteMode.NEW,
+    ) : Screen
     /** The list behind the hamburger: everything that is not reading today's mail. */
     data object Menu : Screen
     /** Mail that has been put away — archive is a place, not a deletion. */
@@ -65,6 +69,15 @@ sealed interface Screen {
     /** Typing in the OAuth client id for a build that shipped without one. */
     data class ClientId(val service: com.gios.brightmailbox.auth.Service) : Screen
 }
+
+/**
+ * What the compose screen is for.
+ *
+ * Only the prefill differs — recipients, subject and whether the original is quoted — so
+ * this is one screen with four openings rather than four screens. [FORWARD] is the odd one:
+ * it is not a reply, so it carries no In-Reply-To and starts with nobody in the To field.
+ */
+enum class WriteMode { NEW, REPLY, REPLY_ALL, FORWARD }
 
 data class SyncProgress(val done: Int, val total: Int, val letters: Int, val notices: Int)
 

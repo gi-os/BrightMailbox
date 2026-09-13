@@ -67,6 +67,24 @@ data class Content(
     val calendar: String? = null,
 )
 
+/**
+ * A file going out with a message.
+ *
+ * Bytes, not a path or a content URI: by the time SMTP runs, the screen that picked the
+ * file is gone and a URI permission granted to an activity may have gone with it. Reading
+ * once, at the moment the user picks, is the only version of this that cannot fail late.
+ */
+data class Outfile(val name: String, val mime: String, val bytes: ByteArray) {
+    // A data class over a ByteArray gets identity equals/hashCode, which is wrong and
+    // surprising; these are compared by what they are, not by which array they are.
+    override fun equals(other: Any?): Boolean =
+        other is Outfile && name == other.name && mime == other.mime &&
+            bytes.contentEquals(other.bytes)
+
+    override fun hashCode(): Int =
+        31 * (31 * name.hashCode() + mime.hashCode()) + bytes.contentHashCode()
+}
+
 /** A message to send. */
 data class Outgoing(
     val to: List<String>,
@@ -86,6 +104,8 @@ data class Outgoing(
     val calendarReply: String? = null,
     val references: String? = null,
     val threadId: String? = null,
+    /** Files to send with it. Empty for most messages. */
+    val files: List<Outfile> = emptyList(),
 )
 
 /**

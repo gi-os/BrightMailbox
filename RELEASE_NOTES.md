@@ -1,3 +1,19 @@
+## v2.31 — Attachments, reply all, and forwarding
+
+**Send files.** ATTACH on the compose screen opens the phone's file picker; attached files
+are listed with a tap to remove one. About eight megabytes in total, which is what fits
+under the size most mail servers accept once encoding has inflated it.
+
+**Reply all** puts the sender in To and everyone else in Cc, minus you — your addresses
+across every mailbox you have signed in, not only the one it arrived at, so a message sent
+to two of your accounts does not copy you on your own reply.
+
+**Forward** starts with the original message quoted beneath a header line and nobody in the
+To field. A forward deliberately does not thread: it is a new message about an old one, and
+filing it under a conversation the new recipient has never seen would be wrong.
+
+Both live under the ··· in a message, next to the reply icon, which still replies to the
+sender alone.
 ## v2.30 — Answer an invitation
 
 **ACCEPTED / DECLINED / TENTATIVE, under a meeting invitation.** Tapping one sends the

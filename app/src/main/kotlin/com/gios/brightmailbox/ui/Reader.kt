@@ -407,7 +407,9 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 BarIcon(R.drawable.ic_back_white, "Back") { vm.leaveReader() }
-                BarIcon(R.drawable.ic_reply_white, "Reply") { vm.go(Screen.Write(msg)) }
+                BarIcon(R.drawable.ic_reply_white, "Reply") {
+                    vm.go(Screen.Write(msg, mode = WriteMode.REPLY))
+                }
                 BarIcon(R.drawable.ic_archive_white, "Archive") { vm.archive(msg) }
                 T(
                     "···",
@@ -988,6 +990,36 @@ private fun WhySheet(vm: MailboxViewModel, msg: Msg, onClose: () -> Unit) {
             Secondary,
             Modifier.padding(vertical = g * 0.5f),
         )
+        /*
+         * Reply-all and forward live here, not on the bar.
+         *
+         * The bar already carries back, reply, archive and this sheet, which is the SDK's
+         * limit once anything on it is text. Reply is the common one and keeps its icon;
+         * the other two are occasional and a tap away, which is the right ordering by how
+         * often each is wanted rather than by how complete the row looks.
+         */
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = g * 0.4f),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            T(
+                "REPLY ALL",
+                t.button,
+                modifier = Modifier.lightClickable {
+                    vm.go(Screen.Write(msg, mode = WriteMode.REPLY_ALL))
+                },
+                maxLines = 1,
+            )
+            T(
+                "FORWARD",
+                t.button,
+                modifier = Modifier.lightClickable {
+                    vm.go(Screen.Write(msg, mode = WriteMode.FORWARD))
+                },
+                maxLines = 1,
+            )
+        }
+
         T(
             if (other == Pile.LETTER) "MOVE TO LETTERS" else "MOVE TO NOTICES",
             t.button,

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -36,6 +37,39 @@ import com.gios.brightmailbox.ui.theme.T
 import com.gios.brightmailbox.ui.theme.lightClickable
 
 /**
+ * About eight megabytes of files, before base64.
+ *
+ * Encoding inflates by a third, so this leaves a message under the 25 MB most providers
+ * accept with room for the body. The cap exists at all because the bytes are held in
+ * memory to survive the picker going away, and a phone can pick a video.
+ */
+private const val MAX_ATTACHED = 8 * 1024 * 1024
+
+/**
+ * Read a picked file into memory, with its real name.
+ *
+ * The display name comes from the provider's own cursor, not from the URI — a content URI
+ * for "Q3 report.pdf" routinely ends in `/document/1423`, and using the last path segment
+ * sends somebody a file called 1423.
+ */
+private fun readPicked(
+    context: android.content.Context,
+    uri: android.net.Uri,
+): com.gios.brightmailbox.mail.Outfile? = runCatching {
+    val resolver = context.contentResolver
+    val name = resolver.query(uri, null, null, null, null)?.use { c ->
+        val i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+        if (i >= 0 && c.moveToFirst()) c.getString(i) else null
+    } ?: uri.lastPathSegment ?: "attachment"
+    val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+    com.gios.brightmailbox.mail.Outfile(
+        name = name,
+        mime = resolver.getType(uri) ?: "application/octet-stream",
+        bytes = bytes,
+    )
+}.getOrNull()
+
+/**
  * Compose and reply.
  *
  * A reply opens with the recipient settled and the cursor in the body — no subject field
@@ -44,7 +78,12 @@ import com.gios.brightmailbox.ui.theme.lightClickable
  * scrolls to keep the cursor visible.
  */
 @Composable
-fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?, openDraftId: Long = 0L) {
+fun WriteScreen(
+    vm: MailboxViewModel,
+    replyTo: Msg?,
+    openDraftId: Long = 0L,
+    mode: WriteMode = if (replyTo != null) WriteMode.REPLY else WriteMode.NEW,
+) {
     val g = LocalGrid.current
     val t = LocalType.current
     // Not vm.busy — that is on for every background sync, and this screen is asking a
@@ -53,12 +92,89 @@ fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?, openDraftId: Long = 0L) {
 
     val accounts = vm.repo.auth.accounts()
     var accountId by remember { mutableStateOf(replyTo?.accountId ?: accounts.firstOrNull()?.id.orEmpty()) }
-    var to by remember { mutableStateOf(TextFieldValue(replyTo?.sender.orEmpty())) }
+
+    /*
+     * Who a reply goes to, and who else.
+     *
+     * Reply-all keeps everyone who was on it minus you — your own addresses across every
+     * signed-in mailbox, not only the one it arrived at, because a message sent to two of
+     * your accounts would otherwise copy you on your own reply. The sender goes in To and
+     * everybody else in Cc, which is the convention every client follows: it says who the
+     * answer is for and who is only being kept informed.
+     */
+    val mine = remember(accounts) { accounts.map { it.email.lowercase() }.toSet() }
+    val others = remember(replyTo, mode) {
+        if (mode != WriteMode.REPLY_ALL || replyTo == null) {
+            emptyList()
+        } else {
+            (replyTo.toAddrs.split(',') + replyTo.ccAddrs.split(','))
+                .map { it.trim().lowercase() }
+                .filter { it.isNotBlank() && it !in mine && it != replyTo.sender.lowercase() }
+                .distinct()
+        }
+    }
+
+    var to by remember {
+        mutableStateOf(
+            TextFieldValue(if (mode == WriteMode.FORWARD) "" else replyTo?.sender.orEmpty()),
+        )
+    }
+    var cc by remember { mutableStateOf(TextFieldValue(others.joinToString(", "))) }
     var subject by remember {
-        mutableStateOf(TextFieldValue(replyTo?.let { Addr.replySubject(it.subject) }.orEmpty()))
+        mutableStateOf(
+            TextFieldValue(
+                when {
+                    replyTo == null -> ""
+                    mode == WriteMode.FORWARD -> Addr.forwardSubject(replyTo.subject)
+                    else -> Addr.replySubject(replyTo.subject)
+                },
+            ),
+        )
     }
     var body by remember { mutableStateOf(TextFieldValue("")) }
     var editingSubject by remember { mutableStateOf(replyTo == null) }
+
+    /*
+     * A forward carries the original. A reply does not.
+     *
+     * Quoting on reply is the habit that turns a five-line exchange into a scroll of its
+     * own history, and the person receiving it already has every word. A forward is the
+     * opposite: the whole point is the message, and without it the recipient gets a
+     * subject line and nothing else.
+     */
+    val bodyText by vm.body.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(bodyText, mode) {
+        if (mode != WriteMode.FORWARD || replyTo == null) return@LaunchedEffect
+        if (body.text.isNotBlank()) return@LaunchedEffect
+        val quoted = bodyText?.text.orEmpty()
+        body = TextFieldValue(
+            "\n\n---------- Forwarded ----------\n" +
+                "From: ${replyTo.senderName.ifBlank { replyTo.sender }} <${replyTo.sender}>\n" +
+                "Subject: ${replyTo.subject}\n\n" + quoted,
+        )
+    }
+
+    /*
+     * Files to send.
+     *
+     * Read into memory the moment they are picked, not held as a content URI: by the time
+     * SMTP runs the picker is gone, and a URI permission granted to it can go with it.
+     * Capped, because base64 inflates by a third and a phone can pick a video.
+     */
+    var files by remember { mutableStateOf(listOf<com.gios.brightmailbox.mail.Outfile>()) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val f = readPicked(context, uri)
+        when {
+            f == null -> vm.said("Could not read that file.")
+            files.sumOf { it.bytes.size } + f.bytes.size > MAX_ATTACHED ->
+                vm.said("That is too big to send. About 8 MB in total is the limit.")
+            else -> files = files + f
+        }
+    }
 
     /*
      * The draft this screen is editing, 0 until it has been written once.
@@ -79,14 +195,15 @@ fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?, openDraftId: Long = 0L) {
          * the same one was restored every time, so a second unsent message was kept and
          * never offered again. The drafts screen passes an id; this honours it.
          */
-        val mine = drafts.firstOrNull { openDraftId != 0L && it.id == openDraftId }
+        val saved = drafts.firstOrNull { openDraftId != 0L && it.id == openDraftId }
             ?: drafts.firstOrNull { openDraftId == 0L && it.inReplyTo == replyTo?.messageId }
             ?: return@LaunchedEffect
-        draftId = mine.id
-        accountId = mine.accountId.ifBlank { accountId }
-        if (mine.to.isNotBlank()) to = TextFieldValue(mine.to)
-        if (mine.subject.isNotBlank()) subject = TextFieldValue(mine.subject)
-        if (mine.body.isNotBlank()) body = TextFieldValue(mine.body)
+        draftId = saved.id
+        accountId = saved.accountId.ifBlank { accountId }
+        if (saved.to.isNotBlank()) to = TextFieldValue(saved.to)
+        if (saved.cc.isNotBlank()) cc = TextFieldValue(saved.cc)
+        if (saved.subject.isNotBlank()) subject = TextFieldValue(saved.subject)
+        if (saved.body.isNotBlank()) body = TextFieldValue(saved.body)
     }
 
     /** Everything the screen is holding, as a row. */
@@ -94,7 +211,7 @@ fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?, openDraftId: Long = 0L) {
         id = draftId,
         accountId = accountId,
         to = to.text,
-        cc = "",
+        cc = cc.text,
         subject = subject.text,
         body = body.text,
         inReplyTo = replyTo?.messageId,
@@ -129,7 +246,16 @@ fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?, openDraftId: Long = 0L) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            T(if (replyTo != null) "REPLY" else "WRITE", t.subheading)
+            T(
+                when (mode) {
+                    WriteMode.REPLY -> "REPLY"
+                    WriteMode.REPLY_ALL -> "REPLY ALL"
+                    WriteMode.FORWARD -> "FORWARD"
+                    WriteMode.NEW -> "WRITE"
+                },
+                t.subheading,
+                maxLines = 1,
+            )
             if (accounts.size > 1) {
                 T(
                     accountWord(accountId),
@@ -158,6 +284,40 @@ fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?, openDraftId: Long = 0L) {
                     maxLines = 1,
                 )
             }
+            // Only when there is one. A blank Cc row on every reply is a field nobody
+            // fills in taking a line from a 472dp screen.
+            if (cc.text.isNotBlank() || mode == WriteMode.REPLY_ALL) {
+                Spacer(Modifier.height(g * 0.8f))
+                Field("Cc", cc, { cc = it }, g, t)
+            }
+
+            Spacer(Modifier.height(g * 0.9f))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                T(
+                    "ATTACH",
+                    t.button,
+                    Secondary,
+                    Modifier.lightClickable { pick.launch(arrayOf("*/*")) },
+                    maxLines = 1,
+                )
+                if (files.isNotEmpty()) {
+                    Spacer(Modifier.width(g * 0.8f))
+                    T("${files.size} file${if (files.size == 1) "" else "s"}", t.superfine, Secondary)
+                }
+            }
+            for (f in files) {
+                T(
+                    "${f.name}  ·  remove",
+                    t.superfine,
+                    Secondary,
+                    Modifier
+                        .fillMaxWidth()
+                        .lightClickable { files = files - f }
+                        .padding(vertical = g * 0.2f),
+                    maxLines = 1,
+                )
+            }
+
             Spacer(Modifier.height(g * 1.2f))
             BasicTextField(
                 value = body,
@@ -178,11 +338,16 @@ fun WriteScreen(vm: MailboxViewModel, replyTo: Msg?, openDraftId: Long = 0L) {
                         accountId,
                         Outgoing(
                             to = Addr.addresses(to.text),
+                            cc = Addr.addresses(cc.text),
                             subject = subject.text.ifBlank { "(no subject)" },
                             body = body.text,
-                            inReplyTo = replyTo?.messageId,
-                            references = replyTo?.references,
-                            threadId = replyTo?.threadId,
+                            // A forward is a new message about an old one, not a reply to
+                            // it: threading it would file it under a conversation the new
+                            // recipient has never seen.
+                            inReplyTo = if (mode == WriteMode.FORWARD) null else replyTo?.messageId,
+                            references = if (mode == WriteMode.FORWARD) null else replyTo?.references,
+                            threadId = if (mode == WriteMode.FORWARD) null else replyTo?.threadId,
+                            files = files,
                         ),
                         draftId,
                         onFailed = { sent = false },

@@ -81,6 +81,20 @@ data class Msg(
      * star and Outlook as its flag — so holding something here marks it everywhere.
      */
     @ColumnInfo(defaultValue = "0") val starred: Boolean = false,
+    /**
+     * Who else was on it, comma-joined — the other recipients, and the copied ones.
+     *
+     * Stored because **reply-all is a question about the original message**, and the
+     * original is not on the phone by the time you answer it: the body is a file and the
+     * headers were parsed away at sync. Without these, replying to all would mean fetching
+     * the message again over IMAP to read two header lines.
+     *
+     * Addresses only, already lowercased. The display names are not kept — a reply
+     * addresses people, and the name a sender chose to write on an envelope six weeks ago
+     * is not worth a column.
+     */
+    @ColumnInfo(defaultValue = "") val toAddrs: String = "",
+    @ColumnInfo(defaultValue = "") val ccAddrs: String = "",
     val archived: Boolean = false,
 )
 
@@ -384,7 +398,7 @@ interface MailDao {
 
 @Database(
     entities = [Msg::class, SenderRule::class, Correspondent::class, Draft::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class MailDb : RoomDatabase() {
@@ -414,6 +428,20 @@ abstract class MailDb : RoomDatabase() {
          * app updated — the upgrade itself would look like the day's mail had been
          * deleted.
          */
+        /**
+         * v3 → v4: the other recipients, for reply-all.
+         *
+         * Blank for everything already stored, so reply-all on an old message answers the
+         * sender alone — which is the safe direction to be wrong in. New mail carries them
+         * from the next sync onwards.
+         */
+        val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN toAddrs TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE messages ADD COLUMN ccAddrs TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE messages ADD COLUMN readDay INTEGER NOT NULL DEFAULT 0")

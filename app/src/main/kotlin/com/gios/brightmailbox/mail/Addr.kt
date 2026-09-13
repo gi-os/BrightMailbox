@@ -5,6 +5,21 @@ package com.gios.brightmailbox.mail
  */
 object Addr {
 
+    /**
+     * Base64, wrapped at 76 characters with CRLF.
+     *
+     * RFC 2045 caps an encoded line at 76 and requires CRLF; a single unbroken line is
+     * rejected outright by some servers and silently truncated by others. `getMimeEncoder`
+     * does both, and is on every Android this app runs on.
+     */
+    private fun base64(bytes: ByteArray): String =
+        java.util.Base64.getMimeEncoder(76, "\r\n".toByteArray()).encodeToString(bytes)
+
+    /** A filename safe to put inside quotes in a header. */
+    private fun quotable(name: String): String =
+        name.replace("\\", "_").replace("\"", "_").replace("\r", "").replace("\n", "")
+            .ifBlank { "attachment" }
+
     /** `"Alex Mercier" <alex@x.com>, bob@y.com` -> the two addresses, lowercased. */
     fun addresses(raw: String?): List<String> {
         if (raw.isNullOrBlank()) return emptyList()
@@ -126,8 +141,23 @@ object Addr {
         sb.append("MIME-Version: 1.0\r\n")
 
         val body = m.body.replace("\r\n", "\n").replace("\n", "\r\n")
+
+        /*
+         * Three shapes, and which one is which matters to the receiving client.
+         *
+         *  - Nothing else attached: a plain text message, as it always was.
+         *  - An invitation reply: multipart/ALTERNATIVE. Two renderings of one thing —
+         *    the sentence a person reads and the object a calendar reads. As `mixed` the
+         *    calendar part is offered as a file to download and never processed.
+         *  - Files: multipart/MIXED. Separate things travelling together, which is what
+         *    `mixed` means and `alternative` does not.
+         *
+         * A reply carrying both would need the alternative nested inside the mixed. It
+         * cannot happen — an RSVP is sent by tapping a word, with no compose screen and
+         * nowhere to attach anything — so the case is refused rather than half-built.
+         */
         val ics = m.calendarReply
-        if (ics == null) {
+        if (ics == null && m.files.isEmpty()) {
             sb.append("Content-Type: text/plain; charset=UTF-8\r\n")
             sb.append("Content-Transfer-Encoding: 8bit\r\n")
             sb.append("\r\n")
@@ -135,30 +165,42 @@ object Addr {
             return sb.toString()
         }
 
-        /*
-         * An invitation reply is multipart/alternative, text first.
-         *
-         * Two parts saying the same thing in two languages: the sentence a person reads,
-         * and the object a calendar reads. `alternative` rather than `mixed` is what tells
-         * the receiving client they are the same content — as `mixed` the calendar part
-         * would be shown as a file to download and the organizer's calendar would never
-         * process it.
-         *
-         * `method=REPLY` on the part's own Content-Type is the half that matters most.
-         * Without it Exchange treats the part as an event to add rather than an answer to
-         * one, and the organizer is never told anything.
-         */
         val boundary = "bm-" + java.util.UUID.randomUUID().toString().replace("-", "")
-        sb.append("Content-Type: multipart/alternative; boundary=\"").append(boundary).append("\"\r\n")
+        val subtype = if (ics != null) "alternative" else "mixed"
+        sb.append("Content-Type: multipart/").append(subtype)
+            .append("; boundary=\"").append(boundary).append("\"\r\n")
         sb.append("\r\n")
+
         sb.append("--").append(boundary).append("\r\n")
         sb.append("Content-Type: text/plain; charset=UTF-8\r\n")
         sb.append("Content-Transfer-Encoding: 8bit\r\n")
         sb.append("\r\n").append(body).append("\r\n")
-        sb.append("--").append(boundary).append("\r\n")
-        sb.append("Content-Type: text/calendar; method=REPLY; charset=UTF-8\r\n")
-        sb.append("Content-Transfer-Encoding: 8bit\r\n")
-        sb.append("\r\n").append(ics).append("\r\n")
+
+        if (ics != null) {
+            /*
+             * `method=REPLY` on the part's own Content-Type is the half that matters most.
+             * Without it Exchange treats the part as an event to add rather than an answer
+             * to one, and the organizer is never told anything.
+             */
+            sb.append("--").append(boundary).append("\r\n")
+            sb.append("Content-Type: text/calendar; method=REPLY; charset=UTF-8\r\n")
+            sb.append("Content-Transfer-Encoding: 8bit\r\n")
+            sb.append("\r\n").append(ics).append("\r\n")
+        }
+
+        for (f in m.files) {
+            sb.append("--").append(boundary).append("\r\n")
+            // The name goes in BOTH places: `name` on the type is what old clients read,
+            // `filename` on the disposition is what current ones read, and a file that
+            // arrives with one of them missing is saved as "noname" by somebody.
+            sb.append("Content-Type: ").append(f.mime.ifBlank { "application/octet-stream" })
+                .append("; name=\"").append(quotable(f.name)).append("\"\r\n")
+            sb.append("Content-Transfer-Encoding: base64\r\n")
+            sb.append("Content-Disposition: attachment; filename=\"")
+                .append(quotable(f.name)).append("\"\r\n")
+            sb.append("\r\n").append(base64(f.bytes)).append("\r\n")
+        }
+
         sb.append("--").append(boundary).append("--\r\n")
         return sb.toString()
     }
@@ -172,4 +214,17 @@ object Addr {
     /** Reply subject, without stacking "Re: Re: Re:". */
     fun replySubject(s: String): String =
         if (s.trimStart().startsWith("re:", ignoreCase = true)) s else "Re: $s"
+
+    /**
+     * `Fwd: ` once, and never on top of an existing one.
+     *
+     * The same rule as [replySubject], for the same reason: a message forwarded three
+     * times should not arrive as "Fwd: Fwd: Fwd:". Also recognises "FW:" and the French
+     * "TR:", because a forward usually arrives from a client that is not this one.
+     */
+    fun forwardSubject(s: String): String {
+        val t = s.trim()
+        val already = Regex("^(fwd?|tr)\\s*:", RegexOption.IGNORE_CASE)
+        return if (already.containsMatchIn(t)) t else "Fwd: " + t.ifBlank { "(no subject)" }
+    }
 }

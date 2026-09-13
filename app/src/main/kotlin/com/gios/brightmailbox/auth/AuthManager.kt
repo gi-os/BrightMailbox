@@ -103,7 +103,9 @@ class AuthManager(context: Context) {
      * to leak, and Microsoft imposes no user cap, so the same id serves everybody.
      */
     fun clientId(s: Service): String = when (s) {
-        Service.GOOGLE -> ""
+        // Neither has one: Gmail signs in with an app password, and a generic IMAP server
+        // is registered with nobody, so there is no client to identify.
+        Service.GOOGLE, Service.IMAP -> ""
         Service.MICROSOFT -> prefs.getString("client_${s.key}", null)?.takeIf { it.isNotBlank() }
             ?: BuildConfig.MICROSOFT_CLIENT_ID
     }

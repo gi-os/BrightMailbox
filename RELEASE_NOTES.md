@@ -1,3 +1,19 @@
+## BrightMailbox v2.42 — the demo switch lost its own setting
+
+SHOW THE DEMO restarted the app and came back with the demo still off.
+
+The preference was written with `apply`, which keeps the value in memory and writes the
+file on a background thread. That is the right call everywhere else in this app — no tap
+should block on a disk write — but this tap kills the process a few milliseconds later to
+restart into the other database, and `Runtime.exit` does not wait for that write to land.
+The value was gone before anything read it back.
+
+`commit` writes before it returns, which is worth a few milliseconds on a tap that is
+about to restart the app anyway.
+
+Nothing else changed. If v2.41 is already installed, the demo mailbox it could not open is
+the same one this opens.
+
 ## BrightMailbox v2.41 — a demo mailbox, and the rest of the escaped dollar signs
 
 Two things: a mailbox you can show people, and the finish of the fix v2.40.1 started.

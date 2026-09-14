@@ -292,7 +292,20 @@ class Repo private constructor(private val app: Context) {
      * something to keep quietly storing.
      */
     fun setDemo(on: Boolean) {
-        prefs.edit().putBoolean("demo", on).apply()
+        /*
+         * `commit`, not `apply`, and this is the one place in the app where that matters.
+         *
+         * `apply` keeps the value in memory and writes the file on a background thread.
+         * Everywhere else that is exactly right — nothing here is worth blocking a tap
+         * for. But the caller kills the process a few milliseconds later to restart into
+         * the other database, and `Runtime.exit` does not wait for that write. The
+         * preference was being lost between the tap and the relaunch, so the app came
+         * back with the demo still off and the button looked broken.
+         *
+         * `commit` writes before it returns. It costs a few milliseconds on a tap that is
+         * about to restart the app anyway.
+         */
+        prefs.edit().putBoolean("demo", on).commit()
         if (!on) clearDemo()
     }
 

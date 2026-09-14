@@ -16,6 +16,7 @@ import jakarta.mail.internet.InternetAddress
 import jakarta.mail.internet.MimeMessage
 import jakarta.mail.search.MessageIDTerm
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.eclipse.angus.mail.imap.IMAPFolder
 import java.io.ByteArrayInputStream
@@ -493,6 +494,112 @@ class Imap(
         }
     }
 
+    /* --------------------------------------------------------------------- quota */
+
+    override suspend fun quota(): Quota? = io {
+        /*
+         * Optional, and absent more often than not.
+         *
+         * `getQuota` throws on a server with no QUOTA extension rather than returning
+         * nothing, so the whole thing is a runCatching and null means "the server did not
+         * say" — which is not a failure and must not be reported as one.
+         *
+         * The resource name is "STORAGE" and its numbers are in **kilobytes**, which is
+         * the one detail worth writing down: reported as bytes it looks like a mailbox a
+         * thousand times emptier than it is.
+         */
+        runCatching {
+            val store = store() as? org.eclipse.angus.mail.imap.IMAPStore ?: return@io null
+            val quotas = store.getQuota("INBOX")
+            for (q in quotas.orEmpty()) {
+                for (r in q.resources.orEmpty()) {
+                    if (!r.name.equals("STORAGE", ignoreCase = true)) continue
+                    if (r.limit <= 0) continue
+                    return@io Quota(r.usage * 1024L, r.limit * 1024L)
+                }
+            }
+            null
+        }.getOrNull()
+    }
+
+    /* -------------------------------------------------------------------- drafts */
+
+    override suspend fun serverDrafts(limit: Int): List<Message> = io {
+        val name = folder(Box.DRAFTS) ?: return@io emptyList()
+        withFolder(name, write = false) { f ->
+            val validity = f.getUIDValidity()
+            val total = f.messageCount
+            if (total <= 0) return@withFolder emptyList<Message>()
+            val msgs = f.getMessages(maxOf(1, total - limit + 1), total)
+            f.fetch(
+                msgs,
+                FetchProfile().apply {
+                    add(UIDFolder.FetchProfileItem.UID)
+                    add(IMAPFolder.FetchProfileItem.HEADERS)
+                    add(FetchProfile.Item.ENVELOPE)
+                },
+            )
+            msgs.reversed().mapNotNull {
+                runCatching { convert(f, it, validity, Box.DRAFTS.tag) }.getOrNull()
+            }
+        }
+    }
+
+    /* ---------------------------------------------------------------------- idle */
+
+    override suspend fun watch(onMail: suspend () -> Unit) {
+        /*
+         * Its own connection, never the pooled one.
+         *
+         * An IDLE'ing connection is not available for anything else until it is told to
+         * stop, and the pool is what every fetch, archive and send goes through. Sharing
+         * it would mean the first sync after mail arrived had to wait for the watch to
+         * notice it was in the way.
+         *
+         * The folder is opened READ_ONLY, so nothing here can mark anything seen by
+         * accident just by watching it.
+         */
+        val email = auth.accounts().firstOrNull { it.id == accountId }?.email.orEmpty()
+        val credential = auth.credential(accountId)
+        withContext(Dispatchers.IO) {
+            val session = Session.getInstance(imapProps())
+            val store = session.getStore("imap")
+            store.connect(servers.imapHost, servers.imapPort, email, credential)
+            try {
+                val imapStore = store as? org.eclipse.angus.mail.imap.IMAPStore
+                if (imapStore == null || !imapStore.hasCapability("IDLE")) {
+                    // No IDLE on this server. The poll underneath is still running, so
+                    // the right answer is to return quietly rather than to fail loudly.
+                    return@withContext
+                }
+                val f = store.getFolder("INBOX") as IMAPFolder
+                f.open(Folder.READ_ONLY)
+                /*
+                 * `idle()` blocks a thread and coroutine cancellation cannot interrupt it.
+                 *
+                 * Closing the folder from another thread is what makes it return — the
+                 * blocked call throws and unwinds. Without this, leaving the screen would
+                 * leave a thread parked on a socket until the server gave up on it.
+                 */
+                val closer = coroutineContext[kotlinx.coroutines.Job]
+                    ?.invokeOnCompletion { runCatching { f.close(false) } }
+                try {
+                    while (isActive) {
+                        // Returns when the server reports a change, or when the connection
+                        // goes. Either way the caller wants to look.
+                        f.idle()
+                        onMail()
+                    }
+                } finally {
+                    closer?.dispose()
+                    runCatching { f.close(false) }
+                }
+            } finally {
+                runCatching { store.close() }
+            }
+        }
+    }
+
     /* ----------------------------------------------------------------- conversion */
 
     private fun convert(
@@ -581,6 +688,7 @@ class Imap(
         Box.ARCHIVE -> special(store(), "\\All", "\\Archive", servers.archiveNames)?.fullName
         Box.TRASH -> special(store(), "\\Trash", null, servers.trashNames)?.fullName
         Box.JUNK -> special(store(), "\\Junk", null, servers.junkNames)?.fullName
+        Box.DRAFTS -> special(store(), "\\Drafts", null, servers.draftNames)?.fullName
     }
 
     /**

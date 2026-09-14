@@ -38,6 +38,14 @@ import com.gios.brightmailbox.ui.theme.Secondary
 import com.gios.brightmailbox.ui.theme.T
 import com.gios.brightmailbox.ui.theme.lightClickable
 
+/** "1.4 GB". Bytes are not a thing anybody wants to read off a 3.9" screen. */
+private fun bytes(n: Long): String = when {
+    n >= 1_073_741_824 -> "%.1f GB".format(n / 1_073_741_824.0)
+    n >= 1_048_576 -> "${'$'}{n / 1_048_576} MB"
+    n >= 1024 -> "${'$'}{n / 1024} KB"
+    else -> "$n B"
+}
+
 @Composable
 fun SettingsScreen(vm: MailboxViewModel) {
     val g = LocalGrid.current
@@ -250,6 +258,47 @@ fun SettingsScreen(vm: MailboxViewModel) {
             ) {
                 T("Preview lines", t.copy, if (previews) Content else Secondary)
                 T(if (previews) "on" else "off", t.copy, Secondary)
+            }
+
+            Section("STORAGE")
+            /*
+             * How full the mailbox is, when the server will say.
+             *
+             * IMAP QUOTA is optional and plenty of servers omit it, so this section draws
+             * nothing at all rather than a row reading "unknown" — a settings screen that
+             * reports its own ignorance is a settings screen with a bug on it.
+             *
+             * Asked once when the screen opens, never on a timer: a mailbox does not fill
+             * up while you are looking at this page.
+             */
+            var quota by remember {
+                mutableStateOf<com.gios.brightmailbox.mail.Quota?>(null)
+            }
+            LaunchedEffect(Unit) { quota = vm.storage() }
+            quota?.let { q ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    T("${bytes(q.usedBytes)} of ${bytes(q.limitBytes)}", t.copy, maxLines = 1)
+                    T("${(q.fraction * 100).toInt()}%", t.detail, Secondary, maxLines = 1)
+                }
+                Spacer(Modifier.height(g * 0.5f))
+                // The same bar the progress line uses: a filled rule, no percentage arc,
+                // no colour. Full is just a longer white line.
+                Box(Modifier.fillMaxWidth().height(2.dp).background(Secondary)) {
+                    Box(
+                        Modifier.fillMaxWidth(q.fraction).height(2.dp).background(Content),
+                    )
+                }
+                Spacer(Modifier.height(g * 0.5f))
+                T(
+                    "Archiving keeps mail, so it keeps taking room. DELETE in a message " +
+                        "is the one thing here that gives any back.",
+                    t.superfine,
+                    Secondary,
+                )
             }
 
             Section("SIGNATURE")

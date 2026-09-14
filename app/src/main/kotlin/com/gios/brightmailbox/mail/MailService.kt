@@ -20,7 +20,8 @@ enum class Box(val tag: String) {
     SENT("SENT:"),
     ARCHIVE("ARCH:"),
     TRASH("TRASH:"),
-    JUNK("JUNK:");
+    JUNK("JUNK:"),
+    DRAFTS("DRAFT:");
 
     companion object {
         /** Which folder an id belongs to. Untagged means INBOX, which is most of them. */
@@ -274,4 +275,42 @@ interface MailService {
      *   exception, because every caller wants the boolean.
      */
     suspend fun moveFound(messageId: String, from: Box, to: Box): Boolean
+
+    /**
+     * How full the mailbox is, or null when the server does not say.
+     *
+     * The IMAP QUOTA extension is optional and plenty of servers omit it — Gmail answers,
+     * a small Dovecot often does not. Null is the ordinary case, not an error, and the one
+     * screen that shows this simply leaves the line out.
+     */
+    suspend fun quota(): Quota?
+
+    /**
+     * Drafts sitting in the server's drafts folder.
+     *
+     * Read-only, and deliberately so. Uploading this app's drafts would mean APPEND, a
+     * second copy of every half-written message, and a reconciliation problem between two
+     * places that both think they own the text. Reading is the half with all the value:
+     * a message begun at a desk can be finished on the phone.
+     */
+    suspend fun serverDrafts(limit: Int): List<Message>
+
+    /**
+     * Hold the connection open and call [onMail] when the server says something changed.
+     *
+     * Suspends until cancelled. IMAP IDLE (RFC 2177) is the protocol telling you rather
+     * than you asking every fifteen minutes, and the cost is one small exchange every
+     * twenty-odd minutes against a full connect-login-fetch per poll — **cheaper than the
+     * polling it replaces**, as long as it is not reconnecting in a loop.
+     *
+     * Returns without error on a server that has no IDLE capability; the poll is still
+     * running underneath and is the floor this sits on top of, never a replacement for it.
+     */
+    suspend fun watch(onMail: suspend () -> Unit)
+}
+
+/** Bytes used and bytes allowed, from the IMAP QUOTA extension. */
+data class Quota(val usedBytes: Long, val limitBytes: Long) {
+    val fraction: Float get() =
+        if (limitBytes <= 0) 0f else (usedBytes.toDouble() / limitBytes).toFloat().coerceIn(0f, 1f)
 }

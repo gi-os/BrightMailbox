@@ -419,6 +419,27 @@ fun DraftsScreen(vm: MailboxViewModel) {
                             Secondary,
                             maxLines = 1,
                         )
+                        /*
+                         * Where it came from, for the ones that did not start here.
+                         *
+                         * An imported draft behaves like any other — tap it, finish it,
+                         * send it — but it also still exists in the drafts folder of
+                         * whatever wrote it, and sending from here does not remove it
+                         * there. Saying so is cheaper than pretending the two are one
+                         * thing and letting somebody discover the duplicate later.
+                         */
+                        if (d.remoteId.isNotBlank()) {
+                            T("from your mailbox", t.superfine, Secondary, maxLines = 1)
+                        }
+                        if (d.queued) {
+                            T(
+                                if (d.tries == 0) "waiting to send"
+                                else "waiting to send · ${'$'}{d.tries} tries",
+                                t.superfine,
+                                Secondary,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
             }

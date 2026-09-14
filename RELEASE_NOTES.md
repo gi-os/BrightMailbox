@@ -1,3 +1,32 @@
+## v2.38 — Mail arrives while you are looking at it
+
+**IMAP IDLE, held for exactly as long as the app is open.** The protocol has a way for a
+server to tell you something arrived instead of you asking every fifteen minutes, and this
+app has been asking. Now, while the inbox is on screen, the connection stays open and a
+message appears the moment it lands.
+
+The scope is the point. The watch starts when the app becomes visible and is cancelled the
+instant it stops — no service, no notification, nothing running behind your back, and
+therefore no battery question to answer: it costs what having the app open costs. If the
+connection drops it reconnects with a backoff that doubles up to five minutes, because a
+watch that retries instantly turns a flapping signal into a loop that opens a new encrypted
+connection several times a second, which is far more expensive than the polling it was
+meant to improve on. The fifteen-minute check underneath is untouched — a server without
+IDLE, a network that will not hold a connection, and a phone with the app closed all still
+get their mail on the old schedule. This is a way to hear sooner, never the only way to
+hear.
+
+**Drafts written somewhere else show up in DRAFTS.** Start a message at a desk, finish it on
+the phone. One way only: uploading this app's drafts would mean a second copy of every
+half-written message and two places that each believe they own the text, with no way to
+tell an edit from a conflict. Imported drafts say where they came from, because sending
+one from here does not remove it from the mailbox that wrote it.
+
+**Settings → STORAGE** says how full the mailbox is, when the server publishes a quota.
+Many do not, and then the section simply is not there rather than reporting its own
+ignorance. Worth having next to an archive button: archiving keeps mail, so it keeps taking
+room, and DELETE is the only thing in this app that gives any back.
+
 ## v2.37 — A place for what you are holding
 
 **Flagged messages — 3**, one line at the top of the inbox, and tapping it opens them.

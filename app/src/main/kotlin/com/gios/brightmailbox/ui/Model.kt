@@ -336,6 +336,36 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      */
     private var lastAutoSync = 0L
 
+    /**
+     * Listen for mail while the screen is on.
+     *
+     * IMAP IDLE, held only for as long as MainActivity is started — the caller cancels
+     * this the moment the app stops being looked at, and the connection goes with it. No
+     * service, no notification, nothing running behind your back, and therefore no battery
+     * question to answer: it costs what having the app open costs.
+     *
+     * The fifteen-minute poll underneath is untouched. This is a way to hear sooner, not
+     * the only way to hear — a server without IDLE, a network that will not hold a
+     * connection, and a phone with the app closed all still get their mail on the old
+     * schedule.
+     *
+     * `syncNow` rather than the silent check: something arriving while you are looking at
+     * the list is exactly when the app should say so.
+     */
+    /*
+     * A suspend function, **not** a `viewModelScope.launch`.
+     *
+     * That distinction is the feature. Launched into the ViewModel's scope this would
+     * return a Job the instant it was called, outlive the screen that started it, and hold
+     * a connection open for as long as the process lived — the exact thing this design
+     * avoids. Suspending means the caller's scope owns it, and `repeatOnLifecycle` cancels
+     * that scope when the activity stops.
+     */
+    suspend fun watch() {
+        if (!repo.auth.isSignedIn) return
+        repo.watch { syncNow(announce = true) }
+    }
+
     /** The launch check: silent, and at most once a minute however often it is asked. */
     fun syncOnOpen() {
         if (System.currentTimeMillis() - lastAutoSync < 60_000) return
@@ -792,6 +822,9 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     /** How many messages are waiting to go out. Zero almost always. */
     val queued = repo.queuedCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** How full the mailbox is, or null when the server does not publish a quota. */
+    suspend fun storage(): com.gios.brightmailbox.mail.Quota? = repo.quota()
 
     fun downloads(): List<Triple<String, String, String>> = repo.downloads()
 

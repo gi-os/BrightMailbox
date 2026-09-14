@@ -157,6 +157,16 @@ data class Draft(
     @ColumnInfo(defaultValue = "0") val queued: Boolean = false,
     /** How many attempts have failed. Stops an unsendable message retrying for ever. */
     @ColumnInfo(defaultValue = "0") val tries: Int = 0,
+    /**
+     * The provider id of the server-side draft this came from, blank for a local one.
+     *
+     * Import is read-only and has to be idempotent: the drafts folder is read on every
+     * sync, so without a key to match on, a draft written at a desk would arrive again
+     * every fifteen minutes until there were ninety-six of it.
+     */
+    @ColumnInfo(defaultValue = "") val remoteId: String = "",
+    /** Which mailbox it came from, so a reopened server draft sends from the right one. */
+    @ColumnInfo(defaultValue = "") val remoteAccount: String = "",
 )
 
 @Dao
@@ -456,6 +466,9 @@ interface MailDao {
     @Query("SELECT * FROM drafts WHERE queued AND tries < 5 ORDER BY updatedAt ASC")
     suspend fun queuedDrafts(): List<Draft>
 
+    @Query("SELECT * FROM drafts WHERE remoteId != ''")
+    suspend fun importedDrafts(): List<Draft>
+
     @Query("SELECT COUNT(*) FROM drafts WHERE queued")
     fun queuedCount(): Flow<Int>
 
@@ -465,7 +478,7 @@ interface MailDao {
 
 @Database(
     entities = [Msg::class, SenderRule::class, Correspondent::class, Draft::class],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class MailDb : RoomDatabase() {
@@ -511,6 +524,14 @@ abstract class MailDb : RoomDatabase() {
          * everything already here, which reads as "no link" — the safe direction, and the
          * next sync fills it in for anything new.
          */
+        /** v6 → v7: where an imported draft came from. */
+        val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE drafts ADD COLUMN remoteId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE drafts ADD COLUMN remoteAccount TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         /** v5 → v6: the outbox, which is two columns on the drafts table. */
         val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {

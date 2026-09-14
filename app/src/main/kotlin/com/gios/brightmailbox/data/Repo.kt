@@ -23,6 +23,7 @@ import com.gios.brightmailbox.sort.Sorter
 import com.gios.brightmailbox.text.Clean
 import com.gios.brightmailbox.text.Ics
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -104,6 +105,7 @@ class Repo private constructor(private val app: Context) {
             MailDb.MIGRATION_3_4,
             MailDb.MIGRATION_4_5,
             MailDb.MIGRATION_5_6,
+            MailDb.MIGRATION_6_7,
         )
         .fallbackToDestructiveMigration()
         .build()
@@ -334,6 +336,9 @@ class Repo private constructor(private val app: Context) {
          * rather than one fetch later.
          */
         runCatching { flushOutbox() }
+        // Drafts written elsewhere, in the same pass. Cheap: header batch plus a body for
+        // each one that is genuinely new, which is nearly always none.
+        runCatching { importDrafts() }
 
         for (account in auth.accounts()) {
             val svc = serviceFor(account.id)
@@ -1341,6 +1346,110 @@ class Repo private constructor(private val app: Context) {
     }
 
     /* ------------------------------------------------------------------- outbox */
+
+    /* ------------------------------------------------------------------- storage */
+
+    /**
+     * How full the first mailbox is, or null when the server does not say.
+     *
+     * One account's worth. Showing four progress lines for four mailboxes on a 3.9" panel
+     * is a screen about storage rather than a settings screen with a fact on it.
+     */
+    suspend fun quota(): com.gios.brightmailbox.mail.Quota? = withContext(Dispatchers.IO) {
+        val account = auth.accounts().firstOrNull() ?: return@withContext null
+        runCatching { serviceFor(account.id)?.quota() }.getOrNull()
+    }
+
+    /* ------------------------------------------------------- drafts from the server */
+
+    /**
+     * Pull drafts written elsewhere into the drafts list.
+     *
+     * **One way only.** Uploading this app's drafts would mean an APPEND per keystroke
+     * pause, a second copy of every half-written message, and two places that both believe
+     * they own the text — with no way to tell an edit from a conflict. Reading is the half
+     * that carries the value: a message begun at a desk can be finished on the phone.
+     *
+     * Matched on `remoteId`, so a folder read on every sync imports each draft once rather
+     * than ninety-six times a day. An imported draft that has since disappeared from the
+     * server is dropped, which is what "I sent it from my laptop" looks like from here.
+     *
+     * @return how many arrived that were not already here.
+     */
+    suspend fun importDrafts(limit: Int = 25): Int = withContext(Dispatchers.IO) {
+        var added = 0
+        val known = dao.importedDrafts().associateBy { it.remoteId }
+        val seen = HashSet<String>()
+        for (account in auth.accounts()) {
+            val svc = serviceFor(account.id) ?: continue
+            val found = runCatching { svc.serverDrafts(limit) }.getOrDefault(emptyList())
+            for (m in found) {
+                val key = "${'$'}{account.id}/${'$'}{m.id}"
+                seen.add(key)
+                if (known.containsKey(key)) continue
+                /*
+                 * The body is fetched one at a time, which is why the limit is small.
+                 * Headers come in one batch; bodies cannot, and a drafts folder with two
+                 * hundred abandoned messages in it is somebody's normal.
+                 */
+                val body = runCatching { svc.content(m.id) }.getOrNull()
+                val text = body?.text?.takeIf { it.isNotBlank() }
+                    ?: body?.html?.takeIf { it.isNotBlank() }?.let { Clean.fromHtml(it) }
+                    ?: ""
+                dao.putDraft(
+                    Draft(
+                        accountId = account.id,
+                        to = m.to.joinToString(", "),
+                        cc = m.cc.joinToString(", "),
+                        subject = m.subject,
+                        body = text,
+                        inReplyTo = null,
+                        references = m.references,
+                        threadId = m.threadId,
+                        updatedAt = m.receivedAt,
+                        remoteId = key,
+                        remoteAccount = account.id,
+                    ),
+                )
+                added++
+            }
+        }
+        // Gone from the server means sent or thrown away there; either way it is finished.
+        for (d in known.values) if (d.remoteId !in seen) dao.dropDraft(d.id)
+        added
+    }
+
+    /* --------------------------------------------------------------------- watch */
+
+    /**
+     * Hold IMAP IDLE open and call [onMail] when the server says something arrived.
+     *
+     * Suspends until cancelled, which is what makes it safe to tie to a screen being on:
+     * the caller cancels and the connection goes with it.
+     *
+     * **Reconnects with a backoff, and that is the whole safety story.** A watch that
+     * retries immediately turns a flapping connection into a loop that opens a TLS session
+     * several times a second — far more expensive than the fifteen-minute poll it is
+     * meant to improve on. Five seconds, doubling to five minutes, reset on a connection
+     * that lasted.
+     *
+     * The poll underneath is untouched. This is a way to hear sooner, never the only way
+     * to hear at all.
+     */
+    suspend fun watch(onMail: suspend () -> Unit) = withContext(Dispatchers.IO) {
+        val account = auth.accounts().firstOrNull() ?: return@withContext
+        var backoff = 5_000L
+        while (isActive) {
+            val opened = System.currentTimeMillis()
+            runCatching { serviceFor(account.id)?.watch(onMail) }
+            // A connection that stayed up for a while and then dropped is not a failing
+            // server, it is an ordinary IDLE timeout — so it does not earn a penalty.
+            if (System.currentTimeMillis() - opened > 60_000) backoff = 5_000L
+            if (!isActive) break
+            kotlinx.coroutines.delay(backoff)
+            backoff = (backoff * 2).coerceAtMost(300_000L)
+        }
+    }
 
     fun flagged(): Flow<List<Msg>> = dao.flagged()
 

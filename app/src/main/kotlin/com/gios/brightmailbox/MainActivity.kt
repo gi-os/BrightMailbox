@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gios.brightmailbox.hw.LightKey
 import com.gios.brightmailbox.hw.LightKeys
@@ -147,6 +148,23 @@ class MainActivity : ComponentActivity() {
                         SyncWorker.schedule(this@MainActivity)
                         vm.syncOnOpen()
                     }
+                }
+
+                /*
+                 * The IDLE watch lives exactly as long as the screen does.
+                 *
+                 * `repeatOnLifecycle(STARTED)` starts it when the activity becomes
+                 * visible and **cancels it when the activity stops**, which is the whole
+                 * design: an open connection held by a screen nobody is looking at is the
+                 * version of this feature with a battery cost, and this is the version
+                 * without one. A `LaunchedEffect(Unit)` would have been the former —
+                 * it survives the activity going to the background.
+                 */
+                val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+                LaunchedEffect(owner) {
+                    owner.lifecycle.repeatOnLifecycle(
+                        androidx.lifecycle.Lifecycle.State.STARTED,
+                    ) { vm.watch() }
                 }
 
                 /*

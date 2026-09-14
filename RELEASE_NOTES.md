@@ -1,3 +1,24 @@
+## v2.37 — A place for what you are holding
+
+**Flagged messages — 3**, one line at the top of the inbox, and tapping it opens them.
+
+Holding a message already meant something strong here: it ignores the day's ration, stays
+past midnight when everything else has moved on, and is skipped by ARCHIVE ALL. So a held
+message can sit in the list for weeks, and once there are a few of them the marks are
+scattered down a scrolling column with no way to see them together. The line is absent at
+zero — a row reading "Flagged messages — 0" teaches you to stop looking at the top of the
+screen — and it is on the empty screen too, which is exactly when a hold matters most:
+everything else is read or put away and the ones you kept are all that is left to do
+anything about.
+
+The list crosses the archive line, which no other list in this app does. Putting a message
+away does not stop it being held, and a held message you archived is precisely the one you
+cannot find again by remembering who sent it; the archived ones say so underneath.
+
+Swiping a row there **releases** it rather than archiving it. Everywhere else the swipe puts
+a message away; on a list of held messages the thing you want rid of is the hold, and
+archiving would leave the row exactly where it was.
+
 ## v2.36 — Stars sync both ways
 
 **Flag a message at a desk and it is held here.** Holding a row has pushed IMAP

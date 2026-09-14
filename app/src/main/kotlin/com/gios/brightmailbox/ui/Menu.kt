@@ -206,6 +206,83 @@ fun ArchiveScreen(vm: MailboxViewModel) {
     }
 }
 
+/* ----------------------------------------------------------------------- flagged */
+
+/**
+ * Everything held.
+ *
+ * Reached from the one line at the top of Home rather than from the menu, because holding
+ * a message is a thing you do *to today's mail* and the place you go looking for it is the
+ * screen you did it on.
+ *
+ * Crosses the archive line, which no other list here does: putting a message away does not
+ * stop it being held, and a held message you archived is exactly the one you cannot find by
+ * remembering who sent it. Archived rows say so, because "why is this not in my inbox" is
+ * the obvious next question.
+ *
+ * Swiping releases, rather than archiving. On every other list the swipe puts a message
+ * away; here the thing you want rid of is the hold itself, and archiving from a list of
+ * held messages would leave the row exactly where it was.
+ */
+@Composable
+fun FlaggedScreen(vm: MailboxViewModel) {
+    val g = LocalGrid.current
+    val t = LocalType.current
+    val rows by vm.flagged.collectAsStateWithLifecycle()
+
+    Frame {
+        Row(
+            Modifier.fillMaxWidth().height(g.topBar),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            T("FLAGGED", t.subheading)
+            T(if (rows.isEmpty()) "" else "${'$'}{rows.size}", t.detail, Secondary)
+        }
+
+        if (rows.isEmpty()) {
+            Spacer(Modifier.height(g * 3f))
+            T("Nothing held.", t.copy)
+            Spacer(Modifier.height(g * 0.6f))
+            T(
+                "Hold a message on any list to keep it here. A held message ignores the " +
+                    "day's ration, stays past midnight and is skipped by ARCHIVE ALL — " +
+                    "and it is flagged on the server too, so it is starred wherever else " +
+                    "you read your mail.",
+                t.detail,
+                Secondary,
+            )
+            Spacer(Modifier.weight(1f))
+        } else {
+            val list = rememberLazyListState()
+            WheelScroll(list)
+            LazyColumn(
+                Modifier.weight(1f),
+                state = list,
+                verticalArrangement = Arrangement.spacedBy(g * 0.9f),
+            ) {
+                items(rows, key = { it.key }) { m ->
+                    Column {
+                        LetterRow(
+                            m,
+                            onClick = { vm.open(m, Screen.Flagged) },
+                            onHold = { vm.star(m) },
+                            onSwipe = { vm.star(m) },
+                            swipeLabel = "RELEASE",
+                        )
+                        // Where it is, for the ones that are not in the inbox any more.
+                        if (m.archived) {
+                            T("archived", t.superfine, Secondary, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        }
+
+        ActionBar(left = "BACK" to { vm.go(Screen.Home) }, right = null)
+    }
+}
+
 /* -------------------------------------------------------------------------- sent */
 
 /**

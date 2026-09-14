@@ -40,6 +40,7 @@ import com.gios.brightmailbox.ui.AccountDetailScreen
 import com.gios.brightmailbox.ui.ArchiveScreen
 import com.gios.brightmailbox.ui.DownloadsScreen
 import com.gios.brightmailbox.ui.DraftsScreen
+import com.gios.brightmailbox.ui.FlaggedScreen
 import com.gios.brightmailbox.ui.MenuScreen
 import com.gios.brightmailbox.ui.SearchScreen
 import com.gios.brightmailbox.ui.SentScreen
@@ -217,6 +218,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Menu -> "Menu"
                         Screen.Archive -> "Archive"
                         Screen.Sent -> "Sent"
+                        Screen.Flagged -> "Flagged"
                         Screen.Drafts -> "Drafts"
                         Screen.Downloads -> "Downloads"
                         Screen.Search -> "Search"
@@ -329,6 +331,7 @@ class MainActivity : ComponentActivity() {
                     Screen.Menu -> MenuScreen(vm)
                     Screen.Archive -> ArchiveScreen(vm)
                     Screen.Sent -> SentScreen(vm)
+                    Screen.Flagged -> FlaggedScreen(vm)
                     Screen.Drafts -> DraftsScreen(vm)
                     Screen.Downloads -> DownloadsScreen(vm)
                     Screen.Search -> SearchScreen(vm)

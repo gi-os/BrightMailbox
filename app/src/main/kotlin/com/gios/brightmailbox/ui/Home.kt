@@ -174,6 +174,31 @@ fun HomeScreen(vm: MailboxViewModel) {
             return@Frame
         }
 
+        /*
+         * One line for what is being held, above everything.
+         *
+         * A star already overrides the ration and survives the day rollover, so a held
+         * message can sit in the list for weeks — and once there are three of them the
+         * marks are scattered down a scrolling column with no way to see them together.
+         * This is the only thing on Home that is not today's mail, which is why it is one
+         * line of `detail` rather than a section: it has to be findable and it must not
+         * compete with the letters underneath it.
+         *
+         * Absent at zero. A row saying "Flagged messages — 0" is a row that teaches you
+         * to stop reading the top of the screen.
+         */
+        val held by vm.flaggedCount.collectAsStateWithLifecycle()
+        if (held > 0) {
+            T(
+                if (held == 1) "Flagged messages — 1" else "Flagged messages — $held",
+                t.detail,
+                Secondary,
+                Modifier.fillMaxWidth().lightClickable { vm.go(Screen.Flagged) },
+                maxLines = 1,
+            )
+            Spacer(Modifier.height(g * 1.1f))
+        }
+
         // The wheel scrolls the list, the same as in every other app on this phone.
         val list = androidx.compose.foundation.lazy.rememberLazyListState()
         com.gios.brightmailbox.hw.WheelScroll(list)
@@ -393,6 +418,24 @@ private fun Nothing(vm: MailboxViewModel) {
                 else "$waiting letters waiting for tomorrow.",
                 t.detail,
                 Secondary,
+            )
+        }
+        /*
+         * Held mail is reachable from the empty screen too.
+         *
+         * An empty inbox is exactly when a hold matters — everything else has been read
+         * or put away, and the three messages you kept are the only ones left to do
+         * anything about. Leaving the route off this screen would repeat the v2.7 bug,
+         * where the only way to a whole section of the app was a branch of another screen.
+         */
+        val held by vm.flaggedCount.collectAsStateWithLifecycle()
+        if (held > 0) {
+            Spacer(Modifier.height(g * 0.5f))
+            T(
+                if (held == 1) "Flagged messages — 1" else "Flagged messages — $held",
+                t.detail,
+                modifier = Modifier.lightClickable { vm.go(Screen.Flagged) },
+                maxLines = 1,
             )
         }
 

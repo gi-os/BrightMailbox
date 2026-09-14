@@ -62,6 +62,8 @@ sealed interface Screen {
     data object Downloads : Screen
     /** What you have written. Read off the server, never stored — see [Repo.sent]. */
     data object Sent : Screen
+    /** Everything held by hand or flagged elsewhere, archived included. */
+    data object Flagged : Screen
     /** One box, every pile, archived included. */
     data object Search : Screen
     data object Settings : Screen
@@ -773,6 +775,19 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     fun loadAddressBook() = viewModelScope.launch {
         if (_addressBook.value.isEmpty()) _addressBook.value = repo.addressBook()
     }
+
+    /**
+     * Everything held, and how much of it there is.
+     *
+     * Two flows over one table rather than `list.size`, for the same reason the notice
+     * count is its own query: a list that is capped reports its cap, and this one is not
+     * capped but will be the moment somebody holds two hundred messages.
+     */
+    val flagged = repo.flagged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val flaggedCount = repo.flaggedCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     /** How many messages are waiting to go out. Zero almost always. */
     val queued = repo.queuedCount()

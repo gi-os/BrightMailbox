@@ -1342,6 +1342,10 @@ class Repo private constructor(private val app: Context) {
 
     /* ------------------------------------------------------------------- outbox */
 
+    fun flagged(): Flow<List<Msg>> = dao.flagged()
+
+    fun flaggedCount(): Flow<Int> = dao.flaggedCount()
+
     fun queuedCount(): Flow<Int> = dao.queuedCount()
 
     /** Everyone this mailbox has written to or heard from, most recent first. */

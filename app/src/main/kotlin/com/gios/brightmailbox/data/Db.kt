@@ -261,6 +261,20 @@ interface MailDao {
     @Query("UPDATE messages SET snippet = :snippet WHERE key = :key")
     suspend fun setSnippet(key: String, snippet: String)
 
+    /**
+     * Everything held, archived included.
+     *
+     * A star is the one mark in this app that means "keep this in front of me", and
+     * archiving something does not stop it being held — you can put a message away and
+     * still want to find it again without remembering who sent it. So this crosses the
+     * archive line, which none of the other list queries do.
+     */
+    @Query("SELECT * FROM messages WHERE starred ORDER BY receivedAt DESC")
+    fun flagged(): Flow<List<Msg>>
+
+    @Query("SELECT COUNT(*) FROM messages WHERE starred")
+    fun flaggedCount(): Flow<Int>
+
     @Query("UPDATE messages SET starred = :on WHERE key = :key")
     suspend fun setStarred(key: String, on: Boolean)
 

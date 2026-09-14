@@ -128,35 +128,7 @@ class Repo private constructor(private val app: Context) {
         .readTimeout(45, TimeUnit.SECONDS)
         .build()
 
-    private val prefs = app.getSharedPreferences("brightmailbox", Context.MODE_PRIVATE)
-
-    /**
-     * Whether this process is showing the demo mailbox instead of the real one.
-     *
-     * Read once, at construction, and never again — because the database file is chosen
-     * from it and a Room instance cannot change the file underneath the Flows already
-     * collecting from it. Turning the demo on or off writes the preference and restarts
-     * the app; see [setDemo].
-     *
-     * **A separate database is the whole safety argument.** The demo does not filter real
-     * mail out of a shared table, it is simply not in the same file — so there is no query
-     * anywhere that has to remember to exclude it, no migration that can mix the two, and
-     * nothing to clean up afterwards beyond deleting a file. Real mail is not touched,
-     * moved or read while the demo is on.
-     */
-    val demoOn: Boolean = prefs.getBoolean("demo", false)
-
-    init {
-        // One fictional mailbox stands in for the real accounts while the demo is on, so
-        // a screenshot of the settings screen cannot carry somebody's own address.
-        auth.demo = demoOn
-    }
-
-    private val db = Room.databaseBuilder(
-        app,
-        MailDb::class.java,
-        if (demoOn) "mailbox-demo.db" else "mailbox.db",
-    )
+    private val db = Room.databaseBuilder(app, MailDb::class.java, "mailbox.db")
         .addMigrations(
             MailDb.MIGRATION_1_2,
             MailDb.MIGRATION_2_3,
@@ -169,8 +141,28 @@ class Repo private constructor(private val app: Context) {
         .build()
 
     val dao: MailDao get() = db.dao()
+
+    private val prefs = app.getSharedPreferences("brightmailbox", Context.MODE_PRIVATE)
     private val bodies = File(app.filesDir, "bodies").apply { mkdirs() }
     private val modelFile = File(app.filesDir, "model.txt")
+
+    init {
+        /*
+         * Clear out the demo mailbox that v2.41 to v2.43 could create.
+         *
+         * Those builds had a DEMO MAILBOX switch in Settings that seeded a fictional
+         * mailbox into a second database file. The feature is gone, and its code went with
+         * it — but a database it wrote does not remove itself, and anybody who tried the
+         * demo would have gone on carrying a few hundred kilobytes of invented mail with
+         * no screen left that could ever show it.
+         *
+         * Removing a feature does not remove the data it left behind. This is the other
+         * half of the deletion, and it runs once: after the first launch there is nothing
+         * left to find and every call below is a no-op on a path that does not exist.
+         */
+        if (prefs.contains("demo")) runCatching { forgetTheDemo() }
+    }
+
 
     val learner = Learner().also { l ->
         if (modelFile.exists()) runCatching { l.load(modelFile.readText()) }
@@ -277,102 +269,6 @@ class Repo private constructor(private val app: Context) {
         get() = if (prefs.getInt("extra_day", 0) == today()) prefs.getInt("extra_n", 0) else 0
         set(v) = prefs.edit().putInt("extra_day", today()).putInt("extra_n", v).apply()
 
-    /* ---------------------------------------------------------------------- demo */
-
-    /**
-     * Turn the demo mailbox on or off, taking effect on the next launch.
-     *
-     * Only the preference is written here. The database file is picked in the constructor
-     * and every list on screen is a Flow bound to that instance, so swapping it underneath
-     * a running app would leave every screen subscribed to a closed database. The caller
-     * restarts the process instead, which costs a second and cannot be half-done.
-     *
-     * Switching **off** takes the demo mailbox with it — its database and its bodies are
-     * deleted rather than left on disk, because a mailbox nobody can see any more is not
-     * something to keep quietly storing.
-     */
-    fun setDemo(on: Boolean) {
-        /*
-         * `commit`, not `apply`, and this is the one place in the app where that matters.
-         *
-         * `apply` keeps the value in memory and writes the file on a background thread.
-         * Everywhere else that is exactly right — nothing here is worth blocking a tap
-         * for. But the caller kills the process a few milliseconds later to restart into
-         * the other database, and `Runtime.exit` does not wait for that write. The
-         * preference was being lost between the tap and the relaunch, so the app came
-         * back with the demo still off and the button looked broken.
-         *
-         * `commit` writes before it returns. It costs a few milliseconds on a tap that is
-         * about to restart the app anyway.
-         */
-        prefs.edit().putBoolean("demo", on).commit()
-        if (!on) clearDemo()
-    }
-
-    /**
-     * Fill the demo mailbox, once.
-     *
-     * Idempotent by the row count: seeding again over a mailbox somebody has been reading
-     * would restore everything they archived and un-read everything they opened, which is
-     * the opposite of a demo you can actually poke at. Turning the demo off and on again
-     * is the way to get a clean one, and that path deletes the file.
-     *
-     * Stamps are computed here rather than stored, so the front screen reads like this
-     * morning however long ago this was built.
-     */
-    suspend fun seedDemo() = withContext(Dispatchers.IO) {
-        if (!demoOn) return@withContext
-        if (dao.recent(1).isNotEmpty()) return@withContext
-
-        val now = System.currentTimeMillis()
-        val mail = Demo.mail()
-        dao.put(mail.map { Demo.row(it, now) })
-
-        for (m in mail) {
-            val key = "${Demo.ACCOUNT_ID}/${m.id}"
-            runCatching {
-                bodyFile(key).writeText(m.text)
-                // Always written, empty when there is none: the file's existence is the
-                // cached answer to "does this have HTML", and a missing one means nobody
-                // has looked yet. The reader picks its layout off exactly that.
-                htmlFile(key).writeText(m.html)
-                if (m.attachments.isNotEmpty()) {
-                    attachmentIndex(key).writeText(
-                        m.attachments.joinToString("\n") {
-                            "${it.name}\t${it.mime}\t${it.size}\t${it.part}"
-                        },
-                    )
-                }
-                if (m.ics.isNotBlank()) icsFile(key).writeText(m.ics)
-            }
-        }
-
-        // One half-written message, because the drafts screen with nothing on it says
-        // nothing about what drafts are for.
-        runCatching { dao.putDraft(Demo.draft()) }
-
-        // The sorter learns from what it is shown, and an empty model ranks nothing. This
-        // is the same call the first sync makes.
-        runCatching { retrain() }
-    }
-
-    /** Delete the demo mailbox: its database, its bodies, its attachments. */
-    private fun clearDemo() {
-        runCatching {
-            for (suffix in listOf("", "-shm", "-wal")) {
-                File(app.getDatabasePath("mailbox-demo.db").path + suffix).delete()
-            }
-        }
-        runCatching {
-            bodies.listFiles()?.forEach { f ->
-                if (f.name.startsWith(Demo.ACCOUNT_ID + "_")) f.delete()
-            }
-        }
-        runCatching { File(app.cacheDir, "attachments").listFiles()?.forEach { d ->
-            if (d.name.startsWith(Demo.ACCOUNT_ID + "_")) d.deleteRecursively()
-        } }
-    }
-
     /* --------------------------------------------------------------------- feeds */
 
     /**
@@ -459,17 +355,6 @@ class Repo private constructor(private val app: Context) {
      * connection, is pooled inside [Imap] and survives across these.
      */
     private fun serviceFor(id: String): MailService? {
-        /*
-         * The demo has no transport, and this line is the whole of that guarantee.
-         *
-         * Every connection in this app — fetching, sending, archiving, flagging, IDLE,
-         * quota, search — is built here and nowhere else. Returning null while the demo is
-         * on means there is no server to reach, so no credential is used, no mailbox is
-         * touched and nothing leaves the phone. Every verb already tolerates a null
-         * service, because a null service used to mean "signed out" and always had to be
-         * survivable.
-         */
-        if (demoOn) return null
         val acct = auth.accounts().firstOrNull { it.id == id } ?: return null
         // Where this mailbox lives is a property of the ACCOUNT now, not of the provider:
         // Service.IMAP has no hosts of its own. See AuthManager.servers.
@@ -495,10 +380,6 @@ class Repo private constructor(private val app: Context) {
      *   WorkManager's ten-minute budget; the setup screen walks a bigger number itself.
      */
     suspend fun sync(limit: Int = 20): SyncResult = withContext(Dispatchers.IO) {
-        // Nothing to check. Falling through would walk the fictional account, fail to
-        // build a service for it and report "not signed in" as a sync failure — a
-        // demonstration mailbox permanently wearing an error message.
-        if (demoOn) return@withContext SyncResult(0, 0, null)
         val mine = myAddresses()
         val overrides = dao.allRules().associate { it.address to Pile.valueOf(it.pile) }
         val replies = dao.correspondents().associate { it.address to it.replies }
@@ -734,9 +615,6 @@ class Repo private constructor(private val app: Context) {
      * @return how many were new.
      */
     suspend fun searchServer(query: String, limit: Int = 40): Int = withContext(Dispatchers.IO) {
-        // There is no further back. Everything the demo mailbox has ever held is already
-        // on the phone, so the honest answer is "nothing new" rather than an error.
-        if (demoOn) return@withContext 0
         val q = query.trim()
         if (q.length < 2) return@withContext 0
         val mine = myAddresses()
@@ -815,10 +693,6 @@ class Repo private constructor(private val app: Context) {
     suspend fun unsubscribe(msg: Msg): Left = withContext(Dispatchers.IO) {
         val ways = Unsub.parse(msg.unsubscribe)
         if (!ways.any) return@withContext Left.None
-        // The button works, the POST does not happen. Every unsubscribe URL in the demo
-        // mailbox points at a domain that does not exist, and a one-click unsubscribe is
-        // still a request leaving the phone.
-        if (demoOn) return@withContext Left.Done
 
         if (msg.oneClick && ways.http != null) {
             val ok = runCatching {
@@ -888,12 +762,6 @@ class Repo private constructor(private val app: Context) {
     }
 
     private suspend fun move(msg: Msg, box: Box): Boolean {
-        // Locally, which in a mailbox with no server is the whole of the move.
-        if (demoOn) {
-            dao.forget(msg.key)
-            runCatching { bodyFile(msg.key).delete(); htmlFile(msg.key).delete() }
-            return true
-        }
         val svc = serviceFor(msg.accountId) ?: return false
         /*
          * An archived message carrying an untagged id has no UID worth using.
@@ -930,10 +798,6 @@ class Repo private constructor(private val app: Context) {
      */
     suspend fun sent(limit: Int = SENT_PAGE, offset: Int = 0): List<Msg> =
         withContext(Dispatchers.IO) {
-        // The demo's sent mail is in the table, carrying the same "SENT" pile as the rows
-        // this function builds — which matches no query in the app, so it reaches exactly
-        // this screen and no other. One SELECT instead of a folder nobody can open.
-        if (demoOn) return@withContext dao.sentRows(limit, offset)
         val out = ArrayList<Msg>()
         for (account in auth.accounts()) {
             val svc = serviceFor(account.id) ?: continue
@@ -1229,16 +1093,6 @@ class Repo private constructor(private val app: Context) {
         File(bodies, key.replace('/', '_') + ".att")
 
     /**
-     * The calendar part, cached only for the demo.
-     *
-     * Real invitations are fetched when the reader asks, because an invite is rare and
-     * caching it would mean a fourth file per message for something most mail does not
-     * have. The demo has no fetch to fall back on, so its one invitation is written to
-     * disk at seed time and read through the same parser.
-     */
-    private fun icsFile(key: String) = File(bodies, key.replace('/', '_') + ".ics")
-
-    /**
      * What is attached to a message, cached beside the body.
      *
      * A tiny hand-rolled record per line — name, mime, size, part — rather than JSON,
@@ -1278,16 +1132,6 @@ class Repo private constructor(private val app: Context) {
         // overwrite each other.
         val out = File(dir, att.part.replace('.', '_') + "-" + safeName(att.name))
         if (out.exists() && out.length() > 0) return@withContext out
-
-        // The demo's one attachment is generated rather than fetched. It is a real PDF —
-        // an attachment that cannot be opened would demonstrate the opposite of the thing
-        // it is there to demonstrate.
-        if (demoOn) {
-            return@withContext runCatching {
-                out.writeBytes(Demo.attachmentBytes())
-                out
-            }.getOrNull()
-        }
 
         val svc = serviceFor(msg.accountId) ?: return@withContext null
         val bytes = runCatching { svc.attachment(msg.providerId, att.part) }.getOrNull()
@@ -1378,18 +1222,6 @@ class Repo private constructor(private val app: Context) {
      * header, cannot be found again and is refused rather than half-moved.
      */
     suspend fun unarchive(msg: Msg): Boolean = withContext(Dispatchers.IO) {
-        /*
-         * In the demo the row simply changes its mind.
-         *
-         * The real version deletes the local row instead, because a message moved back to
-         * INBOX is given a new UID and the old one would address nothing. Nothing here
-         * has a UID, so there is nothing to go stale and the row can be kept — which also
-         * keeps whether it had been read.
-         */
-        if (demoOn) {
-            dao.put(listOf(msg.copy(archived = false)))
-            return@withContext true
-        }
         val id = msg.messageId?.takeIf { it.isNotBlank() } ?: return@withContext false
         val svc = serviceFor(msg.accountId) ?: return@withContext false
         val moved = runCatching { svc.unarchive(id) }.getOrDefault(false)
@@ -1405,12 +1237,6 @@ class Repo private constructor(private val app: Context) {
      * fourth copy of the same fetch for something most mail does not have.
      */
     suspend fun invite(msg: Msg): Ics.Invite? = withContext(Dispatchers.IO) {
-        if (demoOn) {
-            val f = icsFile(msg.key)
-            if (!f.exists()) return@withContext null
-            return@withContext runCatching { Ics.parse(f.readText()) }.getOrNull()
-                ?.takeIf { it.isRequest && it.organizer.isNotBlank() }
-        }
         val svc = serviceFor(msg.accountId) ?: return@withContext null
         val c = runCatching { svc.content(msg.providerId) }.getOrNull() ?: return@withContext null
         val ics = c.calendar?.takeIf { it.isNotBlank() } ?: return@withContext null
@@ -1426,10 +1252,6 @@ class Repo private constructor(private val app: Context) {
      */
     suspend fun rsvp(msg: Msg, invite: Ics.Invite, answer: Ics.Answer): Boolean =
         withContext(Dispatchers.IO) {
-            // Answered, as far as the screen is concerned, and nothing is sent. The
-            // organizer is fictional and the reply would be a real message to a real
-            // domain if one ever stopped being.
-            if (demoOn) return@withContext true
             val account = auth.accounts().firstOrNull { it.id == msg.accountId }
                 ?: return@withContext false
             val stamp = java.text.SimpleDateFormat("yyyyMMdd'T'HHmmss'Z'", java.util.Locale.US)
@@ -1614,7 +1436,6 @@ class Repo private constructor(private val app: Context) {
      * is a screen about storage rather than a settings screen with a fact on it.
      */
     suspend fun quota(): com.gios.brightmailbox.mail.Quota? = withContext(Dispatchers.IO) {
-        if (demoOn) return@withContext Demo.quota
         val account = auth.accounts().firstOrNull() ?: return@withContext null
         runCatching { serviceFor(account.id)?.quota() }.getOrNull()
     }
@@ -1696,9 +1517,6 @@ class Repo private constructor(private val app: Context) {
      * to hear at all.
      */
     suspend fun watch(onMail: suspend () -> Unit) = withContext(Dispatchers.IO) {
-        // No connection to hold open, and without this the reconnect ladder would spin on
-        // a null service for as long as the screen was on.
-        if (demoOn) return@withContext
         val account = auth.accounts().firstOrNull() ?: return@withContext
         var backoff = 5_000L
         while (isActive) {
@@ -1797,15 +1615,6 @@ class Repo private constructor(private val app: Context) {
         val outgoing = if (sig.isBlank()) msg else msg.copy(
             body = msg.body.trimEnd() + "\n\n-- \n" + sig,
         )
-        /*
-         * The demo does not send, and it must not fail either.
-         *
-         * Failing here is not neutral: the compose screen queues anything that would not
-         * go, so a message written in the demo would sit in the outbox and leave for real
-         * the moment somebody turned the demo off. Returning quietly is the only outcome
-         * that cannot surprise anybody later. The screen says what happened.
-         */
-        if (demoOn) return@withContext
         serviceFor(accountId)?.send(outgoing) ?: error("no such account")
         // Writing to someone is the strongest evidence they are a person.
         msg.to.forEach { addr ->
@@ -1873,6 +1682,18 @@ class Repo private constructor(private val app: Context) {
     fun today(): Int {
         val c = Calendar.getInstance()
         return c.get(Calendar.YEAR) * 10000 + (c.get(Calendar.MONTH) + 1) * 100 + c.get(Calendar.DAY_OF_MONTH)
+    }
+
+    /** Delete everything the removed demo mailbox left on disk. */
+    private fun forgetTheDemo() {
+        prefs.edit().remove("demo").apply()
+        for (suffix in listOf("", "-shm", "-wal")) {
+            File(app.getDatabasePath("mailbox-demo.db").path + suffix).delete()
+        }
+        bodies.listFiles()?.forEach { if (it.name.startsWith("demo_")) it.delete() }
+        File(app.cacheDir, "attachments").listFiles()?.forEach {
+            if (it.name.startsWith("demo_")) it.deleteRecursively()
+        }
     }
 
     companion object {

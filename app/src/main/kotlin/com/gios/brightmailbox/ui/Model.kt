@@ -394,22 +394,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshAccounts() { _accounts.value = repo.auth.accounts() }
 
-    init {
-        refreshRation()
-        /*
-         * Fill the demo mailbox the first time it is looked at.
-         *
-         * Here rather than in the repository's constructor because seeding is disk work
-         * and a constructor that writes files is a constructor that can hang the first
-         * frame. The lists on screen are Flows over the same database, so rows arriving a
-         * moment later simply appear — there is no empty state to wait through.
-         *
-         * Safe inside init despite `viewModelScope` being Main.immediate: `seedDemo`
-         * suspends into an IO context on its first line, so nothing here runs against
-         * properties this class has not declared yet.
-         */
-        if (repo.demoOn) viewModelScope.launch { repo.seedDemo() }
-    }
+    init { refreshRation() }
 
     fun go(s: Screen) {
         _screen.value = s
@@ -1170,9 +1155,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
                 // Only once it is gone. "Not sent. Your draft is still here." has to be
                 // true, and it was not: nothing was keeping the draft at all.
                 repo.dropDraft(draftId)
-                // The demo has no transport, so "Sent." would be the one sentence in the
-                // app that is not true. Said plainly, at the only moment it matters.
-                said(if (repo.demoOn) "Nothing sent. This is the demo mailbox." else "Sent.")
+                said("Sent.")
                 go(Screen.Home)
             }
             .onFailure {

@@ -27,8 +27,7 @@ The day's Letters with the ration in the header; the Notices pile, one line each
 grouped by day; and a message rendered the way its sender built it, laid out at the width
 it declares and scaled to the panel.
 
-Taken from the demo mailbox — Settings -> DEMO MAILBOX — so nothing above is anybody's
-real correspondence.
+The mail in them is invented, so nothing above is anybody's real correspondence.
 
 ---
 

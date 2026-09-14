@@ -1,3 +1,18 @@
+## BrightMailbox v2.44 — the demo mailbox is gone
+
+Settings -> DEMO MAILBOX is removed, along with every branch behind it: the second
+database, the fictional account, the seeded mail and the guards that kept the demo from
+reaching a server. It existed for three releases, which was long enough to take the
+screenshots in the README.
+
+The data it wrote does not remove itself, so this release deletes it: the demo database,
+its cached bodies and its one attachment, once, on the first launch. Removing a feature
+and leaving its files on the phone would mean anybody who tried the demo kept carrying a
+few hundred kilobytes of invented mail that no screen could ever show again.
+
+Nothing about real mail changes. The interpolation fixes from v2.41 and the chime fix from
+v2.43 are untouched.
+
 ## BrightMailbox v2.43 — the chime never played, and the reason was a number
 
 Picking a sound in Settings played it, and then mail arrived silent or wrong.

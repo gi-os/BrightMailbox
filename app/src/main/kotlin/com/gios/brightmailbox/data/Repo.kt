@@ -156,6 +156,23 @@ class Repo private constructor(private val app: Context) {
         set(v) = prefs.edit().putBoolean("images", v).apply()
 
     /**
+     * A line of the message's own text under each Letter row. **Off by default.**
+     *
+     * Off because of what this app is. A ration exists so the day's mail is a short list
+     * you finish, and a preview is the start of reading a message from the list — the
+     * habit every other mail client is built around and the one this one was made to
+     * break. Sender and subject are enough to decide; a third of the first paragraph is
+     * enough to start skimming.
+     *
+     * On for anyone who wants it, and it costs nothing either way: the text is written
+     * into the row when the body is prefetched regardless of this setting, so turning it
+     * on fills the list immediately rather than waiting for a sync.
+     */
+    var previews: Boolean
+        get() = prefs.getBoolean("previews", false)
+        set(v) = prefs.edit().putBoolean("previews", v).apply()
+
+    /**
      * Appended to everything sent, after the standard "-- " separator.
      *
      * That separator is not decoration: RFC 3676 defines "-- " on a line of its own as the

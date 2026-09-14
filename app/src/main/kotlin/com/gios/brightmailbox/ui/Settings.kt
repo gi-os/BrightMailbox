@@ -230,6 +230,28 @@ fun SettingsScreen(vm: MailboxViewModel) {
                 T(if (images) "on" else "off", t.copy, Secondary)
             }
 
+            Spacer(Modifier.height(g * 1.1f))
+            var previews by remember { mutableStateOf(vm.repo.previews) }
+            T(
+                "A line of the message itself under each Letter. Off by default: the " +
+                    "point of a short list is that you finish it, and a preview is where " +
+                    "skimming starts.",
+                t.detail,
+                Secondary,
+            )
+            Spacer(Modifier.height(g * 0.7f))
+            Row(
+                Modifier.fillMaxWidth().lightClickable {
+                    previews = !previews
+                    vm.setPreviews(previews)
+                }.padding(vertical = g * 0.35f),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                T("Preview lines", t.copy, if (previews) Content else Secondary)
+                T(if (previews) "on" else "off", t.copy, Secondary)
+            }
+
             Section("SIGNATURE")
             var signature by remember { mutableStateOf(TextFieldValue(vm.repo.signature)) }
             T(

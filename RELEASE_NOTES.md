@@ -1,3 +1,22 @@
+## v2.34 — Preview lines are a setting, and the screen stays on while you wait
+
+Settings → READING → **Preview lines**, off unless you turn it on. v2.33 shipped them on
+for everyone, and that was the wrong default for this app: a ration exists so the day's
+mail is a short list you finish, and a preview is where skimming starts. Sender and subject
+are enough to decide whether to open something.
+
+Nothing changes underneath. The text is still written into the row when the message body is
+fetched, whether the setting is on or not, so switching it on fills the whole list at once
+rather than waiting for the next sync — and switching it back off costs nothing either.
+
+**The screen no longer turns off in the middle of a long job.** Archiving four hundred
+messages is a couple of minutes of IMAP and a send over a weak connection is not instant;
+the panel used to go dark thirty seconds in, and on this phone that is not only the
+backlight — the process becomes a candidate for the system's power rules the moment the
+screen goes. What you saw was a progress bar that had stopped halfway and a job that had
+not finished. The screen is now held on for exactly as long as there is a progress bar to
+watch, and released the moment there is not.
+
 ## v2.33 — Unsubscribe, delete, previews, and an outbox
 
 **UNSUBSCRIBE, under the ··· in a message.** The `List-Unsubscribe` header has been read

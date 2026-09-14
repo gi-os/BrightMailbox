@@ -284,6 +284,22 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * Whether a Letter row shows a line of the message under it. Off by default.
+     *
+     * State as well as a preference, because the lists have to repaint the moment it is
+     * switched — reading `repo.previews` straight from a row would give a value nothing
+     * invalidates, and the setting would look like it had done nothing until the next
+     * sync. Same reason [LocalAccountWords] is a composition local rather than a call.
+     */
+    private val _previews = MutableStateFlow(repo.previews)
+    val previews: StateFlow<Boolean> = _previews.asStateFlow()
+
+    fun setPreviews(on: Boolean) {
+        repo.previews = on
+        _previews.value = on
+    }
+
+    /**
      * The message being read, held here rather than looked up in the lists.
      *
      * The reader used to find its message by key in `letters + notices`, and opening a

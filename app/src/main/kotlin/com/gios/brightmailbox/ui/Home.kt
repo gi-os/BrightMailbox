@@ -482,7 +482,7 @@ fun LetterRow(
          * Absent rather than blank when there is nothing yet: an empty line of its own
          * height would make rows jump as the prefetch filled them in.
          */
-        if (m.snippet.isNotBlank()) {
+        if (LocalPreviews.current && m.snippet.isNotBlank()) {
             Spacer(Modifier.height(g * 0.15f))
             T(m.snippet, t.superfine, Secondary, maxLines = 1)
         }
@@ -811,6 +811,17 @@ fun clock(at: Long): String =
  * that show it, and a static local does not invalidate its readers.
  */
 val LocalAccountWords = compositionLocalOf { emptyMap<String, String>() }
+
+/**
+ * Whether rows carry a preview line. Settings → READING, off by default.
+ *
+ * A local rather than a parameter for the same reason as [LocalAccountWords]: four screens
+ * draw a Letter row, none of them has any other reason to know about the setting, and
+ * threading a boolean through four call sites to reach one line of text is how a signature
+ * grows. `compositionLocalOf`, not the static one — switching it has to repaint the rows
+ * that read it, and a static local does not invalidate its readers.
+ */
+val LocalPreviews = compositionLocalOf { false }
 
 @Composable
 fun accountWord(accountId: String): String =

@@ -47,6 +47,7 @@ import com.gios.brightmailbox.ui.ClientIdScreen
 import com.gios.brightmailbox.ui.FirstSyncScreen
 import com.gios.brightmailbox.ui.HomeScreen
 import com.gios.brightmailbox.ui.LocalAccountWords
+import com.gios.brightmailbox.ui.LocalPreviews
 import com.gios.brightmailbox.ui.MailboxViewModel
 import com.gios.brightmailbox.ui.NoticesScreen
 import com.gios.brightmailbox.ui.PasswordScreen
@@ -229,8 +230,36 @@ class MainActivity : ComponentActivity() {
 
                 // Every screen that names a mailbox reads the names from here.
                 val accounts by vm.accounts.collectAsStateWithLifecycle()
+                val previews by vm.previews.collectAsStateWithLifecycle()
+
+                /*
+                 * The screen stays on while the app is doing something slow.
+                 *
+                 * Archiving four hundred messages is a couple of minutes of IMAP, and a
+                 * send over a weak connection is not instant either. LightOS turns the
+                 * panel off after thirty seconds — and on this phone that is not just the
+                 * backlight: the process is a candidate for the doze rules the moment the
+                 * screen goes, so what the person sees is a bar that stopped halfway and a
+                 * job that did not finish.
+                 *
+                 * Tied to `work`, which is exactly the set of operations that report a
+                 * progress bar, so the flag is held for as long as there is something to
+                 * watch and not one second longer. Cleared in `onDispose`, which runs on
+                 * every change of the condition as well as on teardown — a KEEP_SCREEN_ON
+                 * left set is a flat battery by morning.
+                 */
+                val work by vm.work.collectAsStateWithLifecycle()
+                androidx.compose.runtime.DisposableEffect(work != null) {
+                    if (work != null) {
+                        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                    onDispose {
+                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                }
                 CompositionLocalProvider(
                     LocalAccountWords provides accounts.associate { it.id to it.word },
+                    LocalPreviews provides previews,
                     LocalWheelBus provides wheel,
                 ) {
                 /*

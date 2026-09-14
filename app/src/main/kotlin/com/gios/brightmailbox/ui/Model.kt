@@ -772,7 +772,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         if (!force && _sent.value.isNotEmpty()) return@launch
         _sentLoading.value = true
         val page = runCatching { repo.sent() }.getOrDefault(emptyList())
-        _sent.value = page
+        _sent.value = page.distinctBy { it.key }
         _sentMore.value = page.size >= com.gios.brightmailbox.data.Repo.SENT_PAGE
         _sentLoading.value = false
     }

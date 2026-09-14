@@ -798,7 +798,7 @@ class Repo private constructor(private val app: Context) {
                 val others = m.to.size + m.cc.size - 1
                 out.add(
                     Msg(
-                        key = "${'$'}{m.accountId}/${'$'}{m.id}",
+                        key = "${m.accountId}/${m.id}",
                         accountId = m.accountId,
                         providerId = m.id,
                         threadId = m.threadId,

@@ -299,8 +299,10 @@ fun SentScreen(vm: MailboxViewModel) {
     val t = LocalType.current
     val rows by vm.sent.collectAsStateWithLifecycle()
     val loading by vm.sentLoading.collectAsStateWithLifecycle()
+    val more by vm.sentMore.collectAsStateWithLifecycle()
 
-    // Every open, not just the first: something sent a minute ago should be at the top.
+    // Only if there is nothing yet. Coming back from a message must not refetch the
+    // folder — see [MailboxViewModel.loadSent].
     LaunchedEffect(Unit) { vm.loadSent() }
 
     Frame {
@@ -344,12 +346,31 @@ fun SentScreen(vm: MailboxViewModel) {
                 items(rows, key = { it.key }) { m ->
                     LetterRow(m, onClick = { vm.open(m, Screen.Sent) }, onHold = {})
                 }
+                /*
+                 * The next twenty, asked for by arriving at the bottom.
+                 *
+                 * An item rather than a scroll listener: a LazyColumn only composes what
+                 * is on screen, so this line existing *is* the signal that the end has
+                 * been reached. No thresholds, no index arithmetic, and nothing runs while
+                 * you are sitting at the top of the list.
+                 */
+                if (more) {
+                    item(key = "more") {
+                        LaunchedEffect(rows.size) { vm.loadMoreSent() }
+                        T(
+                            if (loading) "Getting more…" else "…",
+                            t.superfine,
+                            Secondary,
+                            Modifier.padding(vertical = g * 0.6f),
+                        )
+                    }
+                }
             }
         }
 
         ActionBar(
             left = "BACK" to { vm.go(Screen.Menu) },
-            right = if (rows.isEmpty()) null else "REFRESH" to { vm.loadSent() },
+            right = if (rows.isEmpty()) null else "REFRESH" to { vm.loadSent(force = true) },
         )
     }
 }
@@ -403,7 +424,9 @@ fun DraftsScreen(vm: MailboxViewModel) {
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .lightClickable { vm.go(Screen.Write(draftId = d.id)) },
+                            .lightClickable {
+                                vm.go(Screen.Write(draftId = d.id, from = Screen.Drafts))
+                            },
                     ) {
                         T(
                             d.to.ifBlank { "(no recipient)" },

@@ -530,6 +530,8 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
              * LightBottomBar takes up to five icon items but only three if any of them is
              * text — so dropping the words is what buys the fourth slot.
              */
+            // Abandoning a reply puts you back in the message you were replying to.
+            val here = Screen.Read(msg.key)
             Row(
                 Modifier.fillMaxWidth().height(g.actionBar),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -547,11 +549,11 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                  */
                 if (msg.pile == "SENT") {
                     BarIcon(R.drawable.ic_forward_white, "Forward") {
-                        vm.go(Screen.Write(msg, mode = WriteMode.FORWARD))
+                        vm.go(Screen.Write(msg, mode = WriteMode.FORWARD, from = here))
                     }
                 } else {
                     BarIcon(R.drawable.ic_reply_white, "Reply") {
-                        vm.go(Screen.Write(msg, mode = WriteMode.REPLY))
+                        vm.go(Screen.Write(msg, mode = WriteMode.REPLY, from = here))
                     }
                     BarIcon(R.drawable.ic_archive_white, "Archive") { vm.archive(msg) }
                 }
@@ -1172,7 +1174,7 @@ private fun WhySheet(vm: MailboxViewModel, msg: Msg, onClose: () -> Unit) {
                     "REPLY ALL",
                     t.button,
                     modifier = Modifier.lightClickable {
-                        vm.go(Screen.Write(msg, mode = WriteMode.REPLY_ALL))
+                        vm.go(Screen.Write(msg, mode = WriteMode.REPLY_ALL, from = Screen.Read(msg.key)))
                     },
                     maxLines = 1,
                 )
@@ -1181,7 +1183,7 @@ private fun WhySheet(vm: MailboxViewModel, msg: Msg, onClose: () -> Unit) {
                 "FORWARD",
                 t.button,
                 modifier = Modifier.lightClickable {
-                    vm.go(Screen.Write(msg, mode = WriteMode.FORWARD))
+                    vm.go(Screen.Write(msg, mode = WriteMode.FORWARD, from = Screen.Read(msg.key)))
                 },
                 maxLines = 1,
             )

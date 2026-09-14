@@ -51,6 +51,15 @@ sealed interface Screen {
         val replyTo: Msg? = null,
         val draftId: Long = 0L,
         val mode: WriteMode = WriteMode.NEW,
+        /**
+         * Where CANCEL goes back to.
+         *
+         * It always went Home, which is wrong from the one screen where compose is
+         * reached deliberately: opening a draft, deciding not to finish it, and being
+         * thrown to the inbox loses the list you were working through. Home stays the
+         * default because that is where WRITE is pressed from.
+         */
+        val from: Screen = Home,
     ) : Screen
     /** The list behind the hamburger: everything that is not reading today's mail. */
     data object Menu : Screen
@@ -746,11 +755,47 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     val sent: StateFlow<List<Msg>> = _sent.asStateFlow()
     private val _sentLoading = MutableStateFlow(false)
     val sentLoading: StateFlow<Boolean> = _sentLoading.asStateFlow()
+    /** False once a page comes back short, which is the end of the folder. */
+    private val _sentMore = MutableStateFlow(true)
+    val sentMore: StateFlow<Boolean> = _sentMore.asStateFlow()
 
-    fun loadSent() = viewModelScope.launch {
+    /**
+     * The first page, and only if there is not one already.
+     *
+     * The screen used to reload on every entry, which meant **opening a sent message and
+     * pressing back paid the whole fetch again** — twenty seconds of nothing, which reads
+     * as the app having hung or lost your place. The list is kept; REFRESH is how you ask
+     * for it again, and that is a button somebody presses on purpose.
+     */
+    fun loadSent(force: Boolean = false) = viewModelScope.launch {
         if (_sentLoading.value) return@launch
+        if (!force && _sent.value.isNotEmpty()) return@launch
         _sentLoading.value = true
-        _sent.value = runCatching { repo.sent() }.getOrDefault(emptyList())
+        val page = runCatching { repo.sent() }.getOrDefault(emptyList())
+        _sent.value = page
+        _sentMore.value = page.size >= com.gios.brightmailbox.data.Repo.SENT_PAGE
+        _sentLoading.value = false
+    }
+
+    /**
+     * The next twenty, when the list has been scrolled to its end.
+     *
+     * Offset by what is already held rather than by a page number: with two mailboxes the
+     * merged list is not a clean multiple of the page size, and counting rows is the only
+     * number that means the same thing to both sides.
+     */
+    fun loadMoreSent() = viewModelScope.launch {
+        if (_sentLoading.value || !_sentMore.value) return@launch
+        _sentLoading.value = true
+        val more = runCatching { repo.sent(offset = _sent.value.size) }.getOrDefault(emptyList())
+        if (more.isEmpty()) {
+            _sentMore.value = false
+        } else {
+            // Distinct again at the join: two pages can overlap if something was sent
+            // between the two fetches, and a duplicate key is a crash in a LazyColumn.
+            _sent.value = (_sent.value + more).distinctBy { it.key }
+            _sentMore.value = more.size >= com.gios.brightmailbox.data.Repo.SENT_PAGE
+        }
         _sentLoading.value = false
     }
 

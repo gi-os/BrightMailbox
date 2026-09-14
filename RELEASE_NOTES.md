@@ -1,3 +1,35 @@
+## v2.40 — SENT loads twenty at a time, and stops crashing
+
+**The sent list was fetching sixty messages over a folder with no local cache behind it,
+every single time the screen opened** — including when you pressed back out of a sent
+message, which is why leaving one felt like the app had lost your place. Twenty now, with
+the next twenty arriving as you reach the bottom of the list, and the list is kept when you
+leave it. REFRESH is how you ask for it again, which is a button somebody presses on
+purpose.
+
+Two things were making it slow rather than one. Finding the sent folder costs a full
+listing of every folder on the account — every label, on Gmail — and that was being paid
+again on **each body fetch of a sent message**, because a message from outside the inbox
+has to say which folder it came from before it can be read. The answer does not change
+while the app is running, so it is asked once now.
+
+The crash is guarded at the point it happened: two rows sharing an identifier is fatal to a
+list, and it fails when the list draws rather than when the duplicate was made, so it
+looked like opening the screen was what broke. Rows are made distinct before anything sees
+them, and again where two pages join — a message sent between one fetch and the next can
+legitimately appear in both.
+
+**Cancelling a draft puts you back in the drafts list.** It always went to the inbox, which
+is right when you pressed WRITE there and wrong everywhere else: opening a draft, deciding
+not to finish it, and being thrown to the inbox loses the list you were working through.
+Abandoning a reply now returns you to the message you were replying to, for the same
+reason.
+
+**Choosing a notification sound plays it.** Picking one and being told nothing is a setting
+you have to guess at — the only way to hear it was to wait for mail to arrive, which is the
+one thing you cannot arrange. It plays at notification volume, because a preview at media
+volume is not a preview of what the phone will actually do.
+
 ## v2.39 — Both swipes, and you choose what they do
 
 **Settings → GESTURES.** Pushing a row left has archived it since v2.16; now it can archive,

@@ -473,13 +473,23 @@ class Imap(
         }
     }
 
-    override suspend fun sent(limit: Int): List<Message> = io {
+    override suspend fun sent(limit: Int, offset: Int): List<Message> = io {
         val name = folder(Box.SENT) ?: return@io emptyList()
         withFolder(name, write = false) { f ->
             val validity = f.getUIDValidity()
             val total = f.messageCount
             if (total <= 0) return@withFolder emptyList<Message>()
-            val msgs = f.getMessages(maxOf(1, total - limit + 1), total)
+            /*
+             * A window counted back from the newest.
+             *
+             * Sequence numbers run oldest-first, so "the 20 after the newest 20" is the
+             * block ending at `total - offset`. Past the end of the folder both bounds go
+             * non-positive, which is the signal there is no more to load rather than an
+             * error to report.
+             */
+            val end = total - offset
+            if (end < 1) return@withFolder emptyList<Message>()
+            val msgs = f.getMessages(maxOf(1, end - limit + 1), end)
             f.fetch(
                 msgs,
                 FetchProfile().apply {
@@ -682,7 +692,21 @@ class Imap(
      * when the account genuinely has no such folder — some IMAP servers have no Junk at
      * all — and every caller has to have an answer for that other than "throw".
      */
-    private suspend fun folder(box: Box): String? = when (box) {
+    private suspend fun folder(box: Box): String? = Pool.folder(accountId, box) {
+        resolve(box)
+    }
+
+    /**
+     * Ask the server where a well-known folder lives. Slow, hence [Pool.folder] above it.
+     *
+     * `special()` issues `LIST "" "*"` — every folder on the account, and on Gmail every
+     * label — and this was being paid on **every body fetch of a sent message**, because
+     * `folderOf` routes by tag and had to resolve the name each time. A mailbox with a few
+     * hundred labels turned opening a sent message into seconds of listing. The answer
+     * does not change while the app is running, so it is asked once per account per
+     * folder and dropped with the connection.
+     */
+    private suspend fun resolve(box: Box): String? = when (box) {
         Box.INBOX -> "INBOX"
         Box.SENT -> special(store(), "\\Sent", null, servers.sentNames)?.fullName
         Box.ARCHIVE -> special(store(), "\\All", "\\Archive", servers.archiveNames)?.fullName
@@ -840,6 +864,31 @@ class Imap(
     private object Pool {
         private val stores = HashMap<String, Store>()
 
+        /**
+         * Where each well-known folder lives, per account.
+         *
+         * Cached because finding one costs a full LIST of the account's folders, and the
+         * answer is stable for the life of a connection. Dropped alongside the store it
+         * was learned from — a reconnect is the only event that could invalidate it.
+         */
+        private val folders = HashMap<String, String?>()
+
+        @Synchronized
+        private fun cached(key: String): Pair<Boolean, String?> =
+            if (folders.containsKey(key)) true to folders[key] else false to null
+
+        @Synchronized
+        private fun remember(key: String, name: String?) { folders[key] = name }
+
+        suspend fun folder(accountId: String, box: Box, find: suspend () -> String?): String? {
+            val key = "$accountId/${box.name}"
+            val (hit, name) = cached(key)
+            if (hit) return name
+            val found = find()
+            remember(key, found)
+            return found
+        }
+
         @Synchronized
         fun get(key: String, connect: () -> Store): Store {
             stores[key]?.let { existing ->
@@ -850,15 +899,34 @@ class Imap(
             return connect().also { stores[key] = it }
         }
 
+        /**
+         * Forget where the folders were, for one account or all of them.
+         *
+         * `filter` copies before `remove` runs, so this is not iterating the map it is
+         * mutating. Always called with the store it learned from, because a reconnect is
+         * the only thing that could make the answer wrong.
+         */
+        @Synchronized
+        fun forgetFolders(accountId: String?) {
+            if (accountId == null) {
+                folders.clear()
+            } else {
+                folders.keys.filter { it.startsWith("$accountId/") }
+                    .forEach { folders.remove(it) }
+            }
+        }
+
         @Synchronized
         fun drop(key: String) {
             stores.remove(key)?.let { runCatching { it.close() } }
+            forgetFolders(key)
         }
 
         @Synchronized
         fun dropAll() {
             stores.values.forEach { runCatching { it.close() } }
             stores.clear()
+            forgetFolders(null)
         }
     }
 

@@ -778,11 +778,12 @@ class Repo private constructor(private val app: Context) {
      *
      * `pile` is "SENT", which no query in this app matches. That is the point.
      */
-    suspend fun sent(limit: Int = 60): List<Msg> = withContext(Dispatchers.IO) {
+    suspend fun sent(limit: Int = SENT_PAGE, offset: Int = 0): List<Msg> =
+        withContext(Dispatchers.IO) {
         val out = ArrayList<Msg>()
         for (account in auth.accounts()) {
             val svc = serviceFor(account.id) ?: continue
-            val found = runCatching { svc.sent(limit) }.getOrDefault(emptyList())
+            val found = runCatching { svc.sent(limit, offset) }.getOrDefault(emptyList())
             for (m in found) {
                 /*
                  * A sent message is shown by who it went TO.
@@ -822,7 +823,16 @@ class Repo private constructor(private val app: Context) {
                 )
             }
         }
-        out.sortedByDescending { it.receivedAt }.take(limit)
+        /*
+         * Distinct by key before anything else sees it.
+         *
+         * A LazyColumn throws when two rows share a key, and it throws at the moment the
+         * list draws rather than at the moment the duplicate was made — so a fetch that
+         * quietly produced two rows with the same id looked like a crash on opening the
+         * screen. Nothing here should produce one; this is the guard that keeps a
+         * transport surprise from being a crash.
+         */
+        out.distinctBy { it.key }.sortedByDescending { it.receivedAt }
     }
 
     /**
@@ -1659,6 +1669,16 @@ class Repo private constructor(private val app: Context) {
     companion object {
         /** Rows per page in the archive. */
         const val ARCHIVE_PAGE = 100
+
+        /**
+         * How many sent messages arrive at a time.
+         *
+         * Twenty, not sixty. Sixty meant a header fetch over a folder with no local cache
+         * behind it every time the screen opened — long enough that leaving a sent message
+         * and coming back looked like the app had hung. Twenty fills the screen twice over
+         * and the rest arrives as you reach it.
+         */
+        const val SENT_PAGE = 20
 
         @Volatile private var instance: Repo? = null
 

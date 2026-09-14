@@ -249,7 +249,7 @@ interface MailService {
      * The ids carry a "SENT:" prefix so [content] and [attachment] know to open the sent
      * folder rather than INBOX. A UID means nothing without the folder it was issued in.
      */
-    suspend fun sent(limit: Int): List<Message>
+    suspend fun sent(limit: Int, offset: Int = 0): List<Message>
 
     /**
      * Move messages into [box] — the general form of [archive].

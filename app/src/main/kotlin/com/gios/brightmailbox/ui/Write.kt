@@ -85,6 +85,7 @@ fun WriteScreen(
     replyTo: Msg?,
     openDraftId: Long = 0L,
     mode: WriteMode = if (replyTo != null) WriteMode.REPLY else WriteMode.NEW,
+    from: Screen = Screen.Home,
 ) {
     val g = LocalGrid.current
     val t = LocalType.current
@@ -398,7 +399,9 @@ fun WriteScreen(
                     )
                 }
             },
-            right = "CANCEL" to { vm.go(Screen.Home) },
+            // Back where it was opened from — the drafts list, or a message being
+            // replied to — rather than always to the inbox.
+            right = "CANCEL" to { vm.go(from) },
         )
     }
 }

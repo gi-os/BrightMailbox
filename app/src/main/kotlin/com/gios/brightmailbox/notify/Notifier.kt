@@ -76,6 +76,33 @@ class Notifier(private val context: Context) {
         nm.createNotificationChannel(channel)
     }
 
+    /**
+     * Play a chime, so choosing one is a decision you can hear.
+     *
+     * Picking a notification sound and being told nothing is a setting you have to guess
+     * at — the only way to hear it was to wait for mail to arrive, which is the one thing
+     * you cannot arrange. A channel's sound cannot be previewed by posting a notification
+     * either: Android rate-limits repeats of the same channel and would go silent after
+     * the first tap.
+     *
+     * Uses the NOTIFICATION stream on purpose. A preview that comes out at media volume
+     * is not a preview of what the phone will actually do.
+     */
+    fun play(chime: Chime, customUri: String?) {
+        val uri = soundFor(chime, customUri) ?: return
+        runCatching {
+            android.media.RingtoneManager.getRingtone(context, uri)?.apply {
+                if (android.os.Build.VERSION.SDK_INT >= 28) {
+                    audioAttributes = android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                }
+                play()
+            }
+        }
+    }
+
     private fun soundFor(chime: Chime, customUri: String?): Uri? = when (chime) {
         Chime.DEFAULT -> Settings.System.DEFAULT_NOTIFICATION_URI
         Chime.MAIL -> raw("snd_youve_got_mail")

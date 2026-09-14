@@ -101,8 +101,12 @@ fun SettingsScreen(vm: MailboxViewModel) {
                     Modifier.fillMaxWidth().lightClickable {
                         chime = c
                         vm.repo.chime = c
-                        com.gios.brightmailbox.notify.Notifier(vm.getApplication())
-                            .configure(c, vm.repo.customSound)
+                        val notifier =
+                            com.gios.brightmailbox.notify.Notifier(vm.getApplication())
+                        notifier.configure(c, vm.repo.customSound)
+                        // Hear what you just chose. Waiting for mail to arrive is not a
+                        // way to audition a notification sound.
+                        notifier.play(c, vm.repo.customSound)
                     }.padding(vertical = g * 0.35f),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,

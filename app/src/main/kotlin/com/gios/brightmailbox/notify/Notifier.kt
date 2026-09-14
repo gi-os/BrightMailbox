@@ -111,26 +111,55 @@ class Notifier(private val context: Context) {
     }
 
     /**
-     * Look the sound up by NAME, not by an R.raw constant.
+     * Look the sound up by NAME, and hand out a URI that names it too.
      *
      * The sounds are synthesized by scripts/build_sounds.py before the Gradle build, so
      * res/raw is empty in a fresh checkout. Referencing R.raw.snd_* directly would make
      * the app fail to COMPILE on a machine without python3 — this way it compiles, and a
      * missing sound simply falls back to the system default at runtime.
+     *
+     * **The URI must be the `/raw/<name>` form, never `android.resource://pkg/<number>`.**
+     * A numeric resource id is assigned by aapt2 at build time and is renumbered whenever
+     * the set of resources changes — adding one drawable can shift every id after it. That
+     * is harmless for an id read at runtime and fatal for one that gets **stored**, and a
+     * notification channel stores its sound URI forever, in the system's own settings,
+     * outside the app.
+     *
+     * That is exactly what happened here: the live channel pointed at
+     * `android.resource://com.gios.brightmailbox/2131361793`, a number that meant
+     * `snd_youve_got_mail` in whichever build created the channel and points into a
+     * different resource type today. The chosen chime never played, and new mail arrived
+     * silent. The preview in Settings was fine throughout, because it resolves the id
+     * fresh on every tap — which is why the setting looked like it worked.
+     *
+     * The path form is resolved by name, by the system, at the moment it plays. It cannot
+     * go stale.
      */
     private fun raw(name: String): Uri? {
         val id = context.resources.getIdentifier(name, "raw", context.packageName)
         if (id == 0) return Settings.System.DEFAULT_NOTIFICATION_URI
-        return Uri.parse("android.resource://${context.packageName}/$id")
+        return Uri.parse("android.resource://${context.packageName}/raw/$name")
     }
 
     /**
-     * The id encodes the sound, so switching chimes forces a fresh channel. The custom
-     * URI is hashed in for the same reason — picking a different file has to change the
-     * id or the old sound survives.
+     * The id encodes the sound ITSELF, not just which chime was picked.
+     *
+     * A channel's sound cannot be changed after creation, so the only way to change it is
+     * to create a different channel — which means any difference in the sound has to show
+     * up in the id. Keying on the chime alone was not enough: a channel created with a
+     * stale URI kept the same id, `configure` saw the id already existed and returned, and
+     * the wrong sound survived every launch and every update.
+     *
+     * Hashing the resolved URI closes that for good. Anything that changes what would be
+     * set — a different chime, a different custom file, or the same chime resolving to a
+     * different URI than the stored channel was built with — produces a new id, and the
+     * sweep above deletes the old one. It also repairs itself on the next launch for
+     * anybody carrying a channel from an earlier build, with nothing to uninstall.
      */
-    private fun channelId(chime: Chime, customUri: String?): String =
-        PREFIX + chime.key + if (chime == Chime.CUSTOM) "_" + (customUri?.hashCode() ?: 0) else ""
+    private fun channelId(chime: Chime, customUri: String?): String {
+        val sound = soundFor(chime, customUri)?.toString().orEmpty()
+        return PREFIX + chime.key + "_" + Integer.toHexString(sound.hashCode())
+    }
 
     /**
      * Announce new Letters.

@@ -1,3 +1,34 @@
+## BrightMailbox v2.43 — the chime never played, and the reason was a number
+
+Picking a sound in Settings played it, and then mail arrived silent or wrong.
+
+A notification channel keeps its sound as a URI, and the app was handing it
+`android.resource://com.gios.brightmailbox/2131361793` — a **numeric** resource id.
+aapt2 assigns those at build time and renumbers them whenever the set of resources
+changes, so a number that meant `snd_youve_got_mail` in the build that created the
+channel points somewhere else entirely a few releases later. The live channel on a phone
+here was pointing into a different resource type altogether.
+
+Nothing corrected it, because a channel's sound is immutable after creation and
+`configure` returned early whenever a channel with the right id already existed. The id
+encoded which chime was picked, not what it actually resolved to, so a channel built with
+a stale URI kept its id, kept its silence, and survived every launch and every update.
+
+The preview button was fine the whole time — it resolves the id fresh on each tap, which
+is exactly why the setting looked like it worked.
+
+Two changes:
+
+- The sound URI is now the `/raw/<name>` path form, resolved by name by the system at the
+  moment it plays. It cannot go stale.
+- The channel id hashes the resolved URI, so any difference in what would be set produces
+  a different channel and the old one is swept. Anybody carrying a broken channel from an
+  earlier build is repaired on the next launch, with nothing to uninstall and no sound to
+  re-pick.
+
+Both paths that announce new mail — the background sync and a manual refresh — go through
+the same channel, so both were silent and both are fixed.
+
 ## BrightMailbox v2.42 — the demo switch lost its own setting
 
 SHOW THE DEMO restarted the app and came back with the demo still off.

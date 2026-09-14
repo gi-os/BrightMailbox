@@ -143,7 +143,22 @@ class AuthManager(context: Context) {
 
     /* ------------------------------------------------------------------ accounts */
 
+    /**
+     * Show the demo mailbox instead of the real ones.
+     *
+     * Set once by [com.gios.brightmailbox.data.Repo] at construction, from the same
+     * preference that picks the database file, so the two can never disagree.
+     *
+     * **Instead of, not as well as.** The accounts list is on a settings screen that gets
+     * photographed, and the whole point of the demo is that somebody can show the app
+     * without showing their mail — an address in the corner of the shot would give that
+     * away on the one screen people look at hardest. The real credentials are untouched
+     * and come back the moment the demo is switched off.
+     */
+    var demo: Boolean = false
+
     fun accounts(): List<Account> =
+        if (demo) listOf(com.gios.brightmailbox.data.Demo.account) else
         (prefs.getStringSet(KEY_ACCOUNTS, emptySet()) ?: emptySet())
             .mapNotNull { id ->
                 val svc = Service.of(prefs.getString("svc_$id", null)) ?: return@mapNotNull null

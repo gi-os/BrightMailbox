@@ -236,7 +236,7 @@ fun FlaggedScreen(vm: MailboxViewModel) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             T("FLAGGED", t.subheading)
-            T(if (rows.isEmpty()) "" else "${'$'}{rows.size}", t.detail, Secondary)
+            T(if (rows.isEmpty()) "" else "${rows.size}", t.detail, Secondary)
         }
 
         if (rows.isEmpty()) {
@@ -312,7 +312,7 @@ fun SentScreen(vm: MailboxViewModel) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             T("SENT", t.subheading)
-            T(if (rows.isEmpty()) "" else "${'$'}{rows.size}", t.detail, Secondary)
+            T(if (rows.isEmpty()) "" else "${rows.size}", t.detail, Secondary)
         }
 
         if (rows.isEmpty()) {
@@ -455,7 +455,7 @@ fun DraftsScreen(vm: MailboxViewModel) {
                         if (d.queued) {
                             T(
                                 if (d.tries == 0) "waiting to send"
-                                else "waiting to send · ${'$'}{d.tries} tries",
+                                else "waiting to send · ${d.tries} tries",
                                 t.superfine,
                                 Secondary,
                                 maxLines = 1,

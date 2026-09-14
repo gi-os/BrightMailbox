@@ -400,6 +400,21 @@ interface MailDao {
     )
     suspend fun search(q: String): List<Msg>
 
+    /**
+     * Sent mail, for the one mailbox that keeps it in the table.
+     *
+     * On a real account the sent folder is read off the server and stored nowhere — see
+     * [Repo.sent]. The demo mailbox has no server, so its sent messages are ordinary rows
+     * carrying the pile "SENT", which every other query in this file deliberately ignores.
+     */
+    @Query(
+        """
+        SELECT * FROM messages WHERE pile = 'SENT'
+        ORDER BY receivedAt DESC LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun sentRows(limit: Int, offset: Int): List<Msg>
+
     /** Everything still in the inbox, both piles, for a bulk clear. */
     @Query("SELECT * FROM messages WHERE NOT archived AND NOT starred")
     suspend fun inboxList(): List<Msg>

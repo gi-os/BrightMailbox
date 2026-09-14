@@ -208,7 +208,7 @@ class Imap(
      * One FLAGS fetch for the survivors, so a message read on a laptop stops being unread
      * here too. Cheap: flags only, no headers and no bodies.
      */
-    override suspend fun states(ids: List<String>): Map<String, Boolean> = io {
+    override suspend fun states(ids: List<String>): Map<String, State> = io {
         if (ids.isEmpty()) return@io emptyMap()
         withFolder("INBOX", write = false) { f ->
             val validity = f.getUIDValidity()
@@ -228,13 +228,26 @@ class Imap(
             val msgs = f.getMessagesByUID(wanted.map { it.first }.toLongArray())
             f.fetch(
                 msgs.filterNotNull().toTypedArray(),
+                // FLAGS carries \Seen and \Flagged together; no second round trip.
                 FetchProfile().apply { add(FetchProfile.Item.FLAGS) },
             )
-            val out = HashMap<String, Boolean>(msgs.size)
+            val out = HashMap<String, State>(msgs.size)
             for ((i, m) in msgs.withIndex()) {
                 if (m == null) continue // gone from the inbox
                 val id = wanted.getOrNull(i)?.second ?: continue
-                out[id] = runCatching { !m.isSet(Flags.Flag.SEEN) }.getOrDefault(true)
+                /*
+                 * Both bits out of the one FLAGS fetch.
+                 *
+                 * `\Flagged` is the same bit Gmail draws as its star and Outlook as its
+                 * flag, so this is how a star put on at a desk arrives here. Defaulting it
+                 * to **false** on a read failure is deliberate and is the opposite of the
+                 * unread default: a wrong `unread` costs a grey row, a wrong `flagged`
+                 * would put a hold on a message nobody held.
+                 */
+                out[id] = State(
+                    unread = runCatching { !m.isSet(Flags.Flag.SEEN) }.getOrDefault(true),
+                    flagged = runCatching { m.isSet(Flags.Flag.FLAGGED) }.getOrDefault(false),
+                )
             }
             out
         }

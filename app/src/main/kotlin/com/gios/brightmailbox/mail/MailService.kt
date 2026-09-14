@@ -32,6 +32,16 @@ enum class Box(val tag: String) {
 /** Kept for readability at the call sites that only ever mean sent mail. */
 const val SENT = "SENT:"
 
+/**
+ * What the server currently believes about a message we hold.
+ *
+ * Was a bare `Boolean` for unread, which is the shape that made the star one-way: the app
+ * pushed `\Flagged` on every hold and never once asked what the flag said coming back. A
+ * named pair rather than a second call, because both bits arrive in the same FLAGS fetch
+ * and asking twice would double the only expensive part of reconciliation.
+ */
+data class State(val unread: Boolean, val flagged: Boolean)
+
 data class Message(
     /** Provider id, unique within the account. */
     val id: String,
@@ -173,7 +183,7 @@ interface MailService {
      * already holds, so the cost is bounded by our own row count rather than by the size
      * of somebody's inbox.
      */
-    suspend fun states(ids: List<String>): Map<String, Boolean>
+    suspend fun states(ids: List<String>): Map<String, State>
 
     suspend fun markRead(ids: List<String>)
 

@@ -1,3 +1,22 @@
+## v2.36 — Stars sync both ways
+
+**Flag a message at a desk and it is held here.** Holding a row has pushed IMAP
+`\Flagged` since v2.14 — the same bit Gmail draws as its star and Outlook as its flag —
+and the app never once asked what that flag said coming back. It was a one-way mirror: this
+phone could tell your mailbox about a star, and your mailbox could not tell this phone.
+
+Now the check that already asks the server what became of the messages it holds reads both
+bits out of the same fetch, so nothing extra goes over the wire. Starred there means held
+here. **Unstarred there means released here** — and that direction is the one worth being
+careful about, because a star overrides the daily ration, survives the day rollover and is
+skipped by ARCHIVE ALL, so removing one changes what the phone shows you. It is applied
+only to messages the server actually answered about: a message it does not mention has left
+the inbox entirely, which is a different thing and already handled.
+
+Under it, the two copies of that reconciliation became one. They were written twice and the
+second was already a line behind the first, which is how the star would have ended up
+syncing on an ordinary check and not on a deep refresh.
+
 ## v2.35 — Deleting an archived message actually deletes it
 
 **A bug I shipped in v2.33, found by reading the code rather than by anything going wrong

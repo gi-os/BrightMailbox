@@ -264,6 +264,10 @@ interface MailDao {
     @Query("UPDATE messages SET starred = :on WHERE key = :key")
     suspend fun setStarred(key: String, on: Boolean)
 
+    /** The inbound half of the star, applied in one statement per direction. */
+    @Query("UPDATE messages SET starred = :on WHERE key IN (:keys)")
+    suspend fun setStarredAll(keys: List<String>, on: Boolean)
+
     /**
      * Drop a row entirely.
      *

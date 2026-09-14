@@ -374,42 +374,13 @@ class Repo private constructor(private val app: Context) {
             if (rows.isNotEmpty()) dao.put(rows)
 
             /*
-             * The other direction.
-             *
-             * Sync only ever added. Archive a message in Gmail on a laptop and it stayed
-             * in Mailbox forever, because nothing ever asked the server what happened to
-             * the messages already held — the app read the inbox as an append-only feed,
-             * which it is not.
-             *
-             * A key missing from `states` means the message has left INBOX: archived,
-             * filed or deleted elsewhere. Archiving locally is the safe echo of all
-             * three — it removes the row from view and touches nothing on the server.
-             * Read state is copied back the same way.
+             * The other direction — see [reconcile] for what it agrees to.
              *
              * Failures here are swallowed on purpose. Reconciliation is a nicety and the
              * mail that just arrived is not; a server that will not answer this must not
              * cost the fetch that already worked.
              */
-            runCatching {
-                val live = dao.liveFor(account.id)
-                if (live.isNotEmpty()) {
-                    val states = svc.states(live.map { it.providerId })
-                    val gone = live.filter { it.providerId !in states }.map { it.key }
-                    if (gone.isNotEmpty()) dao.archiveAll(gone)
-                    /*
-                     * Read on another device, so read here.
-                     *
-                     * `m.unread` is the wrong test on its own — it only asks what the
-                     * server said last time. `!m.readHere` is what decides whether the
-                     * row still draws as unread, so both have to be considered or a
-                     * message marked seen by an earlier sync never picks up the grey.
-                     */
-                    val readElsewhere = live.filter { m ->
-                        (m.unread || !m.readHere) && states[m.providerId] == false
-                    }.map { it.key }
-                    if (readElsewhere.isNotEmpty()) dao.markSeen(readElsewhere, today())
-                }
-            }
+            runCatching { reconcile(svc, account.id) }
         }
 
         // Only a check that actually reached a mailbox counts as a check. Stamping the
@@ -558,18 +529,7 @@ class Repo private constructor(private val app: Context) {
             }
 
             // The other direction, over everything held rather than the newest page.
-            runCatching {
-                val live = dao.liveFor(account.id)
-                if (live.isNotEmpty()) {
-                    val states = svc.states(live.map { it.providerId })
-                    val gone = live.filter { it.providerId !in states }.map { it.key }
-                    if (gone.isNotEmpty()) dao.archiveAll(gone)
-                    val readElsewhere = live.filter { m ->
-                        (m.unread || !m.readHere) && states[m.providerId] == false
-                    }.map { it.key }
-                    if (readElsewhere.isNotEmpty()) dao.markSeen(readElsewhere, today())
-                }
-            }
+            runCatching { reconcile(svc, account.id) }
         }
         lastSync = System.currentTimeMillis()
         added
@@ -812,6 +772,53 @@ class Repo private constructor(private val app: Context) {
             }
         }
         out.sortedByDescending { it.receivedAt }.take(limit)
+    }
+
+    /**
+     * Ask the server what became of the messages this app holds, and agree with it.
+     *
+     * One copy, called from both [sync] and [deepSync] — it was written twice, and the
+     * second copy was already a line behind the first. Everything here is the **inbound**
+     * half of a state the app also pushes outward, so each direction has to be able to
+     * lose gracefully.
+     *
+     * Three answers, from one FLAGS fetch over exactly the rows held (so the cost scales
+     * with the phone, not with the size of the mailbox):
+     *
+     * - **Absent from the map** — the message has left INBOX: archived, filed or deleted
+     *   somewhere else. Archiving locally is the safe echo of all three, because it
+     *   removes the row from view and touches nothing on the server.
+     * - **`\Seen`** — read at a desk, so grey here. `m.unread` alone is the wrong test:
+     *   it only says what the server said last time, while `readHere` is what decides how
+     *   the row draws, so a message marked seen by an earlier sync would never pick up
+     *   the grey.
+     * - **`\Flagged`** — starred at a desk, so held here, and **unstarred there means
+     *   unstarred here**. That last direction is the one worth being careful about: a
+     *   star overrides the ration, survives the day rollover and is skipped by ARCHIVE
+     *   ALL, so removing one changes what the phone shows. It is applied only to rows the
+     *   server actually answered about — a missing row means "gone", which the first case
+     *   already handles, and never means "no longer starred".
+     */
+    private suspend fun reconcile(svc: MailService, accountId: String) {
+        val live = dao.liveFor(accountId)
+        if (live.isEmpty()) return
+        val states = svc.states(live.map { it.providerId })
+
+        val gone = live.filter { it.providerId !in states }.map { it.key }
+        if (gone.isNotEmpty()) dao.archiveAll(gone)
+
+        val readElsewhere = live.filter { m ->
+            (m.unread || !m.readHere) && states[m.providerId]?.unread == false
+        }.map { it.key }
+        if (readElsewhere.isNotEmpty()) dao.markSeen(readElsewhere, today())
+
+        val held = live.filter { !it.starred && states[it.providerId]?.flagged == true }
+            .map { it.key }
+        if (held.isNotEmpty()) dao.setStarredAll(held, true)
+
+        val released = live.filter { it.starred && states[it.providerId]?.flagged == false }
+            .map { it.key }
+        if (released.isNotEmpty()) dao.setStarredAll(released, false)
     }
 
     private fun classify(m: Message, sorter: Sorter, mine: Set<String>): Msg {

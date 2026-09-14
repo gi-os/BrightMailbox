@@ -1,3 +1,37 @@
+## BrightMailbox v2.45 — letters are conversations now
+
+A back-and-forth with one person was four rows in the list, and under a ration of five
+that meant one exchange could spend the whole day. The list this app exists to keep short
+was the one most likely to be filled by the person you talk to most.
+
+Letters group by thread now: one row per conversation, with the number of messages it
+stands for on the right of the sender line. **The ration counts conversations.** One
+thread is one thing to read, so it takes one of the five however many messages are in it.
+
+`threadId` has been computed on the way in since v2.0 and read by nothing but the reader's
+footer. This is the list finally using it.
+
+The details that had to be decided:
+
+- **A conversation is unread until every message in it is read.** A reply landing on a
+  thread you had finished brings it back rather than hiding behind what you already got
+  through.
+- **Opening the newest reads the rest, and charges the ration once.** The newest reply
+  quotes what came before it, and a row that stays white right after you read it looks
+  broken. The others are marked read without a ration stamp, using the same statement that
+  handles mail read on a laptop.
+- **A swipe acts on the whole thread.** Pushing a row away and leaving three of its four
+  messages behind, invisibly, would look exactly like it had worked. A single-message
+  conversation takes the original path, so archiving one letter still says nothing and
+  draws no progress bar.
+- **Hold sets, it does not toggle.** Holding a thread where one message was already
+  starred would otherwise star the other three and release that one.
+- A thread is ranked by its best message, so a long exchange is not buried by a one-line
+  opener.
+
+Every other list is unchanged: the archive, search, flagged and sent are still one row per
+message, which is right — those are lists you go to looking for a particular message.
+
 ## BrightMailbox v2.44 — the demo mailbox is gone
 
 Settings -> DEMO MAILBOX is removed, along with every branch behind it: the second

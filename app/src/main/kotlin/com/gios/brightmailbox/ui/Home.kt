@@ -107,7 +107,7 @@ fun HomeScreen(vm: MailboxViewModel) {
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (unlimited) {
-                    T("${all.size} today", t.copy, Secondary, maxLines = 1)
+                    T("${visible.size} today", t.copy, Secondary, maxLines = 1)
                 } else {
                     Row {
                         T("${visible.size}", t.copy, maxLines = 1)
@@ -211,13 +211,24 @@ fun HomeScreen(vm: MailboxViewModel) {
             state = list,
             verticalArrangement = Arrangement.spacedBy(g * 1.1f),
         ) {
-            items(visible, key = { it.key }) { m ->
+            /*
+             * One row per conversation.
+             *
+             * Keyed on the thread rather than on the newest message, so a reply arriving
+             * updates the row in place instead of removing one and inserting another.
+             */
+            items(visible, key = { it.id }) { c ->
+                val m = c.newest
                 LetterRow(
                     m,
-                    onClick = { vm.open(m) },
-                    onHold = { vm.star(m) },
-                    left = vm.swipe(swipeLeft, m),
-                    right = vm.swipe(swipeRight, m),
+                    // The newest opens and the rest go read — one thread, one of the five.
+                    onClick = { vm.openConversation(c) },
+                    onHold = { vm.holdThread(c) },
+                    left = vm.swipe(swipeLeft, c),
+                    right = vm.swipe(swipeRight, c),
+                    threadCount = c.count,
+                    read = c.read,
+                    starred = c.starred,
                 )
             }
 
@@ -484,10 +495,24 @@ fun LetterRow(
     onHold: () -> Unit = {},
     left: SwipeSpec? = null,
     right: SwipeSpec? = null,
+    /**
+     * How many messages the row stands for. 1 everywhere except the Letters list, where
+     * rows are conversations — and a bare "1" is noise, so the number only ever draws
+     * above that.
+     */
+    threadCount: Int = 1,
+    /**
+     * Read and held, taken from the conversation rather than from [m].
+     *
+     * Defaulted to the message's own state so every other list — archive, search, flagged,
+     * sent — passes nothing and behaves exactly as before.
+     */
+    read: Boolean = m.readHere,
+    starred: Boolean = m.starred,
 ) {
     val g = LocalGrid.current
     val t = LocalType.current
-    val ink = if (m.readHere) Secondary else Content
+    val ink = if (read) Secondary else Content
     SwipeRow(left, right) { rowModifier ->
     Column(
         rowModifier.fillMaxWidth().lightHoldable(onLongClick = onHold, onClick = onClick),
@@ -502,9 +527,23 @@ fun LetterRow(
             )
             Spacer(Modifier.width(g * 0.45f))
             T(accountWord(m.accountId), t.superfine, Secondary, maxLines = 1)
-            if (m.starred) {
+            /*
+             * The count and the star share the right end of the sender line.
+             *
+             * The number is how many messages the row is standing in for, and it goes here
+             * rather than beside the subject because the subject line already carries the
+             * time and a second number next to it reads as part of it. Superfine and grey:
+             * it is a fact about the row, not a thing to act on.
+             */
+            if (threadCount > 1 || starred) {
                 Spacer(Modifier.weight(1f))
-                Star()
+                if (threadCount > 1) {
+                    T("$threadCount", t.superfine, Secondary, maxLines = 1)
+                }
+                if (starred) {
+                    if (threadCount > 1) Spacer(Modifier.width(g * 0.4f))
+                    Star()
+                }
             }
         }
         Spacer(Modifier.height(g * 0.25f))

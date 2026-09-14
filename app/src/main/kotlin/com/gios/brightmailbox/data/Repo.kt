@@ -1204,6 +1204,27 @@ class Repo private constructor(private val app: Context) {
         learn(msg, worthReading = true, weight = 1.0)
     }
 
+    /**
+     * The rest of a conversation, read but **not rationed**.
+     *
+     * Opening the newest message of a thread reads the thread — the newest reply quotes
+     * what came before it, and a row that stays white after you have just read it looks
+     * broken. But a conversation is one of the day's five however many messages are in it,
+     * so the others must not each spend a slot.
+     *
+     * That is exactly the distinction `readDay` was split from `rationDay` for in v2.18,
+     * and [MailDao.markSeen] is the statement that already writes one without the other —
+     * it was built for mail read on a laptop, which is the same shape of fact: read, and
+     * not at anybody's expense here.
+     */
+    suspend fun readRest(msgs: List<Msg>) = withContext(Dispatchers.IO) {
+        if (msgs.isEmpty()) return@withContext
+        dao.markSeen(msgs.map { it.key }, today())
+        msgs.groupBy { it.accountId }.forEach { (acct, list) ->
+            runCatching { serviceFor(acct)?.markRead(list.map { it.providerId }) }
+        }
+    }
+
     suspend fun archive(msg: Msg) = withContext(Dispatchers.IO) {
         dao.archive(msg.key)
         runCatching { serviceFor(msg.accountId)?.archive(listOf(msg.providerId)) }

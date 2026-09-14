@@ -105,6 +105,39 @@ data class SyncProgress(val done: Int, val total: Int, val letters: Int, val not
 data class Work(val label: String, val done: Int = 0, val total: Int = 0)
 
 /**
+ * One conversation: every message of a thread that is currently on the list.
+ *
+ * Not every message of the thread — only the ones the list query returned, which is why a
+ * count here means "new in this conversation" rather than how long the conversation is.
+ * The reader's footer is the place that goes and finds the rest, archive included.
+ *
+ * Ordered newest first, because that is the message the row is about: its sender, its
+ * subject and its time are what the row shows, and it is what opens on a tap.
+ */
+data class Conversation(val id: String, val messages: List<Msg>) {
+    val newest: Msg get() = messages.first()
+    val count: Int get() = messages.size
+
+    /** Starred anywhere in the thread. A hold is about the conversation, not one reply. */
+    val starred: Boolean get() = messages.any { it.starred }
+
+    /**
+     * Read means read to the end.
+     *
+     * Any unread message makes the whole conversation unread, so a reply that lands on a
+     * thread you had finished brings it back rather than hiding behind the messages you
+     * already got through.
+     */
+    val read: Boolean get() = messages.all { it.readHere }
+
+    /** On screen because of something the user did, so the ration has no say over it. */
+    val held: Boolean get() = starred || read
+
+    /** The best message in it — a long exchange is not buried by a short opener. */
+    val score: Double get() = messages.maxOf { it.score }
+}
+
+/**
  * How many messages to fetch the text of before anybody taps one.
  *
  * Was 8 letters and 2 notices, from when those were the only two screens. There are five
@@ -417,8 +450,28 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * Beyond the ration they are not deleted and not hidden in a folder — they are
      * tomorrow's, and the count of what waits is shown.
      */
-    fun visibleLetters(all: List<Msg>): List<Msg> {
-        if (repo.ration == Ration.UNLIMITED) return all
+    /**
+     * Today's letters, as conversations.
+     *
+     * **The ration counts conversations, not messages, and it has to.** A back-and-forth
+     * with one person over an afternoon is four rows in a flat list, so a single exchange
+     * could spend the whole day's five — and the list this app exists to keep short was
+     * the one most likely to be filled by the person you talk to most. One thread is one
+     * thing to read, so it takes one of the five.
+     *
+     * Grouping by `threadId`, which has been computed on the way in since v2.0 and read by
+     * nothing but the reader's footer. A message whose thread root is unknown stands alone
+     * under its own key rather than joining an empty-string bucket with every other
+     * orphan.
+     */
+    fun visibleLetters(all: List<Msg>): List<Conversation> {
+        val threads = all
+            .groupBy { it.threadId.ifBlank { it.key } }
+            .map { (id, msgs) -> Conversation(id, msgs.sortedByDescending { it.receivedAt }) }
+
+        if (repo.ration == Ration.UNLIMITED) {
+            return threads.sortedByDescending { it.newest.receivedAt }
+        }
         /*
          * Two kinds of row, and only one of them is rationed.
          *
@@ -427,10 +480,14 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
          * Rationing it would be perverse — reading a letter would make another letter
          * disappear to keep the count at five.
          *
+         * A conversation counts as held once every message in it has been read. One
+         * unread reply puts the whole thread back in front of you, which is the only
+         * reading of "held" that survives somebody answering you.
+         *
          * `_allowed` is already 5 minus what has been read today, so the two halves add
          * back up to five and the list does not grow as the day goes on.
          */
-        val (held, fresh) = all.partition { it.readHere || it.starred }
+        val (held, fresh) = threads.partition { it.held }
         /*
          * Score picks, time orders.
          *
@@ -439,16 +496,19 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
          * ones — but the five it chooses are then put back in time order, because a list
          * of five sorted by an invisible number is a list that looks shuffled.
          *
+         * A thread is scored by its best message: a long exchange should not be buried
+         * because it opened with a one-line "thanks".
+         *
          * A coarse bucket, not the raw double: scores drift by thousandths on every sync
          * and sorting on the exact value would reshuffle the day's five for no visible
          * reason.
          */
         val picked = fresh.sortedWith(
-            compareByDescending<Msg> { (it.score * 20).toInt() }
-                .thenByDescending { it.receivedAt },
+            compareByDescending<Conversation> { (it.score * 20).toInt() }
+                .thenByDescending { it.newest.receivedAt },
         ).take(_allowed.value)
 
-        return (held + picked).sortedByDescending { it.receivedAt }
+        return (held + picked).sortedByDescending { it.newest.receivedAt }
     }
 
     val dayDone: Boolean
@@ -671,6 +731,62 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
             SwipeSpec("DELETE") { deleteHere(msg) }
         com.gios.brightmailbox.data.Swipe.JUNK ->
             SwipeSpec("JUNK") { junkHere(msg) }
+    }
+
+    /**
+     * The same swipe, on a whole conversation.
+     *
+     * A gesture on a collapsed thread has to act on the thing the row represents. Pushing
+     * a row away and having three of its four messages stay behind — invisibly, since the
+     * row was the only thing on screen — would be the worst kind of wrong: it would look
+     * like it worked.
+     *
+     * A single-message conversation goes down the original path, so the ordinary case
+     * keeps its ordinary behavior: no progress bar and nothing announced for archiving one
+     * letter.
+     */
+    fun swipe(
+        action: com.gios.brightmailbox.data.Swipe,
+        c: Conversation,
+    ): com.gios.brightmailbox.ui.SwipeSpec? {
+        if (c.count == 1) return swipe(action, c.newest)
+        return when (action) {
+            com.gios.brightmailbox.data.Swipe.NOTHING -> null
+            com.gios.brightmailbox.data.Swipe.ARCHIVE ->
+                SwipeSpec("ARCHIVE") { archiveThese(c.messages) }
+            com.gios.brightmailbox.data.Swipe.HOLD ->
+                SwipeSpec(if (c.starred) "LET GO" else "HOLD") { holdThread(c) }
+            com.gios.brightmailbox.data.Swipe.READ ->
+                SwipeSpec("READ") { viewModelScope.launch { c.messages.forEach { repo.markRead(it) } } }
+            com.gios.brightmailbox.data.Swipe.DELETE ->
+                SwipeSpec("DELETE") { viewModelScope.launch { c.messages.forEach { repo.delete(it) } } }
+            com.gios.brightmailbox.data.Swipe.JUNK ->
+                SwipeSpec("JUNK") { viewModelScope.launch { c.messages.forEach { repo.junk(it) } } }
+        }
+    }
+
+    /**
+     * Open a conversation: the newest message, and the rest go quietly read.
+     *
+     * One thread is one of the day's five, so only the message actually put on screen is
+     * charged to the ration — see [Repo.readRest]. Without that, opening a four-message
+     * exchange would close the day.
+     */
+    fun openConversation(c: Conversation, from: Screen = Screen.Home) {
+        open(c.newest, from)
+        if (c.count > 1) viewModelScope.launch { repo.readRest(c.messages.drop(1)) }
+    }
+
+    /**
+     * Hold or release a whole conversation, every message to the same state.
+     *
+     * Set, not toggled. Toggling each message independently on a thread where only one is
+     * starred would star the other three and unstar that one, which from the outside looks
+     * like the button did nothing.
+     */
+    fun holdThread(c: Conversation) = viewModelScope.launch {
+        val on = !c.starred
+        c.messages.forEach { repo.star(it, on) }
     }
 
     fun markRead(msg: Msg) = viewModelScope.launch {

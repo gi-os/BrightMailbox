@@ -732,9 +732,24 @@ class Repo private constructor(private val app: Context) {
         ok
     }
 
-    private suspend fun move(msg: Msg, box: com.gios.brightmailbox.mail.Box): Boolean {
+    private suspend fun move(msg: Msg, box: Box): Boolean {
         val svc = serviceFor(msg.accountId) ?: return false
-        val moved = runCatching { svc.moveTo(listOf(msg.providerId), box) }.isSuccess
+        /*
+         * An archived message carrying an untagged id has no UID worth using.
+         *
+         * Everything stored before v2.32 is addressed relative to INBOX, so a message
+         * archived at any point in this app's history has an id that resolves to nothing
+         * — and archiving one in the web client does the same to a fresh row. The
+         * Message-ID search is the only handle left on it, which is exactly why
+         * `unarchive` has always used one.
+         */
+        val tagged = Box.of(msg.providerId) != Box.INBOX
+        val moved = if (msg.archived && !tagged) {
+            val id = msg.messageId?.takeIf { it.isNotBlank() } ?: return false
+            runCatching { svc.moveFound(id, Box.ARCHIVE, box) }.getOrDefault(false)
+        } else {
+            runCatching { svc.moveTo(listOf(msg.providerId), box) }.isSuccess
+        }
         if (moved) {
             dao.forget(msg.key)
             runCatching { bodyFile(msg.key).delete(); htmlFile(msg.key).delete() }

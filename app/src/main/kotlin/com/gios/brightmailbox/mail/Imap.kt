@@ -281,15 +281,39 @@ class Imap(
      */
     override suspend fun archive(ids: List<String>) = moveTo(ids, Box.ARCHIVE)
 
+    /**
+     * @param ids must all come from the same folder — they carry the tag that says which.
+     */
     override suspend fun moveTo(ids: List<String>, box: Box) {
         if (ids.isEmpty()) return
         io {
-            val name = folder(box) ?: throw IOException("no ${box.name.lowercase()} folder on this account")
-            withFolder("INBOX", write = true) { f ->
+            val what = box.name.lowercase()
+            val name = folder(box) ?: throw IOException("no $what folder on this account")
+            /*
+             * The source is wherever the ids came from, not INBOX.
+             *
+             * This said `withFolder("INBOX", …)` when moveTo was generalized out of
+             * archive(), and for archiving that is correct — you archive out of the inbox.
+             * It is wrong for everything the generalization was for: a UID from the
+             * archive or the sent folder does not exist in INBOX, `getMessagesByUID`
+             * returned an empty array, and the move quietly did nothing while reporting
+             * success. Deleting an archived message therefore dropped the local row and
+             * left the message on the server, and a deep sync could bring it back.
+             */
+            val from = folderOf(ids.first())
+            if (from == name) return@io
+            withFolder(from, write = true) { f ->
                 val target = f.store.getFolder(name)
-                    ?: throw IOException("no ${box.name.lowercase()} folder on this account")
+                    ?: throw IOException("no $what folder on this account")
                 val msgs = f.getMessagesByUID(uids(ids)).filterNotNull().toTypedArray()
-                if (msgs.isEmpty()) return@withFolder
+                /*
+                 * Nothing matched is a failure, not a no-op.
+                 *
+                 * The caller drops the local row on success, so answering "done" for a
+                 * move that moved nothing is how a message disappears from the phone and
+                 * stays on the server.
+                 */
+                if (msgs.isEmpty()) throw IOException("nothing to move to $what")
                 try {
                     f.moveUIDMessages(msgs, target)
                 } catch (e: Exception) {
@@ -314,22 +338,30 @@ class Imap(
      * on a server with no MOVE. That is the one direction where a delete is safe: the
      * message exists in INBOX by then, and on Gmail the label is what is being removed.
      */
-    override suspend fun unarchive(messageId: String): Boolean = io {
+    override suspend fun unarchive(messageId: String): Boolean =
+        moveFound(messageId, Box.ARCHIVE, Box.INBOX)
+
+    override suspend fun moveFound(messageId: String, from: Box, to: Box): Boolean = io {
         val store = store()
-        val source = special(store, "\\All", "\\Archive", servers.archiveNames) as? IMAPFolder
-            ?: return@io false
-        val inbox = store.getFolder("INBOX") ?: return@io false
+        val sourceName = folder(from) ?: return@io false
+        val source = store.getFolder(sourceName) as? IMAPFolder ?: return@io false
+        val targetName = folder(to) ?: return@io false
+        if (sourceName == targetName) return@io false
+        val target = store.getFolder(targetName) ?: return@io false
         source.open(Folder.READ_WRITE)
         try {
             val found = source.search(MessageIDTerm(messageId))
             if (found.isNullOrEmpty()) return@io false
             try {
-                source.moveUIDMessages(found, inbox)
+                source.moveUIDMessages(found, target)
             } catch (e: Exception) {
-                // No MOVE extension. Copy first, so a failure leaves the message where it
-                // is — and this is the one direction where the delete that follows is
-                // safe, because by then the message is already in INBOX.
-                source.copyMessages(found, inbox)
+                /*
+                 * No MOVE extension. Copy first, so a failure leaves the message where it
+                 * is — and the delete that follows is safe **because the copy already
+                 * succeeded**: by then the message exists in the target, and on Gmail the
+                 * flag removes a label rather than the mail.
+                 */
+                source.copyMessages(found, target)
                 source.setFlags(found, Flags(Flags.Flag.DELETED), true)
                 source.expunge()
             }

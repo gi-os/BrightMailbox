@@ -249,4 +249,19 @@ interface MailService {
      * that is what every provider's spam filter actually learns from.
      */
     suspend fun moveTo(ids: List<String>, box: Box)
+
+    /**
+     * Move a message found by its Message-ID, rather than by a UID.
+     *
+     * The route for anything whose UID is not in the folder that holds it. Every message
+     * stored before v2.32 carries an INBOX-relative id, so a message archived at any point
+     * in the app's history has an id that addresses nothing: a server-side SEARCH on
+     * Message-ID is the only handle left on it.
+     *
+     * The [unarchive] this was generalized out of is `moveFound(id, ARCHIVE, INBOX)`.
+     *
+     * @return false when the folder does not exist or the message is not in it — never an
+     *   exception, because every caller wants the boolean.
+     */
+    suspend fun moveFound(messageId: String, from: Box, to: Box): Boolean
 }

@@ -1,3 +1,19 @@
+## v2.35 — Deleting an archived message actually deletes it
+
+**A bug I shipped in v2.33, found by reading the code rather than by anything going wrong
+on the phone.** DELETE and JUNK were built on a move that always opened the inbox as its
+source, because it had been generalized out of the archive button, where the inbox is
+always right. It is wrong for everything the generalization was for. A message in the
+archive or the sent folder has an identifier that means nothing in the inbox, so the server
+was asked to move a message it could not find, answered that it had done so, and the app
+removed the local copy of a message still sitting on the server — where a later deep
+refresh could bring it back.
+
+Moves now start from whichever folder the message is actually in, and a move that matched
+nothing is reported as the failure it is instead of as success. Anything archived before
+this release, and anything archived in a web client, is found by its Message-ID instead —
+the same route un-archiving has always used, for the same reason.
+
 ## v2.34 — Preview lines are a setting, and the screen stays on while you wait
 
 Settings → READING → **Preview lines**, off unless you turn it on. v2.33 shipped them on

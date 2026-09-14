@@ -6,6 +6,9 @@ on:
     paths-ignore:
       - '**.md'
       - 'signing-fingerprint.txt'
+      # Pictures of the app are not the app. Adding or replacing one should not
+      # cut a signed release and push it to every phone through BrightMarket.
+      - 'screenshots/**'
   workflow_dispatch:
 
 permissions:

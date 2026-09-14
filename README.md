@@ -15,6 +15,23 @@ Gmail with an app password. Outlook with one tap. Nothing to register.
 
 ---
 
+## Screenshots
+
+<p>
+  <img src="screenshots/letters.png" width="240" alt="Letters, with the day's ration in the header">
+  <img src="screenshots/notices.png" width="240" alt="Notices, one line each, grouped by day">
+  <img src="screenshots/reading.png" width="240" alt="A newsletter rendered as its sender built it">
+</p>
+
+The day's Letters with the ration in the header; the Notices pile, one line each and
+grouped by day; and a message rendered the way its sender built it, laid out at the width
+it declares and scaled to the panel.
+
+Taken from the demo mailbox — Settings -> DEMO MAILBOX — so nothing above is anybody's
+real correspondence.
+
+---
+
 ## Signing in
 
 **Gmail** takes a sixteen-character app password from

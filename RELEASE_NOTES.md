@@ -1,3 +1,27 @@
+## v2.39 — Both swipes, and you choose what they do
+
+**Settings → GESTURES.** Pushing a row left has archived it since v2.16; now it can archive,
+hold, mark read, delete or report as junk — and pushing a row *right*, which used to do
+nothing at all, can do any of the same.
+
+Left still defaults to Archive, so nobody's hands have to be retrained by an update. Right
+defaults to Hold, because it is the one action with no consequence: finding a gesture by
+accident should teach you it exists, not cost you a message.
+
+Delete and Junk do not ask on a swipe, and cannot — a gesture that opens a dialog is slower
+than the button it was meant to beat. Neither is a default, the row has to travel most of
+the screen, and it buzzes when it arms. Anyone who turns one on has read the line under it.
+
+A direction with nothing behind it does not move at all. The row staying put against a push
+that would do nothing says "not that way" in the only language a gesture has; letting it
+slide and spring back would read as a failed action rather than an absent one. And each
+word waits on the side the row uncovers — push left and the word appears from the right
+edge, which is the opposite of where it feels like it should go until you try it the other
+way round.
+
+The archive and the flagged list keep their own swipes. Putting a message back, and letting
+one go, are what those two screens are for, and neither is a setting.
+
 ## v2.38 — Mail arrives while you are looking at it
 
 **IMAP IDLE, held for exactly as long as the app is open.** The protocol has a way for a

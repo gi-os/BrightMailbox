@@ -48,6 +48,10 @@ fun NoticesScreen(vm: MailboxViewModel) {
             T("$count", t.detail, Secondary)
         }
 
+        // The same two settings the inbox uses. Settings → GESTURES.
+        val left by vm.swipeLeft.collectAsStateWithLifecycle()
+        val right by vm.swipeRight.collectAsStateWithLifecycle()
+
         val list = androidx.compose.foundation.lazy.rememberLazyListState()
         com.gios.brightmailbox.hw.WheelScroll(list)
         LazyColumn(Modifier.weight(1f), state = list) {
@@ -62,7 +66,8 @@ fun NoticesScreen(vm: MailboxViewModel) {
                         rows[i],
                         onClick = { vm.open(rows[i], Screen.Notices) },
                         onHold = { vm.star(rows[i]) },
-                        onSwipe = { vm.archiveHere(rows[i]) },
+                        left = vm.swipe(left, rows[i]),
+                        right = vm.swipe(right, rows[i]),
                     )
                     Spacer(Modifier.height(g * 0.45f))
                 }

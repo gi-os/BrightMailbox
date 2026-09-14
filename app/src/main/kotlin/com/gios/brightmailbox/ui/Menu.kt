@@ -185,8 +185,7 @@ fun ArchiveScreen(vm: MailboxViewModel) {
                         m,
                         onClick = { vm.open(m, Screen.Archive) },
                         onHold = { vm.star(m) },
-                        onSwipe = { vm.unarchive(m) },
-                        swipeLabel = "UNARCHIVE",
+                        left = SwipeSpec("UNARCHIVE") { vm.unarchive(m) },
                     )
                 }
             }
@@ -267,8 +266,7 @@ fun FlaggedScreen(vm: MailboxViewModel) {
                             m,
                             onClick = { vm.open(m, Screen.Flagged) },
                             onHold = { vm.star(m) },
-                            onSwipe = { vm.star(m) },
-                            swipeLabel = "RELEASE",
+                            left = SwipeSpec("RELEASE") { vm.star(m) },
                         )
                         // Where it is, for the ones that are not in the inbox any more.
                         if (m.archived) {

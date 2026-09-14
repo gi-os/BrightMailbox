@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightmailbox.data.Depth
 import com.gios.brightmailbox.data.Ration
 import com.gios.brightmailbox.data.Reading
+import com.gios.brightmailbox.data.Swipe
 import com.gios.brightmailbox.notify.Chime
 import com.gios.brightmailbox.ui.theme.Content
 import com.gios.brightmailbox.ui.theme.LocalGrid
@@ -259,6 +260,70 @@ fun SettingsScreen(vm: MailboxViewModel) {
                 T("Preview lines", t.copy, if (previews) Content else Secondary)
                 T(if (previews) "on" else "off", t.copy, Secondary)
             }
+
+            Section("GESTURES")
+            /*
+             * What a sideways push does, one list per direction.
+             *
+             * Two lists rather than the two-word switch: six options do not fit across a
+             * 3.9" panel at any readable size, and this is the same control the history
+             * depth uses for the same reason.
+             *
+             * Left defaults to Archive, which is what it has always done, so nobody's
+             * hands have to be retrained by an update. Right defaults to Hold — the one
+             * action with no consequence, so finding the gesture by accident teaches you
+             * it exists rather than costing you a message.
+             */
+            var left by remember { mutableStateOf(vm.repo.swipeLeft) }
+            var right by remember { mutableStateOf(vm.repo.swipeRight) }
+
+            T("Push a row left", t.detail, Secondary)
+            Spacer(Modifier.height(g * 0.5f))
+            for (a in Swipe.entries) {
+                Row(
+                    Modifier.fillMaxWidth().lightClickable {
+                        left = a
+                        vm.setSwipe(true, a)
+                    }.padding(vertical = g * 0.3f),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    T(a.label, t.copy, if (a == left) Content else Secondary, maxLines = 1)
+                    if (a == left) T("·", t.copy)
+                }
+            }
+
+            Spacer(Modifier.height(g * 1.2f))
+            T("Push a row right", t.detail, Secondary)
+            Spacer(Modifier.height(g * 0.5f))
+            for (a in Swipe.entries) {
+                Row(
+                    Modifier.fillMaxWidth().lightClickable {
+                        right = a
+                        vm.setSwipe(false, a)
+                    }.padding(vertical = g * 0.3f),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    T(a.label, t.copy, if (a == right) Content else Secondary, maxLines = 1)
+                    if (a == right) T("·", t.copy)
+                }
+            }
+            Spacer(Modifier.height(g * 0.6f))
+            T(
+                if (left == Swipe.DELETE || right == Swipe.DELETE ||
+                    left == Swipe.JUNK || right == Swipe.JUNK
+                ) {
+                    "Delete and Junk do not ask on a swipe — a gesture that opens a " +
+                        "dialog is slower than the button it replaced. The row has to " +
+                        "travel most of the screen and buzzes when it arms."
+                } else {
+                    "The archive and the flagged list keep their own swipes: putting a " +
+                        "message back, and letting one go."
+                },
+                t.superfine,
+                Secondary,
+            )
 
             Section("STORAGE")
             /*

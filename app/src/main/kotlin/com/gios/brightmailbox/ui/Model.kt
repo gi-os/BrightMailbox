@@ -620,6 +620,73 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * indistinguishable from the row having been deleted, and it has not been: archive is
      * a move to All Mail.
      */
+    /* ------------------------------------------------------------------ gestures */
+
+    private val _swipeLeft = MutableStateFlow(repo.swipeLeft)
+    val swipeLeft: StateFlow<com.gios.brightmailbox.data.Swipe> = _swipeLeft.asStateFlow()
+
+    private val _swipeRight = MutableStateFlow(repo.swipeRight)
+    val swipeRight: StateFlow<com.gios.brightmailbox.data.Swipe> = _swipeRight.asStateFlow()
+
+    fun setSwipe(left: Boolean, to: com.gios.brightmailbox.data.Swipe) {
+        if (left) {
+            repo.swipeLeft = to
+            _swipeLeft.value = to
+        } else {
+            repo.swipeRight = to
+            _swipeRight.value = to
+        }
+    }
+
+    /**
+     * Turn a chosen action into the word behind the row and the thing that happens.
+     *
+     * Here rather than in the row, because every one of these verbs already exists on the
+     * ViewModel with its own sentence and its own navigation rules — the **Here** variants
+     * are the ones that do the work without leaving the list, which is the whole
+     * difference between a swipe and a button inside a message.
+     */
+    fun swipe(
+        action: com.gios.brightmailbox.data.Swipe,
+        msg: Msg,
+    ): com.gios.brightmailbox.ui.SwipeSpec? = when (action) {
+        com.gios.brightmailbox.data.Swipe.NOTHING -> null
+        com.gios.brightmailbox.data.Swipe.ARCHIVE ->
+            SwipeSpec("ARCHIVE") { archiveHere(msg) }
+        // The word follows the message: on something already held, the swipe lets it go.
+        com.gios.brightmailbox.data.Swipe.HOLD ->
+            SwipeSpec(if (msg.starred) "LET GO" else "HOLD") { star(msg) }
+        com.gios.brightmailbox.data.Swipe.READ ->
+            SwipeSpec("READ") { markRead(msg) }
+        com.gios.brightmailbox.data.Swipe.DELETE ->
+            SwipeSpec("DELETE") { deleteHere(msg) }
+        com.gios.brightmailbox.data.Swipe.JUNK ->
+            SwipeSpec("JUNK") { junkHere(msg) }
+    }
+
+    fun markRead(msg: Msg) = viewModelScope.launch {
+        repo.markRead(msg)
+        refreshRation()
+    }
+
+    /*
+     * The list versions of the two destructive verbs.
+     *
+     * [delete] and [junk] leave the reader first, because the message they are working on
+     * is the one on screen. Called from a row that is already in a list, that same call
+     * would navigate you somewhere you did not ask to go — the identical split that
+     * `archiveHere` exists for, and the bug it was written to fix.
+     */
+    fun deleteHere(msg: Msg) = viewModelScope.launch {
+        val ok = working("Deleting") { repo.delete(msg) }
+        said(if (ok) "Moved to Trash." else "Could not delete that — no Trash folder?")
+    }
+
+    fun junkHere(msg: Msg) = viewModelScope.launch {
+        val ok = working("Reporting") { repo.junk(msg) }
+        said(if (ok) "Moved to Junk." else "Could not report that — no Junk folder?")
+    }
+
     fun archiveHere(msg: Msg) = viewModelScope.launch {
         repo.archive(msg)
         said("Archived.")

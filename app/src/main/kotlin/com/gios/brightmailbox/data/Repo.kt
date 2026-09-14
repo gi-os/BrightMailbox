@@ -52,6 +52,36 @@ enum class Ration(val key: String, val label: String, val perDay: Int) {
  * [EVERYTHING] has no number, so the first-sync screen counts up with no total rather than
  * pretending to know one.
  */
+/**
+ * What a sideways swipe on a row does.
+ *
+ * Two of these — one per direction — and both are settings because the right answer
+ * depends on what somebody's mail is like. A person whose Notices pile is all newsletters
+ * wants a fast delete; a person using the ration properly wants archive and hold, and
+ * nothing that removes mail without asking.
+ *
+ * [word] is what shows behind the row as it moves. Empty for [NOTHING], which is not a
+ * disabled gesture but the absence of one: the row simply does not move.
+ */
+enum class Swipe(val key: String, val label: String, val word: String) {
+    NOTHING("none", "Nothing", ""),
+    ARCHIVE("archive", "Archive", "ARCHIVE"),
+    HOLD("hold", "Hold", "HOLD"),
+    READ("read", "Mark read", "READ"),
+    /*
+     * The two that take mail away have no confirmation on a swipe, and cannot have one —
+     * a gesture that opens a dialog is slower than the button it was meant to beat. They
+     * are off by default and the setting says what they do, which is the honest trade:
+     * anybody who turns one on has read the sentence under it.
+     */
+    DELETE("delete", "Delete", "DELETE"),
+    JUNK("junk", "Junk", "JUNK");
+
+    companion object {
+        fun of(k: String?, fallback: Swipe) = entries.firstOrNull { it.key == k } ?: fallback
+    }
+}
+
 enum class Depth(val key: String, val label: String, val perAccount: Int) {
     SHORT("200", "200 messages", 200),
     NORMAL("400", "400 messages", 400),
@@ -170,6 +200,22 @@ class Repo private constructor(private val app: Context) {
      * into the row when the body is prefetched regardless of this setting, so turning it
      * on fills the list immediately rather than waiting for a sync.
      */
+    /** Leftward, the direction that has always archived. */
+    var swipeLeft: Swipe
+        get() = Swipe.of(prefs.getString("swipeLeft", null), Swipe.ARCHIVE)
+        set(v) = prefs.edit().putString("swipeLeft", v.key).apply()
+
+    /**
+     * Rightward, which did nothing at all before v2.39.
+     *
+     * Defaults to holding rather than to nothing: it is the one action with no
+     * consequence, so discovering the gesture by accident teaches you it exists instead of
+     * costing you a message.
+     */
+    var swipeRight: Swipe
+        get() = Swipe.of(prefs.getString("swipeRight", null), Swipe.HOLD)
+        set(v) = prefs.edit().putString("swipeRight", v.key).apply()
+
     var previews: Boolean
         get() = prefs.getBoolean("previews", false)
         set(v) = prefs.edit().putBoolean("previews", v).apply()
@@ -1116,6 +1162,12 @@ class Repo private constructor(private val app: Context) {
         name.replace(Regex("""[^A-Za-z0-9._-]"""), "_").takeLast(80).ifBlank { "file" }
 
     /* -------------------------------------------------------------------- verbs */
+
+    /** Read, without the learning. The swipe is not a vote that it was worth reading. */
+    suspend fun markRead(msg: Msg) = withContext(Dispatchers.IO) {
+        dao.markRead(msg.key, today())
+        runCatching { serviceFor(msg.accountId)?.markRead(listOf(msg.providerId)) }
+    }
 
     suspend fun open(msg: Msg) = withContext(Dispatchers.IO) {
         dao.markRead(msg.key, today())

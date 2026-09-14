@@ -212,26 +212,39 @@ fun Modifier.lightHoldable(
 @Composable
 fun Modifier.swipeAway(
     threshold: Dp = 84.dp,
-    onSwiped: () -> Unit,
+    onLeft: (() -> Unit)? = null,
+    onRight: (() -> Unit)? = null,
 ): Modifier {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val limit = with(androidx.compose.ui.platform.LocalDensity.current) { threshold.toPx() }
     val offset = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     var width by remember { mutableFloatStateOf(0f) }
+    if (onLeft == null && onRight == null) return this
 
     return this
         .onSizeChanged { width = it.width.toFloat() }
         .offset { IntOffset(offset.value.toInt(), 0) }
-        .pointerInput(limit) {
+        .pointerInput(limit, onLeft == null, onRight == null) {
             detectHorizontalDragGestures(
                 onDragEnd = {
                     scope.launch {
-                        if (offset.value <= -limit) {
-                            // Off the edge first, then the work — so the row leaves by
-                            // moving rather than by vanishing out from under the finger.
-                            offset.animateTo(-width, tween(140))
-                            onSwiped()
+                        val armed = when {
+                            offset.value <= -limit -> onLeft
+                            offset.value >= limit -> onRight
+                            else -> null
+                        }
+                        if (armed != null) {
+                            /*
+                             * Off the edge first, then the work — so the row leaves by
+                             * moving rather than by vanishing out from under the finger.
+                             * It leaves the way it was pushed, which is the only thing
+                             * that makes two directions read as two different actions
+                             * rather than as one action with a wobble.
+                             */
+                            val exit = if (offset.value < 0) -width else width
+                            offset.animateTo(exit, tween(140))
+                            armed()
                         } else {
                             offset.animateTo(0f, tween(160))
                         }
@@ -240,10 +253,22 @@ fun Modifier.swipeAway(
                 onDragCancel = { scope.launch { offset.animateTo(0f, tween(160)) } },
             ) { change, drag ->
                 change.consume()
-                val next = (offset.value + drag).coerceIn(-width, 0f)
-                // One buzz, crossing the line, so the finger knows it has armed before
-                // it lifts rather than after.
-                if (offset.value > -limit && next <= -limit) {
+                /*
+                 * A direction with nothing behind it does not move.
+                 *
+                 * Clamping rather than ignoring: the row stays put against a push that
+                 * would do nothing, which says "not that way" in the only language a
+                 * gesture has. Letting it slide and spring back would read as a failed
+                 * action rather than as an absent one.
+                 */
+                val low = if (onLeft != null) -width else 0f
+                val high = if (onRight != null) width else 0f
+                val next = (offset.value + drag).coerceIn(low, high)
+                // One buzz, crossing the line in either direction, so the finger knows it
+                // has armed before it lifts rather than after.
+                val wasArmed = kotlin.math.abs(offset.value) >= limit
+                val nowArmed = kotlin.math.abs(next) >= limit
+                if (!wasArmed && nowArmed) {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
                 scope.launch { offset.snapTo(next) }

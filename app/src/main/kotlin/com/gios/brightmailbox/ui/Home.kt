@@ -199,6 +199,10 @@ fun HomeScreen(vm: MailboxViewModel) {
             Spacer(Modifier.height(g * 1.1f))
         }
 
+        // What a sideways push does, both ways. Settings → GESTURES.
+        val swipeLeft by vm.swipeLeft.collectAsStateWithLifecycle()
+        val swipeRight by vm.swipeRight.collectAsStateWithLifecycle()
+
         // The wheel scrolls the list, the same as in every other app on this phone.
         val list = androidx.compose.foundation.lazy.rememberLazyListState()
         com.gios.brightmailbox.hw.WheelScroll(list)
@@ -212,7 +216,8 @@ fun HomeScreen(vm: MailboxViewModel) {
                     m,
                     onClick = { vm.open(m) },
                     onHold = { vm.star(m) },
-                    onSwipe = { vm.archiveHere(m) },
+                    left = vm.swipe(swipeLeft, m),
+                    right = vm.swipe(swipeRight, m),
                 )
             }
 
@@ -272,7 +277,8 @@ fun HomeScreen(vm: MailboxViewModel) {
                         m,
                         onClick = { vm.open(m) },
                         onHold = { vm.star(m) },
-                        onSwipe = { vm.archiveHere(m) },
+                        left = vm.swipe(swipeLeft, m),
+                        right = vm.swipe(swipeRight, m),
                     )
                 }
                 item {
@@ -476,14 +482,13 @@ fun LetterRow(
     m: Msg,
     onClick: () -> Unit,
     onHold: () -> Unit = {},
-    onSwipe: (() -> Unit)? = null,
-    /** What the swipe does, for the word revealed behind the row. */
-    swipeLabel: String = "ARCHIVE",
+    left: SwipeSpec? = null,
+    right: SwipeSpec? = null,
 ) {
     val g = LocalGrid.current
     val t = LocalType.current
     val ink = if (m.readHere) Secondary else Content
-    SwipeRow(onSwipe, swipeLabel) { rowModifier ->
+    SwipeRow(left, right) { rowModifier ->
     Column(
         rowModifier.fillMaxWidth().lightHoldable(onLongClick = onHold, onClick = onClick),
     ) {
@@ -542,31 +547,41 @@ fun LetterRow(
  * stays where it was and you get a black bar sitting still while its contents slide out
  * from under it.
  *
- * With no [onSwipe] this is nothing at all — not a disabled gesture, just the row.
+ * With neither side set this is nothing at all — not a disabled gesture, just the row.
  */
 @Composable
 private fun SwipeRow(
-    onSwipe: (() -> Unit)?,
-    label: String = "ARCHIVE",
+    left: SwipeSpec?,
+    right: SwipeSpec?,
     content: @Composable (Modifier) -> Unit,
 ) {
-    if (onSwipe == null) {
+    if (left == null && right == null) {
         content(Modifier)
         return
     }
     val g = LocalGrid.current
     val t = LocalType.current
     androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth()) {
-        T(
-            label,
-            t.detail,
-            Secondary,
-            Modifier.align(Alignment.CenterEnd),
-            maxLines = 1,
-        )
+        /*
+         * Each word waits on the side the row uncovers.
+         *
+         * Pushing the row left reveals what is behind its right edge, so the left action's
+         * word sits at CenterEnd — and the other way round. Getting this backwards puts
+         * the word you are swiping towards behind your own finger.
+         */
+        left?.let {
+            T(it.word, t.detail, Secondary, Modifier.align(Alignment.CenterEnd), maxLines = 1)
+        }
+        right?.let {
+            T(it.word, t.detail, Secondary, Modifier.align(Alignment.CenterStart), maxLines = 1)
+        }
         content(
             Modifier
-                .swipeAway(threshold = g * 5f, onSwiped = onSwipe)
+                .swipeAway(
+                    threshold = g * 5f,
+                    onLeft = left?.run,
+                    onRight = right?.run,
+                )
                 .background(com.gios.brightmailbox.ui.theme.Background),
         )
     }
@@ -581,11 +596,12 @@ fun NoticeRow(
     m: Msg,
     onClick: () -> Unit,
     onHold: () -> Unit = {},
-    onSwipe: (() -> Unit)? = null,
+    left: SwipeSpec? = null,
+    right: SwipeSpec? = null,
 ) {
     val g = LocalGrid.current
     val t = LocalType.current
-    SwipeRow(onSwipe, "ARCHIVE") { rowModifier ->
+    SwipeRow(left, right) { rowModifier ->
     Row(
         rowModifier.fillMaxWidth().lightHoldable(onLongClick = onHold, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
@@ -865,6 +881,15 @@ val LocalAccountWords = compositionLocalOf { emptyMap<String, String>() }
  * that read it, and a static local does not invalidate its readers.
  */
 val LocalPreviews = compositionLocalOf { false }
+
+/**
+ * One swipe, in one direction: the word revealed behind the row and what happens.
+ *
+ * A pair rather than two parameters because the two are never separately useful — a word
+ * with no action is a lie and an action with no word is invisible — and because the rows
+ * now take two of them.
+ */
+data class SwipeSpec(val word: String, val run: () -> Unit)
 
 @Composable
 fun accountWord(accountId: String): String =

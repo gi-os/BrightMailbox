@@ -24,7 +24,14 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      # `packages: ''` because the action's default is `tools platform-tools`, and
+      # Google has withdrawn `tools` from the SDK repository — sdkmanager now exits 1
+      # on "Failed to find package 'tools'" and takes the whole job with it. Nothing
+      # here needs it: the runner image ships platform-tools and the platforms, and
+      # this step is only wanted for ANDROID_HOME and the licenses.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
       - uses: gradle/actions/setup-gradle@v4
 
       # The notification sounds are synthesized at build time, so the build needs

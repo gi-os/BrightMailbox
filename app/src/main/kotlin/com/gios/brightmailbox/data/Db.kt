@@ -342,6 +342,16 @@ interface MailDao {
     suspend fun noticeList(): List<Msg>
 
     /**
+     * Every notice ever stored — archived, starred, read, all of it.
+     *
+     * Read by the parcel scan rather than [noticeList], because a parcel is not a piece of
+     * mail: filing the email that announced it does not put the thing back in the
+     * warehouse. See `Repo.scanParcels` for what takes a row off that list.
+     */
+    @Query("SELECT * FROM messages WHERE pile = 'NOTICE'")
+    suspend fun noticeHistory(): List<Msg>
+
+    /**
      * The rest of a conversation, oldest first.
      *
      * `threadId` is the RFC 5322 thread root — the first Message-ID in `References`, or

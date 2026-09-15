@@ -1,3 +1,18 @@
+## BrightMailbox v2.47 — filing an email does not un-ship a parcel
+
+v2.46 read only the notices still lying in the pile, so ARCHIVE ALL emptied the parcel list,
+and so did filing one shipping update by hand. The list is about the thing in the van, not
+about your mail.
+
+Parcels are read from every notice now, archived ones included, and the only thing that
+takes a row off the list is delivery — the carrier mailing "delivered" is the end of a
+parcel and nothing else is. Filing the announcement is a statement about mail.
+
+Two gaps remain, both the cost of a design that stores nothing: a tracking number that
+exists only inside a picture is still undetectable, and a parcel whose "delivered" mail
+never arrives will sit in the list. The second one is what a stored parcel would fix, and
+that is a different release.
+
 ## BrightMailbox v2.46 — what is on its way, read out of the mail
 
 MENU → PARCELS lists the parcels the mailbox is already being told about.

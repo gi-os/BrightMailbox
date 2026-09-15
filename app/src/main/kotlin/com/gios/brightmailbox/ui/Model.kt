@@ -1090,7 +1090,10 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * because a screen that searches the server every time it opens makes the phone worse.
      */
     fun sweepOnce() {
-        if (swept) return scanParcels()
+        if (swept) {
+            scanParcels()
+            return
+        }
         swept = true
         sweepParcels()
     }

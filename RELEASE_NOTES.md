@@ -1,3 +1,27 @@
+## BrightMailbox v2.49 — the parcel list you can actually reach
+
+Three fixes to v2.48, all of them the same mistake in different clothes: the feature was
+there and you could not get to it.
+
+- **PARCELS is always in the menu now.** It used to be drawn only while a parcel was in
+  flight — so the one moment the row was worth opening, an empty list you suspect should
+  not be empty, was the moment it hid itself. A route you cannot see is a route you never
+  learn. It now says "Nothing on its way yet." in its second line instead of vanishing.
+- **The first empty look at the list asks the server.** "Nothing is coming" and "the mail
+  that says otherwise is somewhere else" look identical on screen, and the cheap scan reads
+  only text already on the phone. The first empty open of a session runs the search; after
+  that the list keeps its manners.
+- **SEARCH AGAIN is REFRESH**, which is what it is: it searches the archive on the server
+  for shipping mail, stores what it finds as real messages, fetches the text of recent
+  notices it cannot already read, and reads the list again.
+- **The scan reads both piles.** It walked only Notices, on the assumption that a machine's
+  mail is a Notice. A shipping mail the sorter filed as a Letter was invisible to the parcel
+  list, which is exactly the case where the sorter and the customer disagree.
+- **eBay's older twelve-digit order id** is read as well as the two-five-five form.
+
+If a shop's parcel still does not appear, the thing that fixes it is one real message: the
+sender, the subject and the body of a shipping mail that should have produced a row.
+
 ## BrightMailbox v2.48 — Amazon and eBay draw a row, and a way to ask again
 
 An Amazon shipping mail usually does not state the tracking number. It is behind a "Track

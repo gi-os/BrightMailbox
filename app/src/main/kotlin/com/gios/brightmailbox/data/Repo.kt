@@ -1139,7 +1139,9 @@ class Repo private constructor(private val app: Context) {
         var fetches = 0
         // No ORDER BY on the query, so "newest wins" is enforced by the clock rather than
         // by hoping SQLite hands rows back oldest first.
-        for (m in dao.noticeHistory()) {
+        // Every message, both piles: see [MailDao.allMessages] for why a parcel list cannot
+        // afford to trust the sorter's opinion of what a shipping mail is.
+        for (m in dao.allMessages()) {
             val f = bodyFile(m.key)
             val text = if (f.exists()) {
                 runCatching { Clean.body(f.readText()).text }.getOrNull() ?: continue

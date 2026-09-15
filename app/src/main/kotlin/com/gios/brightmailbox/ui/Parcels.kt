@@ -53,9 +53,15 @@ fun ParcelsScreen(vm: MailboxViewModel) {
     val parcels by vm.parcels.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    // Bodies arrive while the app is open — a sync, or the prefetch behind it — so the
-    // list is re-read on the way in rather than watched.
-    LaunchedEffect(Unit) { vm.scanParcels() }
+    /*
+     * Read on the way in, and asked for when the answer is nothing.
+     *
+     * An empty list means one of two things and they look identical from here: nothing is
+     * coming, or the mail that says otherwise is not on this phone. The cheap scan cannot
+     * tell them apart — which is why the first empty look of a session pays for the search,
+     * and only the first.
+     */
+    LaunchedEffect(Unit) { if (parcels.isEmpty()) vm.sweepOnce() else vm.scanParcels() }
 
     Frame {
         Row(
@@ -96,18 +102,14 @@ fun ParcelsScreen(vm: MailboxViewModel) {
         }
 
         /*
-         * The way to ask twice.
-         *
-         * What is on this list comes from bodies already on the phone, which is the cheap
-         * and usually complete answer — but a parcel whose mail was filed on another device,
-         * or arrived before its text was ever cached, is simply not here, and a list that
-         * is quietly incomplete is worse than one that says so. This searches the archive on
-         * the server for shipping mail, stores what it finds as real messages, then reads
-         * the list again. A work bar sweeps at the bottom while it runs.
+         * The refresh. Also the whole of the old SEARCH AGAIN, which is the better name for
+         * what it does: searches the archive on the server for shipping mail, stores what it
+         * finds as real messages, then reads the list again. A work bar sweeps at the bottom
+         * while it runs.
          */
         ActionBar(
             left = "BACK" to { vm.go(Screen.Menu) },
-            right = "SEARCH AGAIN" to { vm.sweepParcels() },
+            right = "REFRESH" to { vm.sweepParcels() },
         )
     }
 }

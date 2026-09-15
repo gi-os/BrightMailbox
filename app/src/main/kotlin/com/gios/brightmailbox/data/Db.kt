@@ -352,6 +352,17 @@ interface MailDao {
     suspend fun noticeHistory(): List<Msg>
 
     /**
+     * Everything the app has stored, both piles, archived and read included.
+     *
+     * The parcel scan reads this. A shipping mail belongs in whichever pile the sorter put
+     * it in and the sorter is allowed to be wrong about a machine's mail — but a parcel
+     * that announced itself in a Letter is still a parcel, and a scan that only ever looked
+     * in Notices was blind to exactly the case where the sorter and the customer disagree.
+     */
+    @Query("SELECT * FROM messages")
+    suspend fun allMessages(): List<Msg>
+
+    /**
      * The rest of a conversation, oldest first.
      *
      * `threadId` is the RFC 5322 thread root — the first Message-ID in `References`, or

@@ -1079,6 +1079,22 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         _parcels.value = working("Looking further back") { p -> repo.sweepParcels(p) }
     }
 
+    /** Once per session, so an empty list gets asked about without asking every time. */
+    private var swept = false
+
+    /**
+     * The first empty look at the parcel list of a session goes to the server.
+     *
+     * "Nothing is coming" and "the mail that says otherwise is somewhere else" look exactly
+     * alike on screen, and the empty list is where the difference matters. Only the first,
+     * because a screen that searches the server every time it opens makes the phone worse.
+     */
+    fun sweepOnce() {
+        if (swept) return scanParcels()
+        swept = true
+        sweepParcels()
+    }
+
     /** How full the mailbox is, or null when the server does not publish a quota. */
     suspend fun storage(): com.gios.brightmailbox.mail.Quota? = repo.quota()
 

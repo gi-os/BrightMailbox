@@ -73,22 +73,21 @@ fun MenuScreen(vm: MailboxViewModel) {
         WheelScroll(scroll)
         Column(Modifier.weight(1f).verticalScroll(scroll)) {
             /*
-             * PARCELS is first and only there while something is actually coming.
+             * PARCELS is first, and it is always here.
              *
-             * It is the one row on this page that is time-sensitive — a parcel arriving
-             * today beats everything below it — and it is the only row that is not always
-             * true, so it does not lengthen the page for the eleven months a year when
-             * nothing is in flight. The count is in the second line, the way DRAFTS above
-             * already says it.
-             *
-             * ponytail: this walks the bodies on disk, so it is asked for on arrival here.
-             * Move it into the sync if it is ever slow enough to notice.
+             * It was drawn only while a parcel was in flight, on the argument that a row
+             * that is sometimes absent does not lengthen the page. That was wrong twice
+             * over: a route you cannot see is a route you never learn, and the one moment
+             * the list is worth opening is when it is empty and you suspect it should not
+             * be — the state in which the row used to hide itself. It says what it knows in
+             * its second line either way.
              */
             LaunchedEffect(Unit) { vm.scanParcels() }
             val parcels by vm.parcels.collectAsStateWithLifecycle()
-            if (parcels.isNotEmpty()) {
-                MenuItem("PARCELS", parcelSummary(parcels)) { vm.go(Screen.Parcels) }
-            }
+            MenuItem(
+                "PARCELS",
+                if (parcels.isEmpty()) "Nothing on its way yet." else parcelSummary(parcels),
+            ) { vm.go(Screen.Parcels) }
             MenuItem("SEARCH", "Every pile, archive included.") { vm.go(Screen.Search) }
             MenuItem("VIEW ARCHIVE", "Mail you have put away.") { vm.go(Screen.Archive) }
             MenuItem("SENT", "What you have written.") { vm.go(Screen.Sent) }

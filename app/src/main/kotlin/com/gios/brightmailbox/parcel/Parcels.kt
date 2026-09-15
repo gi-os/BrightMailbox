@@ -258,6 +258,19 @@ object Parcels {
             nearby = ORDER_WORD,
             fallback = "https://www.ebay.com/sh/ord",
         ),
+        /*
+         * eBay's other order id, the older twelve-digit form. Also guarded by the sender,
+         * which is the only reason a hyphenated four-four-four can be believed at all — as
+         * a bare number it is a phone number, a date and a serial.
+         */
+        Shape(
+            Carrier.EBAY,
+            Regex("""\b\d{4}-\d{4}-\d{4}\b"""),
+            false,
+            order = true,
+            nearby = ORDER_WORD,
+            fallback = "https://www.ebay.com/sh/ord",
+        ),
     )
 
     private val TRACK_URL = mapOf(

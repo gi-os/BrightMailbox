@@ -3,6 +3,9 @@ package com.gios.brightmailbox.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,15 +13,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightmailbox.hw.WheelScroll
 import com.gios.brightmailbox.parcel.Parcels
@@ -27,7 +36,8 @@ import com.gios.brightmailbox.ui.theme.LocalType
 import com.gios.brightmailbox.ui.theme.Screen as Frame
 import com.gios.brightmailbox.ui.theme.Secondary
 import com.gios.brightmailbox.ui.theme.T
-import com.gios.brightmailbox.ui.theme.lightClickable
+import com.gios.brightmailbox.ui.theme.lightHoldable
+import org.json.JSONTokener
 
 /**
  * What is on its way.
@@ -52,6 +62,21 @@ fun ParcelsScreen(vm: MailboxViewModel) {
     val t = LocalType.current
     val parcels by vm.parcels.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
+    /*
+     * The live-tracking probe.
+     *
+     * Holding a parcel row loads the carrier's page in a hidden WebView and puts what the
+     * page ends up saying on screen. It exists because a plain HTTP client cannot get past
+     * the carriers' bot walls — all four answer an OkHttp request with Access Denied or
+     * "tracking attempt has been blocked" — while a WebView is a real browser with a real
+     * fingerprint, so it is the one client that might. This build answers one question: does
+     * it get through, and if so what does the page look like? It is not a feature yet, and
+     * it is the only thing in this app that fetches on its own.
+     */
+    var probing by remember { mutableStateOf<String?>(null) }
+    var probeText by remember { mutableStateOf<String?>(null) }
+    var probeN by remember { mutableStateOf(0) }
 
     /*
      * Read on the way in, and asked for when the answer is nothing.
@@ -95,10 +120,62 @@ fun ParcelsScreen(vm: MailboxViewModel) {
                 verticalArrangement = Arrangement.spacedBy(g * 0.9f),
             ) {
                 items(parcels, key = { it.id }) { p ->
-                    ParcelRow(p) { open(context, it) }
+                    ParcelRow(
+                        p,
+                        onOpen = { open(context, it) },
+                        onProbe = { u ->
+                            probeText = null
+                            probing = u
+                            probeN++
+                        },
+                    )
                     Spacer(Modifier.height(g * 0.45f))
                 }
             }
+        }
+
+        /*
+         * The hidden browser, alive only while a probe is running, and keyed by the probe
+         * count so that holding the same row twice loads the page twice rather than
+         * re-showing what the first one saw.
+         */
+        val url = probing
+        if (url != null) {
+            androidx.compose.runtime.key(probeN) {
+                AndroidView(
+                    modifier = Modifier.size(1.dp),
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageFinished(view: WebView, page: String?) {
+                                    /*
+                                     * The status arrives from the page's own JavaScript after
+                                     * the page has finished, so reading on the finished event
+                                     * reads an empty shell. Two looks, because these pages
+                                     * take their time, and the second one is discarded when
+                                     * the first already had something to say.
+                                     */
+                                    for (wait in listOf(8_000L, 20_000L)) {
+                                        view.postDelayed({ read(view, url) { probeText = it } }, wait)
+                                    }
+                                    view.postDelayed({ probing = null }, 26_000L)
+                                }
+                            }
+                            loadUrl(url)
+                        }
+                    },
+                )
+            }
+        }
+
+        val said = probeText
+        if (said != null) {
+            Spacer(Modifier.height(g * 0.8f))
+            T("LIVE PROBE", t.detail, Secondary)
+            Spacer(Modifier.height(g * 0.3f))
+            T(said, t.superfine)
         }
 
         /*
@@ -125,13 +202,19 @@ fun ParcelsScreen(vm: MailboxViewModel) {
  * glance, so it is the smallest line.
  */
 @Composable
-private fun ParcelRow(p: Parcels.Parcel, onOpen: (String) -> Unit) {
+private fun ParcelRow(p: Parcels.Parcel, onOpen: (String) -> Unit, onProbe: (String) -> Unit) {
     val g = LocalGrid.current
     val t = LocalType.current
     Column(
         Modifier
             .fillMaxWidth()
-            .lightClickable(enabled = p.url != null) { p.url?.let(onOpen) }
+            // Tap goes to the carrier; hold runs the live probe. The hold is the heavier
+            // gesture and the one that reaches the network, which is the right way round.
+            .lightHoldable(
+                enabled = p.url != null,
+                onLongClick = { p.url?.let(onProbe) },
+                onClick = { p.url?.let(onOpen) },
+            )
             .padding(vertical = g * 0.35f),
     ) {
         Row(
@@ -161,6 +244,25 @@ private fun ParcelRow(p: Parcels.Parcel, onOpen: (String) -> Unit) {
             Secondary,
             maxLines = 1,
         )
+    }
+}
+
+/**
+ * What the page says once its JavaScript has run.
+ *
+ * `innerText`, so it is what a person would read rather than markup, and truncated — this is
+ * a probe and the first screenful is the answer. The value arrives as a JSON string, which
+ * is why it goes back through a tokenizer rather than being used as it lands. Logged as well
+ * as shown, so `adb logcat -s parcelprobe` is an alternative to reading a small screen.
+ */
+private fun read(view: WebView, url: String, done: (String) -> Unit) {
+    runCatching {
+        view.evaluateJavascript("document.body ? document.body.innerText : ''") { raw ->
+            val text = runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull()
+            val said = text?.replace(Regex("""\n{2,}"""), "\n")?.trim()
+            Log.i("parcelprobe", if (said.isNullOrBlank()) "EMPTY $url" else "SAID $url\n$said")
+            done(said?.takeIf { it.isNotBlank() }?.take(1200) ?: "(the page said nothing at all)")
+        }
     }
 }
 

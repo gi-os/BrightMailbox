@@ -1,3 +1,19 @@
+## BrightMailbox v2.51 — a probe, not a feature
+
+Hold a parcel row and the app loads the carrier's tracking page in a hidden browser and
+shows the first screenful of what that page ends up saying. `adb logcat -s parcelprobe` gets
+the same text, longer.
+
+This is the experiment behind "our own tracking page with live data". A plain HTTP request
+cannot do it: UPS, USPS, FedEx and DHL all answer with a bot wall — "Access Denied", "Your
+tracking attempt has been blocked" — before anybody looks at the tracking number. A WebView
+is a real browser with a real fingerprint, so it is the one client that might get through,
+and this build is how we find out instead of assuming.
+
+Nothing else uses it. Tapping a row still opens the carrier in whatever handles links. The
+probe is temporary: it is the only thing in this app that fetches a page on its own, and it
+leaves when the answer arrives.
+
 ## BrightMailbox v2.50 — the thing you are waiting for, named
 
 The head of a parcel row is the item, when the mail names one. Amazon's shipping mail is

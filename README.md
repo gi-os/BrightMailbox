@@ -1,5 +1,7 @@
 # Mailbox
 
+[**⬇ Download the latest APK**](https://github.com/gi-os/BrightMailbox/releases/latest) · free, open source.
+
 An email client for the Light Phone III that sorts your mail into two piles and then
 gets out of the way.
 

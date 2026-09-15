@@ -1,3 +1,44 @@
+## BrightMailbox v2.46 — what is on its way, read out of the mail
+
+MENU → PARCELS lists the parcels the mailbox is already being told about.
+
+A carrier mails every state change — shipped, out for delivery, delivered — and the shop
+mails the tracking number, so the mailbox has been receiving the whole state machine all
+along. Nothing here talks to a carrier: no developer account, no key, no polling. The
+alternative was four registrations before the app did anything, and Amazon Logistics has
+no public API at all, which would have left the largest single source of parcels
+unreachable.
+
+Carriers understood today: UPS, FedEx, USPS, DHL and Amazon Logistics.
+
+The details that had to be decided:
+
+- **A carrier and a number format have to agree, or nothing is returned.** A bare twelve
+  digits is FedEx, or a USPS label, or an order id, and guessing is how a parcel list fills
+  with junk. Shapes that cannot be anything else — UPS `1Z`, Amazon `TBA`, the international
+  `S10` form — are believed on their own. The rest are believed only when the mail names
+  that carrier and the number sits beside a tracking word.
+- **The newest mail about a number is the state of the parcel.** That one rule is the
+  merge: one order that generates four emails draws one row, and nothing has to be stored.
+  No parcels table, no schema change, no second copy of the mail going stale.
+- **"Out for delivery" is not "delivered".** Future tense comes out before the words are
+  matched, so "will be delivered today" reads as what it means — the thing is not here yet.
+- **A return label is not an inbound parcel.** Return, refund and RMA subjects are ignored.
+  A return label is a tracking number for something travelling away from you, and it would
+  otherwise sit in the list for a fortnight, waiting to arrive.
+- **Silence is the point.** Nothing here notifies. In this app a shipping email is a Notice,
+  and Notices never make a sound — being told a parcel is coming is worth a notification and
+  the email announcing it is not. This is a list you go and read, and every row is a tap
+  that hands the carrier's own tracking page to whatever opens links.
+- **It reads only what is already on the phone.** Bodies are the ones the prefetch had
+  fetched anyway so that a tapped message opens instantly. Nothing extra goes over the
+  network and nothing new runs in the background.
+
+Two things it cannot do: a tracking number that exists only inside a picture in the mail is
+skipped rather than guessed at, and archiving the shipping mail takes its parcel off the
+list — the list is the mail. Both would need a stored parcel to fix, which is a different
+release.
+
 ## BrightMailbox v2.45 — letters are conversations now
 
 A back-and-forth with one person was four rows in the list, and under a ration of five

@@ -52,6 +52,7 @@ import com.gios.brightmailbox.ui.LocalAccountWords
 import com.gios.brightmailbox.ui.LocalPreviews
 import com.gios.brightmailbox.ui.MailboxViewModel
 import com.gios.brightmailbox.ui.NoticesScreen
+import com.gios.brightmailbox.ui.ParcelsScreen
 import com.gios.brightmailbox.ui.PasswordScreen
 import com.gios.brightmailbox.ui.ReaderScreen
 import com.gios.brightmailbox.ui.RulesScreen
@@ -234,6 +235,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.Read -> "Read"
                         Screen.Notices -> "Notices"
                         Screen.Menu -> "Menu"
+                        Screen.Parcels -> "Parcels"
                         Screen.Archive -> "Archive"
                         Screen.Sent -> "Sent"
                         Screen.Flagged -> "Flagged"
@@ -347,6 +349,7 @@ class MainActivity : ComponentActivity() {
                     Screen.Home -> HomeScreen(vm)
                     Screen.Notices -> NoticesScreen(vm)
                     Screen.Menu -> MenuScreen(vm)
+                    Screen.Parcels -> ParcelsScreen(vm)
                     Screen.Archive -> ArchiveScreen(vm)
                     Screen.Sent -> SentScreen(vm)
                     Screen.Flagged -> FlaggedScreen(vm)

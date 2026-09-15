@@ -10,6 +10,7 @@ import com.gios.brightmailbox.data.Reading
 import com.gios.brightmailbox.data.Repo
 import com.gios.brightmailbox.data.SenderRule
 import com.gios.brightmailbox.mail.Outgoing
+import com.gios.brightmailbox.parcel.Parcels
 import com.gios.brightmailbox.sort.Pile
 import com.gios.brightmailbox.text.Clean
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,6 +64,8 @@ sealed interface Screen {
     ) : Screen
     /** The list behind the hamburger: everything that is not reading today's mail. */
     data object Menu : Screen
+    /** What is on its way, out of the mail — one row per tracking number. */
+    data object Parcels : Screen
     /** Mail that has been put away — archive is a place, not a deletion. */
     data object Archive : Screen
     /** Messages started and not sent. */
@@ -1050,6 +1053,19 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     /** How many messages are waiting to go out. Zero almost always. */
     val queued = repo.queuedCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /**
+     * Parcels in flight, newest state per tracking number.
+     *
+     * Scanned when asked rather than watched: it is a walk over bodies already on disk, and
+     * the only two things that ask are the menu row (for its count) and the list itself.
+     */
+    private val _parcels = MutableStateFlow<List<Parcels.Parcel>>(emptyList())
+    val parcels: StateFlow<List<Parcels.Parcel>> = _parcels.asStateFlow()
+
+    fun scanParcels() = viewModelScope.launch {
+        runCatching { repo.scanParcels() }.onSuccess { _parcels.value = it }
+    }
 
     /** How full the mailbox is, or null when the server does not publish a quota. */
     suspend fun storage(): com.gios.brightmailbox.mail.Quota? = repo.quota()

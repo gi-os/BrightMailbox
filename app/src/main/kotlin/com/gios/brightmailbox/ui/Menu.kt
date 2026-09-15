@@ -72,6 +72,23 @@ fun MenuScreen(vm: MailboxViewModel) {
         val scroll = rememberScrollState()
         WheelScroll(scroll)
         Column(Modifier.weight(1f).verticalScroll(scroll)) {
+            /*
+             * PARCELS is first and only there while something is actually coming.
+             *
+             * It is the one row on this page that is time-sensitive — a parcel arriving
+             * today beats everything below it — and it is the only row that is not always
+             * true, so it does not lengthen the page for the eleven months a year when
+             * nothing is in flight. The count is in the second line, the way DRAFTS above
+             * already says it.
+             *
+             * ponytail: this walks the bodies on disk, so it is asked for on arrival here.
+             * Move it into the sync if it is ever slow enough to notice.
+             */
+            LaunchedEffect(Unit) { vm.scanParcels() }
+            val parcels by vm.parcels.collectAsStateWithLifecycle()
+            if (parcels.isNotEmpty()) {
+                MenuItem("PARCELS", parcelSummary(parcels)) { vm.go(Screen.Parcels) }
+            }
             MenuItem("SEARCH", "Every pile, archive included.") { vm.go(Screen.Search) }
             MenuItem("VIEW ARCHIVE", "Mail you have put away.") { vm.go(Screen.Archive) }
             MenuItem("SENT", "What you have written.") { vm.go(Screen.Sent) }

@@ -16,6 +16,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import com.gios.brightmailbox.notify.Chime
+import com.gios.brightmailbox.parcel.Parcels
 import com.gios.brightmailbox.sort.Envelope
 import com.gios.brightmailbox.sort.Learner
 import com.gios.brightmailbox.sort.Pile
@@ -1055,6 +1056,47 @@ class Repo private constructor(private val app: Context) {
                 }
             }
         }
+
+    /**
+     * Every parcel the mailbox is currently talking about.
+     *
+     * A carrier mails every state change and the shop mails the number, so the state is
+     * already in here; [Parcels] reads it out and this walks the notices, the newest mail
+     * winning per tracking number. That one rule is the merge — shipped, then out for
+     * delivery, then delivered, each overwriting the last — which is why four emails about
+     * one order draw one row without any parcel ever being stored.
+     *
+     * Reads only bodies already on disk and never the network: the prefetch fetched most
+     * of them anyway, for the unrelated reason that a tapped message should open instantly.
+     *
+     * ponytail: a notice whose body was never fetched contributes no parcels; add a
+     * bounded fetch-on-open if the list turns out thin in practice.
+     */
+    suspend fun scanParcels(): List<Parcels.Parcel> = withContext(Dispatchers.IO) {
+        val mine = myAddresses()
+        val best = HashMap<String, Long>()
+        val found = HashMap<String, Parcels.Parcel>()
+        // `noticeList` has no ORDER BY, so "newest wins" is enforced by the clock rather
+        // than by hoping SQLite hands rows back oldest first.
+        for (m in dao.noticeList()) {
+            val f = bodyFile(m.key)
+            if (!f.exists()) continue
+            val text = runCatching { Clean.body(f.readText()).text }.getOrNull() ?: continue
+            val e = Envelope(
+                from = m.sender,
+                fromName = m.senderName,
+                subject = m.subject,
+                mine = mine,
+                body = text,
+            )
+            for (p in Parcels.detect(e)) {
+                if ((best[p.id] ?: Long.MIN_VALUE) >= m.receivedAt) continue
+                best[p.id] = m.receivedAt
+                found[p.id] = p
+            }
+        }
+        found.values.sortedByDescending { best[it.id] ?: 0L }
+    }
 
     /**
      * The first line of a message, as one line.

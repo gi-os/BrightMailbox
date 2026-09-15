@@ -264,11 +264,46 @@ class ParcelsTest {
         assertEquals(Parcels.Carrier.AMAZON, p.carrier)
         assertEquals("123-4567890-1234567", p.number)
         assertEquals(Parcels.State.SHIPPED, p.state)
+        // The subject names the thing, which is the most useful word this row can show.
+        assertEquals("Anker USB-C Cable", p.item)
         // The shop's own link wins over anything this file could reconstruct.
         assertEquals(
             "https://www.amazon.com/gp/your-account/order-details?orderID=123-4567890-1234567",
             p.url,
         )
+    }
+
+    @Test
+    fun `a mail that names no item falls back to the shop`() {
+        assertNull(detect(ebayShipped).single().item)
+        assertNull(detect(ups).single().item)
+    }
+
+    @Test
+    fun `an ebay row never lands on seller hub`() {
+        val mail = """
+            From: "eBay" <ebay@ebay.com>
+            Subject: Your order has shipped
+
+            Order number: 14-11960-23534
+        """.trimIndent()
+        val url = detect(mail).single().url.orEmpty()
+        assertEquals("https://www.ebay.com/mye/myebay/purchase", url)
+        // /sh/ is Seller Hub, where a seller tracks what they shipped. A buyer's page is
+        // never there, and it is the same host, so the mistake is invisible unless pinned.
+        assertTrue(!url.contains("/sh/"))
+    }
+
+    @Test
+    fun `an ebay mail linking to seller hub is not followed`() {
+        val mail = """
+            From: "eBay" <ebay@ebay.com>
+            Subject: Your order has shipped
+
+            Order number: 14-11960-23534
+            Manage this order: https://www.ebay.com/sh/ord?orderid=14-11960-23534
+        """.trimIndent()
+        assertTrue(!detect(mail).single().url.orEmpty().contains("/sh/"))
     }
 
     @Test
@@ -289,7 +324,6 @@ class ParcelsTest {
 
         Good news — your order has shipped.
         Order number: 14-11960-23534
-        View order details: https://www.ebay.com/mesh/ord/details?orderid=14-11960-23534
     """.trimIndent()
 
     @Test

@@ -119,9 +119,10 @@ fun ParcelsScreen(vm: MailboxViewModel) {
  * "USPS" when both are true. A carrier's own notice has no shop on it, so the carrier
  * leads there instead. See `Parcels.merchantOf`.
  *
- * State sits opposite in words a person would use ("out for delivery"), and the number
- * underneath with the ETA when the mail stated one. The number is the one thing on this
- * screen nobody can read at a glance, so it is the smallest line.
+ * State sits opposite in words a person would use ("out for delivery"). The head of the row
+ * is the item when a mail named one and the shop otherwise, with the shop, carrier, number
+ * and ETA underneath — the number is the one thing on this screen nobody can read at a
+ * glance, so it is the smallest line.
  */
 @Composable
 private fun ParcelRow(p: Parcels.Parcel, onOpen: (String) -> Unit) {
@@ -138,13 +139,24 @@ private fun ParcelRow(p: Parcels.Parcel, onOpen: (String) -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            T(p.merchant ?: p.carrier.label, t.button, maxLines = 1)
+            /*
+             * The item first, because that is the thing you are waiting for, and the shop
+             * only because most mail names the shop and not the thing. Nothing here guesses
+             * an item out of a body: when a mail does not name one, this is the shop's name,
+             * which is what it always was.
+             */
+            val head = p.item ?: p.merchant ?: p.carrier.label
+            T(head, t.button, maxLines = 1)
             T(stateWord(p.state), t.detail, Secondary, maxLines = 1)
         }
         Spacer(Modifier.height(g * 0.15f))
         T(
-            listOfNotNull(p.carrier.label.takeIf { p.merchant != null }, p.number, p.eta)
-                .joinToString(" · "),
+            listOfNotNull(
+                p.merchant.takeIf { p.item != null },
+                p.carrier.label.takeIf { it != (p.item ?: p.merchant ?: p.carrier.label) },
+                p.number,
+                p.eta,
+            ).joinToString(" · "),
             t.superfine,
             Secondary,
             maxLines = 1,

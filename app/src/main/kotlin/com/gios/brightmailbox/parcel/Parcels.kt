@@ -56,6 +56,15 @@ object Parcels {
         val merchant: String? = null,
         val url: String? = null,
         val eta: String? = null,
+        /**
+         * What is in the box, when the mail says.
+         *
+         * Null more often than not: a carrier's own notice names the package and never the
+         * thing in it, and plenty of shops only write "your order has shipped". The row
+         * falls back to the shop, and then to the carrier, so this is the nicer answer and
+         * never the only one.
+         */
+        val item: String? = null,
     ) {
         /** Stable across every mail about this parcel, and safe as a database key. */
         val id: String get() = "${carrier.name}:$number"
@@ -86,6 +95,7 @@ object Parcels {
 
         val state = stateOf(subject, body)
         val merchant = merchantOf(message.fromName, message.domain, subject)
+        val item = itemOf(subject)
         val eta = etaOf(body)
 
         // Keyed by number, so a 20-digit USPS label cannot also be claimed as a FedEx 20.
@@ -108,6 +118,7 @@ object Parcels {
                     merchant,
                     urlFor(shape, number, urls),
                     eta,
+                    item,
                 )
                 if (shape.order) orders[number] = parcel else found[number] = parcel
             }
@@ -256,7 +267,7 @@ object Parcels {
             false,
             order = true,
             nearby = ORDER_WORD,
-            fallback = "https://www.ebay.com/sh/ord",
+            fallback = EBAY_BUYER,
         ),
         /*
          * eBay's other order id, the older twelve-digit form. Also guarded by the sender,
@@ -269,9 +280,18 @@ object Parcels {
             false,
             order = true,
             nearby = ORDER_WORD,
-            fallback = "https://www.ebay.com/sh/ord",
+            fallback = EBAY_BUYER,
         ),
     )
+
+    /**
+     * eBay's buyer-facing orders page.
+     *
+     * Not `ebay.com/sh/…`: `/sh/` is Seller Hub, which is where a seller tracks what they
+     * shipped. A parcel arriving here is going the other way, and a buyer who taps through
+     * to a seller's tools has been sent somewhere that is not for them.
+     */
+    private const val EBAY_BUYER = "https://www.ebay.com/mye/myebay/purchase"
 
     private val TRACK_URL = mapOf(
         Carrier.UPS to "https://www.ups.com/track?tracknum=",
@@ -303,7 +323,13 @@ object Parcels {
             HOSTS.first { it.second == shape.carrier }.first
         }
         val onHost = { u: String -> host(u).let { it == suffix || it.endsWith(".$suffix") } }
-        urls.firstOrNull { it.contains(number) && onHost(it) }?.let { return it }
+        /*
+         * eBay's Seller Hub is where a seller tracks what they sent; a buyer's link is never
+         * there, and it is the same host as the buyer pages, so it has to be excluded by
+         * name. Every eBay order mail contains links to both.
+         */
+        val sellerSide = { u: String -> u.contains("/sh/") }
+        urls.firstOrNull { it.contains(number) && onHost(it) && !sellerSide(it) }?.let { return it }
         if (shape.order) return shape.fallback
         urls.firstOrNull { onHost(it) }?.let { return it }
         return TRACK_URL[shape.carrier]?.plus(number)
@@ -362,6 +388,47 @@ object Parcels {
             SHIPPED.containsMatchIn(past) -> State.SHIPPED
             else -> State.UNKNOWN
         }
+    }
+
+    /**
+     * What is in the box, as the subject line words it.
+     *
+     * Amazon is the reason this is worth doing at all: its shipping mail is exactly
+     * `Your Amazon.com order of "Anker USB-C Cable" has shipped`, so the thing being
+     * delivered is already on screen in the one place a row can show it.
+     *
+     * The subject and nothing else. A body is a table of line items that the cleaner
+     * flattens into a paragraph, and picking a product name out of that reliably is a
+     * different and much worse problem than picking one out of a sentence that exists to
+     * name one thing. When this is null the row says the shop instead, which was the old
+     * behaviour and is never wrong — it is only less useful.
+     */
+    private val ITEM = listOf(
+        Regex("""(?i)\border of\s*["“”']([^"“”']{3,60})["“”']"""),
+        Regex("""(?i)\border of\s+(.{3,60}?)(?:\s+(?:has|is|was|will|ships)\b|[,.;]|$)"""),
+        Regex("""(?i)\bshipment of\s*["“”']?([^"“”']{3,60})["“”']?(?:\s+(?:has|is|was|will)\b|[,.;]|$)"""),
+    )
+
+    /**
+     * A candidate that is not a thing.
+     *
+     * "Your order of the following items has shipped" is a real sentence and its capture is
+     * not a product, and neither is a bare number or a date. Rejected rather than guessed
+     * at: the fallback for all of them is the shop's name, which is true.
+     */
+    private val NOT_AN_ITEM = Regex(
+        """(?i)\b(order|orders|package|parcel|shipment|tracking|item|items|your|the)\b|\d{4}-\d{2}-\d{2}""",
+    )
+
+    private fun itemOf(subject: String): String? {
+        for (r in ITEM) {
+            val raw = r.find(subject)?.groupValues?.get(1)?.trim()?.trim('"', '\u201c', '\u201d', '\'')
+            val name = raw
+                ?.takeIf { it.length in 3..60 && it.any(Char::isLetter) && !NOT_AN_ITEM.containsMatchIn(it) }
+                ?: continue
+            return name.replace(Regex("""\s+"""), " ").trim().take(48)
+        }
+        return null
     }
 
     /**

@@ -1,3 +1,20 @@
+## BrightMailbox v2.50 — the thing you are waiting for, named
+
+The head of a parcel row is the item, when the mail names one. Amazon's shipping mail is
+literally `Your Amazon.com order of "Anker USB-C Cable" has shipped`, so the row can say
+that instead of saying "Amazon.com" — which is true and useless.
+
+It is read from the subject and nowhere else. A body is a table of line items that the
+cleaner flattens into a paragraph, and a wrong item name is worse than no item name at all.
+When a mail names nothing — every carrier's own notice, plenty of shops — the row says the
+shop, which is what it always said, with the carrier, number and ETA underneath either way.
+
+**eBay's link was going to Seller Hub.** `/sh/` is where a *seller* tracks what they shipped,
+and it is the same host as the buyer's pages, so it is excluded by name now and a row with no
+link of its own goes to the buyer's purchase history instead. Being handed a seller's tools
+for a parcel travelling towards you is the kind of thing that stays invisible until someone
+taps it.
+
 ## BrightMailbox v2.49 — the parcel list you can actually reach
 
 Three fixes to v2.48, all of them the same mistake in different clothes: the feature was

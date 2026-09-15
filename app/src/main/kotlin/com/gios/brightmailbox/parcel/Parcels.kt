@@ -27,6 +27,13 @@ object Parcels {
         USPS("USPS"),
         DHL("DHL"),
         AMAZON("Amazon"),
+
+        /**
+         * A shop, not a carrier: nothing named eBay will ever resolve a number, but eBay
+         * issues an order id of its own and names it in every message it sends, and its
+         * mail is the only handle on a great many of those parcels.
+         */
+        EBAY("eBay"),
     }
 
     /**
@@ -83,23 +90,26 @@ object Parcels {
 
         // Keyed by number, so a 20-digit USPS label cannot also be claimed as a FedEx 20.
         val found = LinkedHashMap<String, Parcel>()
+        // Shop order ids, kept apart until the end — see the merge below.
+        val orders = LinkedHashMap<String, Parcel>()
 
         for (shape in SHAPES) {
             for (m in shape.re.findAll(text)) {
                 val number = m.value
-                if (found.containsKey(number)) continue
+                if (found.containsKey(number) || orders.containsKey(number)) continue
                 // Carrier and format have to agree. A bare twelve digits is FedEx or a USPS
                 // label or an order id, and guessing is how the list fills with junk.
                 val agrees = shape.strong || shape.carrier in named
-                if (!agrees || !guarded(text, m.range.first, shape.strong)) continue
-                found[number] = Parcel(
+                if (!agrees || !guarded(text, m.range.first, shape)) continue
+                val parcel = Parcel(
                     shape.carrier,
                     number,
                     state,
                     merchant,
-                    urlFor(shape.carrier, number, urls),
+                    urlFor(shape, number, urls),
                     eta,
                 )
+                if (shape.order) orders[number] = parcel else found[number] = parcel
             }
         }
 
@@ -107,7 +117,19 @@ object Parcels {
         // so the scan above already reads numbers out of links. There is deliberately no
         // second pass over `?trknbr=` parameters — it would only ever find what text found.
 
-        return found.values.toList()
+        /*
+         * One parcel, one row. A mail carrying both the carrier's number and the shop's
+         * order id is talking about the parcel the number identifies — Amazon's shipping
+         * mails carry both — so the order id is dropped for that mail rather than drawing a
+         * second row for the same thing. A mail carrying only the order id still draws a
+         * row, which is most of what Amazon sends.
+         *
+         * ponytail: that holds within one mail and not across them. An order whose
+         * "shipped" mail states the tracking number and whose "out for delivery" mail does
+         * not will show two rows until the number-keyed one reports delivered. Linking them
+         * needs a stored order-to-number alias, which is the stored-parcel release.
+         */
+        return (if (found.isNotEmpty()) found else orders).values.toList()
     }
 
     // ---------------------------------------------------------------- carriers
@@ -121,6 +143,19 @@ object Parcels {
         "usps.gov" to Carrier.USPS,
         "dhl.com" to Carrier.DHL,
         "amazon.com" to Carrier.AMAZON,
+    )
+
+    /**
+     * Shops that issue their own order id and mail about it.
+     *
+     * Kept apart from [HOSTS] because a shop is not a carrier in either direction: eBay is
+     * where the parcel came from, so its mail should carry a merchant, and no tracking page
+     * of eBay's is ever going to be asked for a number. What they share is that the host
+     * alone is enough to believe an id of theirs — nobody else mails `14-11960-23534`.
+     */
+    private val SHOPS = listOf(
+        "amazon.com" to Carrier.AMAZON,
+        "ebay.com" to Carrier.EBAY,
     )
 
     /** What a carrier is called in prose, when no domain gives it away. */
@@ -138,7 +173,10 @@ object Parcels {
     private fun namedCarriers(domain: String, urls: List<String>, text: String): Set<Carrier> {
         val out = HashSet<Carrier>()
         val hosts = urls.map { host(it) } + domain.lowercase()
-        for (h in hosts) HOSTS.firstOrNull { h == it.first || h.endsWith(".${it.first}") }?.let { out.add(it.second) }
+        for (h in hosts) {
+            (HOSTS + SHOPS).firstOrNull { h == it.first || h.endsWith(".${it.first}") }
+                ?.let { out.add(it.second) }
+        }
         for ((carrier, re) in NAMES) if (re.containsMatchIn(text)) out.add(carrier)
         return out
     }
@@ -154,9 +192,36 @@ object Parcels {
      * [strong] shapes name their own carrier and need no evidence: nobody else issues
      * `1Z…`, `TBA…` or an S10 number. Everything else is a bare digit run that several
      * carriers and every order number in the world also fit, so it is only believed when
-     * the mail names that carrier *and* the number sits next to a tracking word.
+     * the mail names that carrier *and* the number sits next to the right word.
+     *
+     * [order] marks the shop's own order id rather than a carrier's number. It is not a
+     * tracking number and no carrier will resolve one — but it is the handle a shop puts on
+     * every message it sends, and for Amazon that is most of what arrives.
      */
-    private class Shape(val carrier: Carrier, val re: Regex, val strong: Boolean)
+    private class Shape(
+        val carrier: Carrier,
+        val re: Regex,
+        val strong: Boolean,
+        val order: Boolean = false,
+        /** The word that has to be within reach when [strong] is false. */
+        val nearby: Regex = NEARBY,
+        /** Where a row with no link of its own goes. The shop's front door, never a guess. */
+        val fallback: String? = null,
+    )
+
+    /** A word that has to be within reach of a bare digit run for it to be a tracking number. */
+    private val NEARBY = Regex(
+        """track|shipment|shipped|package|parcel|label|consignment|delivery""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * The word that has to sit next to a shop's order id.
+     *
+     * Deliberately not [NEARBY]: "order" is not a tracking word, and adding it there would
+     * let every twelve-digit order number in the world pass the carrier guard.
+     */
+    private val ORDER_WORD = Regex("""\border\b|#""", RegexOption.IGNORE_CASE)
 
     private val SHAPES = listOf(
         Shape(Carrier.UPS, Regex("""\b1Z[0-9A-Z]{16}\b"""), true),
@@ -165,6 +230,34 @@ object Parcels {
         Shape(Carrier.USPS, Regex("""\b9[1-5]\d{18,20}\b"""), false),
         Shape(Carrier.FEDEX, Regex("""\b(?:96\d{20}|\d{15}|\d{12})\b"""), false),
         Shape(Carrier.DHL, Regex("""\b(?:JJD?\d{14,20}|\d{10})\b"""), false),
+
+        /*
+         * Order ids. Amazon ships with a tracking number that its mail often does not
+         * state — it is behind the "Track package" button, and for Amazon Logistics it is
+         * a `TBA…` that only some messages spell out — so an Amazon order that reports
+         * every state change still produced no row at all. The order number is in every
+         * one of those mails.
+         *
+         * Both shapes are believed on the sender alone, which is the tightest guard there
+         * is here: `\\d{3}-\\d{7}-\\d{7}` from anyone but amazon.com is not believed, and
+         * neither is eBay's `AA-BBBBB-CCCCC` from anyone but eBay.
+         */
+        Shape(
+            Carrier.AMAZON,
+            Regex("""\b\d{3}-\d{7}-\d{7}\b"""),
+            false,
+            order = true,
+            nearby = ORDER_WORD,
+            fallback = "https://www.amazon.com/gp/your-account/order-history",
+        ),
+        Shape(
+            Carrier.EBAY,
+            Regex("""\b\d{2}-\d{5}-\d{5}\b"""),
+            false,
+            order = true,
+            nearby = ORDER_WORD,
+            fallback = "https://www.ebay.com/sh/ord",
+        ),
     )
 
     private val TRACK_URL = mapOf(
@@ -176,23 +269,31 @@ object Parcels {
     )
 
     /** A word that has to be within reach of a bare digit run for it to be a tracking number. */
-    private val NEARBY = Regex(
-        """track|shipment|shipped|package|parcel|label|consignment|delivery""",
-        RegexOption.IGNORE_CASE,
-    )
-
-    private fun guarded(text: String, at: Int, strong: Boolean): Boolean =
-        strong || NEARBY.containsMatchIn(
+    private fun guarded(text: String, at: Int, shape: Shape): Boolean =
+        shape.strong || shape.nearby.containsMatchIn(
             text.substring(maxOf(0, at - 48), minOf(text.length, at + 48)),
         )
 
-    private fun urlFor(carrier: Carrier, number: String, urls: List<String>): String? {
-        val suffix = HOSTS.first { it.second == carrier }.first
-        val onCarrier = urls.filter { h -> host(h).let { it == suffix || it.endsWith(".$suffix") } }
-        // The link that already points at this parcel beats the carrier's front page.
-        onCarrier.firstOrNull { it.contains(number) }?.let { return it }
-        onCarrier.firstOrNull()?.let { return it }
-        return TRACK_URL[carrier]?.plus(number)
+    /**
+     * Where the row goes.
+     *
+     * The link the mail already carries wins, because the shop built it and it lands on the
+     * parcel rather than near it — but only on the right host, since a tracking number
+     * copied into an analytics URL is not a tracking page. An order id has no carrier to
+     * reconstruct a link from, so when the mail carries none the row falls back to the
+     * shop's own front door rather than to a URL this file made up.
+     */
+    private fun urlFor(shape: Shape, number: String, urls: List<String>): String? {
+        val suffix = if (shape.order) {
+            SHOPS.first { it.second == shape.carrier }.first
+        } else {
+            HOSTS.first { it.second == shape.carrier }.first
+        }
+        val onHost = { u: String -> host(u).let { it == suffix || it.endsWith(".$suffix") } }
+        urls.firstOrNull { it.contains(number) && onHost(it) }?.let { return it }
+        if (shape.order) return shape.fallback
+        urls.firstOrNull { onHost(it) }?.let { return it }
+        return TRACK_URL[shape.carrier]?.plus(number)
     }
 
     // ---------------------------------------------------------------- reading

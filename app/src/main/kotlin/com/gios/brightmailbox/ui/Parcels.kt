@@ -73,7 +73,9 @@ fun ParcelsScreen(vm: MailboxViewModel) {
             Spacer(Modifier.height(g * 0.6f))
             T(
                 "A parcel appears here once a shop or a carrier has mailed about it — the " +
-                    "tracking number is read out of that message and never leaves the phone.",
+                    "tracking number is read out of that message and never leaves the phone. " +
+                    "SEARCH AGAIN asks the server, archive included, for mail this phone has " +
+                    "not read yet.",
                 t.detail,
                 Secondary,
             )
@@ -93,7 +95,20 @@ fun ParcelsScreen(vm: MailboxViewModel) {
             }
         }
 
-        ActionBar(left = "BACK" to { vm.go(Screen.Menu) }, right = null)
+        /*
+         * The way to ask twice.
+         *
+         * What is on this list comes from bodies already on the phone, which is the cheap
+         * and usually complete answer — but a parcel whose mail was filed on another device,
+         * or arrived before its text was ever cached, is simply not here, and a list that
+         * is quietly incomplete is worse than one that says so. This searches the archive on
+         * the server for shipping mail, stores what it finds as real messages, then reads
+         * the list again. A work bar sweeps at the bottom while it runs.
+         */
+        ActionBar(
+            left = "BACK" to { vm.go(Screen.Menu) },
+            right = "SEARCH AGAIN" to { vm.sweepParcels() },
+        )
     }
 }
 

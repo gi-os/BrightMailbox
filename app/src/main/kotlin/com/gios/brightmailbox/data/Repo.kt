@@ -653,6 +653,52 @@ class Repo private constructor(private val app: Context) {
         added
     }
 
+    /**
+     * Parcels from the whole mailbox, not just the part of it already on this phone.
+     *
+     * The list is built from bodies already on disk, which is the right default: it costs
+     * nothing, and the mails that arrive are the ones that get read. It is wrong twice —
+     * for mail the prefetch never reached, and for anything filed before this feature
+     * existed, whose cached text has long since been tidied away. So the button asks.
+     *
+     * Reuses [searchServer], the app's existing "look further back": it already reaches the
+     * archive, which is where most of a mailbox's history lives, and it already stores what
+     * it finds as real messages, so a hit is mail that opens like any other.
+     *
+     * ponytail: five phrases, forty results each, forty body fetches behind them. A
+     * carrier's wording that avoids all five is mail this will not find.
+     */
+    suspend fun sweepParcels(onProgress: (Int, Int) -> Unit = { _, _ -> }): List<Parcels.Parcel> =
+        withContext(Dispatchers.IO) {
+            PARCEL_QUERIES.forEachIndexed { i, q ->
+                onProgress(i, PARCEL_QUERIES.size)
+                runCatching { searchServer(q, limit = 40) }
+            }
+            onProgress(PARCEL_QUERIES.size, PARCEL_QUERIES.size)
+            scanParcels(deep = true)
+        }
+
+    /**
+     * What the by-hand sweep asks the server for.
+     *
+     * Phrases a shipping mail cannot avoid, rather than "shipped" or "delivered" alone:
+     * [searchServer] stores whatever it finds as real archive mail, so a bare "delivered"
+     * would file every newsletter that was "delivered to your inbox".
+     */
+    private val PARCEL_QUERIES = listOf(
+        "tracking number",
+        "track your package",
+        "has shipped",
+        "out for delivery",
+        "was delivered",
+    )
+
+    /** How far back the by-hand sweep looks. */
+    private val DEEP_WINDOW = 60L * 24L * 60L * 60L * 1000L
+
+    /** The most bodies one sweep will fetch. */
+    private val DEEP_FETCHES = 40
+
     /* ---------------------------------------------------------------- unsubscribe */
 
     /** What happened, and what the screen has to do about it. */
@@ -1078,16 +1124,31 @@ class Repo private constructor(private val app: Context) {
      * ponytail: a parcel whose "delivered" mail never came, or whose body was never
      * fetched, stays here; bound the walk by age if a stale row ever shows up.
      */
-    suspend fun scanParcels(): List<Parcels.Parcel> = withContext(Dispatchers.IO) {
+    suspend fun scanParcels(deep: Boolean = false): List<Parcels.Parcel> = withContext(Dispatchers.IO) {
         val mine = myAddresses()
         val best = HashMap<String, Long>()
         val found = HashMap<String, Parcels.Parcel>()
+        /*
+         * Only the by-hand sweep pays for the network, and only for recent mail.
+         *
+         * A parcel worth marking is one still on its way, and a decade of notices whose
+         * bodies were never cached is hundreds of round trips for nothing. The cap is what
+         * keeps a button from becoming a stampede on a phone that is on a train.
+         */
+        val since = System.currentTimeMillis() - DEEP_WINDOW
+        var fetches = 0
         // No ORDER BY on the query, so "newest wins" is enforced by the clock rather than
         // by hoping SQLite hands rows back oldest first.
         for (m in dao.noticeHistory()) {
             val f = bodyFile(m.key)
-            if (!f.exists()) continue
-            val text = runCatching { Clean.body(f.readText()).text }.getOrNull() ?: continue
+            val text = if (f.exists()) {
+                runCatching { Clean.body(f.readText()).text }.getOrNull() ?: continue
+            } else if (deep && fetches < DEEP_FETCHES && m.receivedAt >= since) {
+                fetches++
+                runCatching { body(m)?.text }.getOrNull() ?: continue
+            } else {
+                continue
+            }
             val e = Envelope(
                 from = m.sender,
                 fromName = m.senderName,

@@ -1,3 +1,38 @@
+## BrightMailbox v2.48 — Amazon and eBay draw a row, and a way to ask again
+
+An Amazon shipping mail usually does not state the tracking number. It is behind a "Track
+package" button, and when the parcel is Amazon Logistics it is a `TBA…` that only some
+messages spell out — so an Amazon order that reported every state change drew no row at
+all, and Amazon is most of what a mailbox like this carries.
+
+Order ids are real parcels now: Amazon's `123-4567890-1234567` and eBay's `14-11960-23534`.
+
+The details that had to be decided:
+
+- **An order id is the parcel's key when there is no number to have.** The row groups and
+  advances exactly as a carrier's number does — "has shipped", then "out for delivery",
+  then "was delivered", one row moving — because the rule was never about carriers, it was
+  about what a shop puts on every one of its messages.
+- **Believed only from the shop that issued it.** Both shapes are read from the sender and
+  nowhere else: `123-4567890-1234567` from anyone but amazon.com is not a parcel.
+- **The carrier's number wins when a mail carries both**, because it identifies the thing
+  in the van and the order id only identifies the order.
+- **eBay's own order id has no tracking page behind it**, so a row with no link in the mail
+  falls back to eBay's orders list rather than to a URL this app made up. Amazon's falls
+  back to Your Orders. The link the mail already carries is always preferred.
+
+**SEARCH AGAIN**, at the bottom of the parcels list, answers "but what about the one you
+missed". The list is built from message text already on the phone, which is cheap and
+usually complete; a parcel whose mail was filed on another device, or whose text was never
+cached, is not in it. The button searches the server for five phrases a shipping mail cannot
+avoid — the archive included, which is where most of a mailbox's history lives — stores what
+it finds as real mail, fetches the text of recent notices it cannot already read, and reads
+the list again. Sixty days back, forty messages at a time. It is the only part of parcels
+that touches the network, and only because it was asked.
+
+Still nothing is stored about a parcel: no table, no migration, and the list is not a record
+of anything. That remains the cost of it being silent and free.
+
 ## BrightMailbox v2.47 — filing an email does not un-ship a parcel
 
 v2.46 read only the notices still lying in the pile, so ARCHIVE ALL emptied the parcel list,

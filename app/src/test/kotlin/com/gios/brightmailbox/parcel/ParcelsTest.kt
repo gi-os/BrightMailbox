@@ -239,4 +239,89 @@ class ParcelsTest {
         """.trimIndent()
         assertTrue(detect(mail).isEmpty())
     }
+
+    // ------------------------------------------------------------------- shops
+
+    /**
+     * The mails that made this necessary. Amazon states its tracking number behind a button
+     * and often not in the text at all, so before order ids were read, an Amazon order that
+     * reported every state change produced no row — the deepest hole in the list, because
+     * Amazon is most of what a mailbox like this carries.
+     */
+    private val amazonShipped = """
+        From: "Amazon.com" <shipment-tracking@amazon.com>
+        Subject: Your Amazon.com order of "Anker USB-C Cable" has shipped
+
+        Hello Giovanni,
+        Your package has shipped with Amazon Logistics.
+        Order #123-4567890-1234567
+        Track your package: https://www.amazon.com/gp/your-account/order-details?orderID=123-4567890-1234567
+    """.trimIndent()
+
+    @Test
+    fun `an amazon order with no tracking number is still a parcel`() {
+        val p = detect(amazonShipped).single()
+        assertEquals(Parcels.Carrier.AMAZON, p.carrier)
+        assertEquals("123-4567890-1234567", p.number)
+        assertEquals(Parcels.State.SHIPPED, p.state)
+        // The shop's own link wins over anything this file could reconstruct.
+        assertEquals(
+            "https://www.amazon.com/gp/your-account/order-details?orderID=123-4567890-1234567",
+            p.url,
+        )
+    }
+
+    @Test
+    fun `an amazon mail carrying both ids is one parcel, keyed on the number`() {
+        val mail = """
+            From: "Amazon.com" <shipment-tracking@amazon.com>
+            Subject: Your Amazon.com order of "Anker USB-C Cable" has shipped
+
+            Order #123-4567890-1234567
+            Tracking ID: TBA123456789012
+        """.trimIndent()
+        assertEquals("TBA123456789012", detect(mail).single().number)
+    }
+
+    private val ebayShipped = """
+        From: "eBay" <ebay@ebay.com>
+        Subject: Your order has shipped
+
+        Good news — your order has shipped.
+        Order number: 14-11960-23534
+        View order details: https://www.ebay.com/mesh/ord/details?orderid=14-11960-23534
+    """.trimIndent()
+
+    @Test
+    fun `an ebay order is a parcel with no carrier number at all`() {
+        val p = detect(ebayShipped).single()
+        assertEquals(Parcels.Carrier.EBAY, p.carrier)
+        assertEquals("14-11960-23534", p.number)
+        assertEquals(Parcels.State.SHIPPED, p.state)
+        assertEquals("eBay", p.merchant)
+    }
+
+    @Test
+    fun `an ebay mail that states the carrier keeps the carrier's number`() {
+        val mail = """
+            From: "eBay" <ebay@ebay.com>
+            Subject: Your order has shipped
+
+            Order number: 14-11960-23534
+            Tracking number: 9400111899223456789012
+            Shipped with USPS.
+        """.trimIndent()
+        assertEquals(Parcels.Carrier.USPS, detect(mail).single().carrier)
+    }
+
+    @Test
+    fun `an order id from anyone but the shop that issued it is not a parcel`() {
+        val mail = """
+            From: "Someone" <news@example.com>
+            Subject: Confirmation
+
+            Order 123-4567890-1234567 is confirmed. Thanks for your purchase.
+        """.trimIndent()
+        assertTrue(detect(mail).isEmpty())
+    }
 }

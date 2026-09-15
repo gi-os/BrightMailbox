@@ -1067,6 +1067,18 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { repo.scanParcels() }.onSuccess { _parcels.value = it }
     }
 
+    /**
+     * The parcel list, asked for by hand.
+     *
+     * [scanParcels] reads what is already on the phone and costs nothing. This one goes to
+     * the server first, because the mail it is looking for is exactly the mail that is not
+     * here: filed in the archive from another device, or arrived before its text was ever
+     * cached. It runs through [working], so the bar at the bottom of the screen says so.
+     */
+    fun sweepParcels() = viewModelScope.launch {
+        _parcels.value = working("Looking further back") { p -> repo.sweepParcels(p) }
+    }
+
     /** How full the mailbox is, or null when the server does not publish a quota. */
     suspend fun storage(): com.gios.brightmailbox.mail.Quota? = repo.quota()
 

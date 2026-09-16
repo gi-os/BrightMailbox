@@ -54,14 +54,8 @@ object Live {
 
         val window = window(lines, number) ?: return null
 
-        val headline = window.firstNotNullOfOrNull { line ->
-            // A label is never a headline. "Delivered To" is one character class away from
-            // "Delivered", and reading the label as the status puts a delivered parcel on
-            // the screen the moment the page merely mentions where it is going.
-            if (line.trimEnd(':').lowercase() in LABELS) return@firstNotNullOfOrNull null
-            HEADLINES.firstOrNull { (re, _) -> re.matches(line) }?.let { line }
-        }
         val facts = facts(window)
+        val headline = headline(window, facts)
         if (headline == null && facts.isEmpty()) return null
 
         return Status(
@@ -70,6 +64,70 @@ object Live {
             state = headline?.let { stateOf(it) } ?: Parcels.State.UNKNOWN,
         )
     }
+
+    /**
+     * Which line is the status, when several of them look like one.
+     *
+     * The first version took the first line that matched any status word, and that was
+     * wrong in a way only a real page shows: **a tracking page draws the whole journey, not
+     * just where the parcel is.** USPS renders a progress bar whose steps are labelled
+     * "Shipped", "In Transit", "Out for Delivery" and "Delivered" — every one of them
+     * present in the text, on a parcel that is nowhere near delivered. It reported a parcel
+     * delivered that was still in transit, which is the exact failure this file's own
+     * comments said was worse than saying nothing.
+     *
+     * The tell is that **a step label is bare**. It is the word and nothing else, because a
+     * bar has no room for more. A real status line almost always carries its own detail —
+     * "Delivered, In/At Mailbox", "In Transit to Next Facility", "Arrived at USPS Regional
+     * Facility". So when the page offers several candidates, the bare ones are the bar and
+     * the detailed one is the answer.
+     *
+     * And [Parcels.State.DELIVERED] gets one more hurdle, because it is the claim that
+     * actually costs something: it needs either detail of its own or a fact like "Delivered
+     * To" standing behind it. UPS's page says a bare "Delivered" and then says who received
+     * it; a progress bar says the bare word and nothing at all.
+     */
+    private fun headline(window: List<String>, facts: List<Pair<String, String>>): String? {
+        val candidates = window.filter { it.trimEnd(':').lowercase() !in LABELS }
+            .filter { line -> HEADLINES.any { (re, _) -> re.matches(line) } }
+        if (candidates.isEmpty()) return null
+
+        // One candidate on the whole page is a page reporting one status, bar or not.
+        val detailed = candidates.filterNot { isBare(it) }
+        val picked = when {
+            candidates.size == 1 -> candidates.first()
+            detailed.size == 1 -> detailed.first()
+            // Several detailed lines is a history, and its newest entry is at the top.
+            detailed.size > 1 -> detailed.first()
+            // Everything on offer is a bare word: this is the bar and nothing else.
+            else -> return null
+        }
+
+        if (stateOf(picked) == Parcels.State.DELIVERED && isBare(picked)) {
+            val vouched = facts.any {
+                it.first.trimEnd(':').lowercase() in setOf("delivered to", "received by")
+            }
+            if (!vouched) return null
+        }
+        return picked
+    }
+
+    /** The status word on its own, which is what a progress bar has room for. */
+    private fun isBare(line: String): Boolean =
+        BARE.any { it.matches(line.trim().trimEnd('.')) }
+
+    private val BARE = listOf(
+        Regex("""delivered""", RegexOption.IGNORE_CASE),
+        Regex("""out for delivery""", RegexOption.IGNORE_CASE),
+        Regex("""in transit""", RegexOption.IGNORE_CASE),
+        Regex("""shipped""", RegexOption.IGNORE_CASE),
+        Regex("""on the way""", RegexOption.IGNORE_CASE),
+        Regex("""picked up""", RegexOption.IGNORE_CASE),
+        Regex("""pre-?shipment""", RegexOption.IGNORE_CASE),
+        Regex("""label created""", RegexOption.IGNORE_CASE),
+        Regex("""accepted""", RegexOption.IGNORE_CASE),
+        Regex("""pending""", RegexOption.IGNORE_CASE),
+    )
 
     /* ------------------------------------------------------------------ cleaning */
 
@@ -143,8 +201,18 @@ object Live {
         Regex("""out for delivery.{0,24}""", RegexOption.IGNORE_CASE) to Parcels.State.OUT_FOR_DELIVERY,
         Regex("""(delivery )?(exception|attempted|failed|refused|delayed).{0,24}""", RegexOption.IGNORE_CASE)
             to Parcels.State.DELAYED,
-        Regex("""(in transit|on the way|arrived at.*|departed.*|shipment picked up|picked up)""", RegexOption.IGNORE_CASE)
-            to Parcels.State.SHIPPED,
+        /*
+         * The trailing `.{0,40}` is what tells a status from a progress-bar label.
+         *
+         * "In Transit" on its own is a step on the bar; "In Transit to Next Facility" is
+         * where the parcel actually is. Without room for the detail, only the bare labels
+         * matched and the real status line was invisible — which is how a page whose status
+         * said "in transit" came back saying delivered.
+         */
+        Regex(
+            """(in transit|on the way|shipped|accepted|arrived at|departed|picked up|shipment picked up|moving through network).{0,40}""",
+            RegexOption.IGNORE_CASE,
+        ) to Parcels.State.SHIPPED,
         Regex("""(shipping )?label created|pre-?shipment|order processed|shipment information sent.*""", RegexOption.IGNORE_CASE)
             to Parcels.State.UNKNOWN,
     )

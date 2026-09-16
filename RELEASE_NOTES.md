@@ -1,3 +1,37 @@
+## BrightMailbox v2.55 — USPS said delivered on a parcel that was in transit
+
+Reported from a real parcel, and it was the parser, not the mail.
+
+**A tracking page draws the whole journey, not just where the parcel is.** USPS renders a
+progress bar whose steps are labelled Shipped, In Transit, Out for Delivery and Delivered,
+and every one of those words is in the page text on every parcel, whatever its state. The
+reader took the first line that looked like a status, and on that page the first line that
+looked like a status was a label on the bar.
+
+Worse, the real status line was invisible to it: the pattern for a moving parcel matched
+"In Transit" exactly and left no room for what follows, so "In Transit to Next Facility" —
+the actual answer, sitting right there — matched nothing. All that was left to match were
+the bar labels.
+
+Two changes:
+
+- **The status patterns have room for their own detail.** That is also what tells a status
+  from a step: "In Transit" is a label on a bar, "In Transit to Next Facility" is where the
+  parcel is.
+- **When a page offers several candidates, the bare ones are the bar.** The detailed line
+  wins. When every candidate is bare, there is no answer to give and the screen says it
+  could not read the page rather than picking one.
+
+Delivered gets one more hurdle, because it is the claim that costs something: a bare
+"Delivered" needs a fact like "Delivered To" or "Received By" standing behind it. UPS says
+the bare word and then says who received it; a progress bar says the bare word and nothing
+at all.
+
+Four more tests, including the exact shape that caused this.
+
+I wrote the reader against a real UPS page and a USPS page that had nothing to report — I
+never saw a USPS page with a live parcel on it, and this is precisely what was in the gap.
+
 ## BrightMailbox v2.54 — parcels are kept, and each one has a page
 
 Two changes that turned out to be the same change.

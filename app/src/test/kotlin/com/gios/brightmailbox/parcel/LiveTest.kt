@@ -102,6 +102,78 @@ class LiveTest {
         assertNull(Live.read("1234567890", page))
     }
 
+    /**
+     * The bug this whole guard exists for, reported from a real parcel: USPS said delivered
+     * on something that was nowhere near delivered.
+     *
+     * A tracking page draws the **whole journey**, not just where the parcel is, so every
+     * stage name is in the text on every page. Taking the first line that looked like a
+     * status meant taking a label off the progress bar.
+     */
+    @Test
+    fun `a progress bar does not deliver a parcel that is in transit`() {
+        val page = """
+            Tracking Number:
+            9400111899223197428490
+            Copy Add to Informed Delivery
+            In Transit to Next Facility
+            Expected Delivery by
+            Thursday 18 September
+            Shipped
+            In Transit
+            Out for Delivery
+            Delivered
+        """.trimIndent()
+        val s = Live.read("9400111899223197428490", page)!!
+        assertEquals("In Transit to Next Facility", s.headline)
+        assertEquals(Parcels.State.SHIPPED, s.state)
+    }
+
+    @Test
+    fun `a page offering nothing but bar labels says nothing`() {
+        // No detailed status anywhere: every candidate is a step name, so there is no
+        // answer to give and the screen says it could not read the page.
+        val page = """
+            Tracking Number:
+            9400111899223197428490
+            Shipped
+            In Transit
+            Out for Delivery
+            Delivered
+        """.trimIndent()
+        assertNull(Live.read("9400111899223197428490", page))
+    }
+
+    @Test
+    fun `a real delivered page carries its own detail`() {
+        val page = """
+            Tracking Number:
+            9400111899223197428490
+            Delivered, In/At Mailbox
+            September 16, 2026 at 1:12 pm
+            NEW YORK, NY 10002
+        """.trimIndent()
+        val s = Live.read("9400111899223197428490", page)!!
+        assertEquals(Parcels.State.DELIVERED, s.state)
+    }
+
+    @Test
+    fun `out for delivery survives its own bar`() {
+        val page = """
+            Tracking Number:
+            9400111899223197428490
+            Out for Delivery, Expected by 8:00pm
+            Shipped
+            In Transit
+            Out for Delivery
+            Delivered
+        """.trimIndent()
+        assertEquals(
+            Parcels.State.OUT_FOR_DELIVERY,
+            Live.read("9400111899223197428490", page)!!.state,
+        )
+    }
+
     @Test
     fun `a page that never mentions the number is the wrong page`() {
         // Carriers redirect a stale or malformed link to their marketing homepage, which

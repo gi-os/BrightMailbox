@@ -66,6 +66,8 @@ sealed interface Screen {
     data object Menu : Screen
     /** What is on its way, out of the mail — one row per tracking number. */
     data object Parcels : Screen
+    /** One parcel, by `Parcels.Parcel.id`, and the carrier's own answer about it. */
+    data class Parcel(val id: String) : Screen
     /** Mail that has been put away — archive is a place, not a deletion. */
     data object Archive : Screen
     /** Messages started and not sent. */
@@ -1055,28 +1057,38 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     /**
-     * Parcels in flight, newest state per tracking number.
+     * What is on its way, out of the table.
      *
-     * Scanned when asked rather than watched: it is a walk over bodies already on disk, and
-     * the only two things that ask are the menu row (for its count) and the list itself.
+     * A Flow rather than a scan: the list is stored now, so this is whatever is on disk and
+     * it updates itself when a sync brings mail that advances a parcel. Nothing has to ask
+     * for it, which is the point — opening the screen used to mean re-reading every body in
+     * the mailbox to rebuild an answer that was almost always the same one.
      */
-    private val _parcels = MutableStateFlow<List<Parcels.Parcel>>(emptyList())
-    val parcels: StateFlow<List<Parcels.Parcel>> = _parcels.asStateFlow()
-
-    fun scanParcels() = viewModelScope.launch {
-        runCatching { repo.scanParcels() }.onSuccess { _parcels.value = it }
-    }
+    val parcels = repo.parcels()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * The parcel list, asked for by hand.
      *
-     * [scanParcels] reads what is already on the phone and costs nothing. This one goes to
-     * the server first, because the mail it is looking for is exactly the mail that is not
-     * here: filed in the archive from another device, or arrived before its text was ever
-     * cached. It runs through [working], so the bar at the bottom of the screen says so.
+     * Goes to the server first, because the mail it is looking for is exactly the mail that
+     * is not here: filed in the archive from another device, or arrived before its text was
+     * ever cached. It runs through [working], so the bar at the bottom says so. Nothing is
+     * returned — the table is written and the Flow does the rest.
      */
     fun sweepParcels() = viewModelScope.launch {
-        _parcels.value = working("Looking further back") { p -> repo.sweepParcels(p) }
+        working("Looking further back") { p -> repo.sweepParcels(p) }
+    }
+
+    /**
+     * Put a parcel away.
+     *
+     * The other half of storing one. A recomputed row vanished on its own once the mail
+     * stopped describing it; a stored row stays until somebody says otherwise — which is
+     * the whole point, and also why this has to exist.
+     */
+    fun dismissParcel(p: Parcels.Parcel) = viewModelScope.launch {
+        repo.dismissParcel(p.id)
+        said("Put away.")
     }
 
     /** Once per session, so an empty list gets asked about without asking every time. */
@@ -1090,10 +1102,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * because a screen that searches the server every time it opens makes the phone worse.
      */
     fun sweepOnce() {
-        if (swept) {
-            scanParcels()
-            return
-        }
+        if (swept) return
         swept = true
         sweepParcels()
     }

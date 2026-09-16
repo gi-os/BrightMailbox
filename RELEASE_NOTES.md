@@ -1,3 +1,55 @@
+## BrightMailbox v2.54 — parcels are kept, and each one has a page
+
+Two changes that turned out to be the same change.
+
+### The list is stored
+
+Opening PARCELS used to rebuild the whole list: a walk over every message in the mailbox,
+reading every cached body off disk, running the detector across all of it. That is why the
+screen took a beat to fill, and why the answer moved around depending on what had been
+archived since. The work was the same work every time and the answer was almost always the
+same answer.
+
+Parcels are a table now. The screen draws what is stored the instant it opens, and a sync
+updates it as the mail that describes a parcel arrives — which is the only moment it can
+change. Nothing scans on the way in.
+
+Storing it changes what the list *is*. It was a view over the mail; it is now a record of
+parcels, which is what it was always describing. The merge is where that distinction lives:
+
+- **A later mail usually knows less.** A carrier's "delivered" notice carries no shop and
+  no item — it is about a box, not an order — so letting it overwrite the shop's own "your
+  order of X has shipped" turns a row that said what is in the parcel into one that says
+  "UPS". Every field survives unless the newer mail has one of its own.
+- **Newest by mail, not by scan order.** The sweep reaches into the archive, so without
+  comparing timestamps a six-week-old "shipped" found late would undo yesterday's
+  "delivered".
+- **Swipe to put a parcel away, and it stays away.** This had to arrive in the same release:
+  a recomputed row vanished on its own once the mail stopped describing it, and a stored one
+  does not. That was the gap the old design admitted to and could not close.
+
+A delivered parcel stays on the list for three days so you can see that it arrived, and its
+row is forgotten a month later so the table does not grow for ever.
+
+### Each parcel has a page
+
+Tapping a parcel used to hand the tracking number to whatever opens links: leave the app,
+wait for a site built for a desktop to load on a 3.9" panel, find the one line you wanted
+somewhere inside it. The page is still one tap away and still the authority, but the
+question people actually have is "where is it", and that has a three-word answer.
+
+So a parcel opens a parcel screen, and the screen reads the carrier on the way in. Opening
+one *is* asking, which is why the reading needs no gesture of its own — and why the list
+stays free and silent while the network is touched only on a screen about a single parcel.
+
+It shows the carrier's own status large, the facts underneath it — Delivered To, Received
+By, Estimated Delivery — and one line saying which answer you are looking at: the carrier's
+page just now, or your mail. Those are worth different amounts and only one of them is on
+the screen at a time.
+
+When the page will not load it says so and says which answer it fell back to, rather than
+showing the email's word and letting it look like the carrier's.
+
 ## BrightMailbox v2.53 — the carrier's own answer, on the row
 
 Hold a parcel and the app reads the carrier's tracking page and puts what it says under

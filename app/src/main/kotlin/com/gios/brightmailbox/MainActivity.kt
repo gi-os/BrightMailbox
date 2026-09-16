@@ -236,6 +236,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Notices -> "Notices"
                         Screen.Menu -> "Menu"
                         Screen.Parcels -> "Parcels"
+                        is Screen.Parcel -> "Parcel"
                         Screen.Archive -> "Archive"
                         Screen.Sent -> "Sent"
                         Screen.Flagged -> "Flagged"
@@ -350,6 +351,7 @@ class MainActivity : ComponentActivity() {
                     Screen.Notices -> NoticesScreen(vm)
                     Screen.Menu -> MenuScreen(vm)
                     Screen.Parcels -> ParcelsScreen(vm)
+                    is Screen.Parcel -> ParcelScreen(vm, screen.id)
                     Screen.Archive -> ArchiveScreen(vm)
                     Screen.Sent -> SentScreen(vm)
                     Screen.Flagged -> FlaggedScreen(vm)

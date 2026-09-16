@@ -26,6 +26,7 @@ import com.gios.brightmailbox.text.Ics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.io.File
@@ -137,6 +138,7 @@ class Repo private constructor(private val app: Context) {
             MailDb.MIGRATION_4_5,
             MailDb.MIGRATION_5_6,
             MailDb.MIGRATION_6_7,
+            MailDb.MIGRATION_7_8,
         )
         .fallbackToDestructiveMigration()
         .build()
@@ -456,6 +458,16 @@ class Repo private constructor(private val app: Context) {
         // Only a check that actually reached a mailbox counts as a check. Stamping the
         // clock on a total failure is what let "last checked a minute ago" sit above an
         // inbox that had not been read in a day.
+        /*
+         * Parcels are read out of the mail that just arrived, here, once.
+         *
+         * The screen does not scan on the way in any more, so this is what keeps the list
+         * honest: a sync is the only moment new shipping mail can appear, and it is already
+         * on a background thread with the bodies it needs. Swallowed, because a parcel list
+         * is a nicety and the mail that just landed is not.
+         */
+        runCatching { scanParcels() }
+
         if (worked > 0) lastSync = System.currentTimeMillis()
         lastError = failures.joinToString("; ").ifBlank { null }
         SyncResult(fetched, newLetters, first, failures)
@@ -668,7 +680,7 @@ class Repo private constructor(private val app: Context) {
      * ponytail: five phrases, forty results each, forty body fetches behind them. A
      * carrier's wording that avoids all five is mail this will not find.
      */
-    suspend fun sweepParcels(onProgress: (Int, Int) -> Unit = { _, _ -> }): List<Parcels.Parcel> =
+    suspend fun sweepParcels(onProgress: (Int, Int) -> Unit = { _, _ -> }): Unit =
         withContext(Dispatchers.IO) {
             PARCEL_QUERIES.forEachIndexed { i, q ->
                 onProgress(i, PARCEL_QUERIES.size)
@@ -1124,7 +1136,7 @@ class Repo private constructor(private val app: Context) {
      * ponytail: a parcel whose "delivered" mail never came, or whose body was never
      * fetched, stays here; bound the walk by age if a stale row ever shows up.
      */
-    suspend fun scanParcels(deep: Boolean = false): List<Parcels.Parcel> = withContext(Dispatchers.IO) {
+    suspend fun scanParcels(deep: Boolean = false): Unit = withContext(Dispatchers.IO) {
         val mine = myAddresses()
         val best = HashMap<String, Long>()
         val found = HashMap<String, Parcels.Parcel>()
@@ -1164,10 +1176,81 @@ class Repo private constructor(private val app: Context) {
                 found[p.id] = p
             }
         }
-        found.values
-            .filter { it.state != Parcels.State.DELIVERED }
-            .sortedByDescending { best[it.id] ?: 0L }
+        /*
+         * Merge into what is stored rather than replacing it, and the merge is the whole of
+         * the difference between a list and a record.
+         *
+         * **A later mail usually knows less.** A carrier's "delivered" notice carries no
+         * shop and no item — it is about a box, not an order — so letting it overwrite the
+         * shop's own "your order of X has shipped" turns a row that said what is in the
+         * parcel into one that says "UPS". Every field is kept unless the newer mail has
+         * one of its own.
+         *
+         * **Newest by MAIL, not by scan order.** The sweep reaches into the archive, so
+         * without comparing `seenAt` a six-week-old "shipped" found late would undo
+         * yesterday's "delivered".
+         *
+         * **A dismissed parcel stays dismissed.** Mail about it keeps arriving — that is
+         * what "delivered" is — and a row that came back because one more message landed
+         * would make the gesture look broken.
+         */
+        val stored = dao.allParcels().associateBy { it.id }
+        val rows = found.values.mapNotNull { p ->
+            val seen = best[p.id] ?: return@mapNotNull null
+            val old = stored[p.id]
+            if (old != null && old.seenAt >= seen) return@mapNotNull null
+            ParcelRow(
+                id = p.id,
+                carrier = p.carrier.name,
+                number = p.number,
+                state = p.state.name,
+                merchant = p.merchant ?: old?.merchant,
+                url = p.url ?: old?.url,
+                eta = p.eta ?: old?.eta,
+                item = p.item ?: old?.item,
+                seenAt = seen,
+                dismissedAt = old?.dismissedAt ?: 0L,
+            )
+        }
+        if (rows.isNotEmpty()) dao.putParcels(rows)
+        runCatching { dao.pruneParcels(System.currentTimeMillis() - FORGET_DELIVERED) }
     }
+
+    /**
+     * What is on its way, straight out of the table.
+     *
+     * The screen observes this and draws whatever is stored the instant it opens. It used
+     * to recompute the whole list on the way in — a walk over every message in the mailbox,
+     * reading every cached body off disk — which is why it took a beat to fill and why the
+     * answer moved around depending on what had been archived since.
+     *
+     * The two filters are here rather than in SQL because both are about what is worth
+     * looking at rather than about what is true: a delivered parcel stays for
+     * [KEEP_DELIVERED] so its arrival can be seen, and a row the detector can no longer
+     * make sense of is dropped rather than drawn broken.
+     */
+    fun parcels(): Flow<List<Parcels.Parcel>> = dao.parcels().map { rows ->
+        val cutoff = System.currentTimeMillis() - KEEP_DELIVERED
+        rows.filter { it.state != Parcels.State.DELIVERED.name || it.seenAt >= cutoff }
+            .mapNotNull { it.toParcel() }
+    }
+
+    private fun ParcelRow.toParcel(): Parcels.Parcel? {
+        val c = runCatching { Parcels.Carrier.valueOf(carrier) }.getOrNull() ?: return null
+        val st = runCatching { Parcels.State.valueOf(state) }.getOrNull() ?: return null
+        return Parcels.Parcel(c, number, st, merchant, url, eta, item)
+    }
+
+    /** Put a parcel away by hand. It stays away however much more mail arrives about it. */
+    suspend fun dismissParcel(id: String) = withContext(Dispatchers.IO) {
+        dao.dismissParcel(id, System.currentTimeMillis())
+    }
+
+    /** How long a delivered parcel stays on the list: long enough to see that it arrived. */
+    private val KEEP_DELIVERED = 3L * 24L * 60L * 60L * 1000L
+
+    /** And how long its row outlives that, so the table does not grow for ever. */
+    private val FORGET_DELIVERED = 30L * 24L * 60L * 60L * 1000L
 
     /**
      * The first line of a message, as one line.

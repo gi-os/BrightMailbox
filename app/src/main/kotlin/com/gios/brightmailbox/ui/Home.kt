@@ -589,7 +589,7 @@ fun LetterRow(
  * With neither side set this is nothing at all — not a disabled gesture, just the row.
  */
 @Composable
-private fun SwipeRow(
+internal fun SwipeRow(
     left: SwipeSpec?,
     right: SwipeSpec?,
     content: @Composable (Modifier) -> Unit,

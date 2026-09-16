@@ -82,7 +82,7 @@ fun MenuScreen(vm: MailboxViewModel) {
              * be — the state in which the row used to hide itself. It says what it knows in
              * its second line either way.
              */
-            LaunchedEffect(Unit) { vm.scanParcels() }
+            // No scan to trigger: the list is a table and this is a Flow over it.
             val parcels by vm.parcels.collectAsStateWithLifecycle()
             MenuItem(
                 "PARCELS",

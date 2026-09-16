@@ -115,6 +115,44 @@ data class Msg(
     val archived: Boolean = false,
 )
 
+/**
+ * A parcel, kept.
+ *
+ * Until now the list was recomputed on every open: a walk over every message in the
+ * mailbox, reading every cached body off disk and running the detector across all of it.
+ * That is why the screen took a moment to fill, and why it filled differently depending on
+ * what had been archived since. The work was the same work every time and the answer was
+ * almost always the same answer.
+ *
+ * Storing it changes what the list *is*. It was a view over the mail; now it is a record of
+ * parcels, which is the thing it was always describing. Two consequences fall straight out:
+ * the screen is instant, and a parcel can be put away by hand — which it had to gain in the
+ * same release, because a stored row that nothing can remove is worse than a recomputed one
+ * that quietly disappears.
+ */
+@Entity(tableName = "parcels")
+data class ParcelRow(
+    /** "UPS:1Z999AA10123456784" — the carrier and its number, from `Parcels.Parcel.id`. */
+    @PrimaryKey val id: String,
+    val carrier: String,
+    val number: String,
+    val state: String,
+    val merchant: String?,
+    val url: String?,
+    val eta: String?,
+    val item: String?,
+    /**
+     * When the newest mail that mentioned this parcel arrived.
+     *
+     * The message's own timestamp, not the clock: "newest wins" has to mean the newest
+     * *mail*, or a sweep that reaches into the archive would let a six-week-old "shipped"
+     * overwrite yesterday's "delivered" purely by being scanned last.
+     */
+    val seenAt: Long,
+    /** Put away by hand. 0 means not. */
+    @ColumnInfo(defaultValue = "0") val dismissedAt: Long = 0,
+)
+
 /** A per-sender decision the user made. The escape hatch that makes automation safe. */
 @Entity(tableName = "rules")
 data class SenderRule(
@@ -447,6 +485,40 @@ interface MailDao {
     @Query("DELETE FROM messages WHERE accountId = :accountId")
     suspend fun deleteAccount(accountId: String)
 
+
+    /* --------------------------------------------------------------- parcels */
+
+    /**
+     * What is on its way, newest mail first.
+     *
+     * A Flow, so the screen draws whatever is stored the instant it opens and updates
+     * itself when a sync brings mail that advances a parcel. Nothing asks for a scan on
+     * the way in any more.
+     */
+    @Query("SELECT * FROM parcels WHERE dismissedAt = 0 ORDER BY seenAt DESC")
+    fun parcels(): Flow<List<ParcelRow>>
+
+    /** Everything stored, dismissed included — the merge has to see what it is updating. */
+    @Query("SELECT * FROM parcels")
+    suspend fun allParcels(): List<ParcelRow>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putParcels(rows: List<ParcelRow>)
+
+    @Query("UPDATE parcels SET dismissedAt = :at WHERE id = :id")
+    suspend fun dismissParcel(id: String, at: Long)
+
+    /**
+     * Forget delivered parcels nobody is looking at any more.
+     *
+     * The list already stops showing a delivered parcel after a few days; this is what
+     * stops the table growing for ever behind it. Only delivered ones: a parcel still
+     * described as on its way is either really on its way or is the exact case a person
+     * wants to see and wonder about.
+     */
+    @Query("DELETE FROM parcels WHERE state = 'DELIVERED' AND seenAt < :before")
+    suspend fun pruneParcels(before: Long)
+
     /* ----------------------------------------------------------------- rules */
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -498,8 +570,8 @@ interface MailDao {
 }
 
 @Database(
-    entities = [Msg::class, SenderRule::class, Correspondent::class, Draft::class],
-    version = 7,
+    entities = [Msg::class, SenderRule::class, Correspondent::class, Draft::class, ParcelRow::class],
+    version = 8,
     exportSchema = false,
 )
 abstract class MailDb : RoomDatabase() {
@@ -545,6 +617,34 @@ abstract class MailDb : RoomDatabase() {
          * everything already here, which reads as "no link" — the safe direction, and the
          * next sync fills it in for anything new.
          */
+        /**
+         * v7 → v8: parcels become a table.
+         *
+         * Nothing is backfilled and nothing needs to be. The first scan after the update
+         * rebuilds the list from the mail, which is where it has always come from — this
+         * migration only gives the answer somewhere to live.
+         */
+        val MIGRATION_7_8 = object : androidx.room.migration.Migration(7, 8) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS parcels (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        carrier TEXT NOT NULL,
+                        number TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        merchant TEXT,
+                        url TEXT,
+                        eta TEXT,
+                        item TEXT,
+                        seenAt INTEGER NOT NULL,
+                        dismissedAt INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         /** v6 → v7: where an imported draft came from. */
         val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {

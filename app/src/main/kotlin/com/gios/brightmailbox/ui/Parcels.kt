@@ -3,7 +3,6 @@ package com.gios.brightmailbox.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.util.Log
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightmailbox.hw.WheelScroll
+import com.gios.brightmailbox.parcel.Live
 import com.gios.brightmailbox.parcel.Parcels
 import com.gios.brightmailbox.ui.theme.LocalGrid
 import com.gios.brightmailbox.ui.theme.LocalType
@@ -52,9 +52,13 @@ import org.json.JSONTokener
  * it is not, which is the whole reason a second app exists. Reading the list here is the
  * quiet version: it answers "is anything arriving" without ever interrupting.
  *
- * Every row is a tap that hands the carrier's own tracking page to whatever opens links,
- * the same as a link in a message — see [open]. No screen here tries to draw a map of a
- * parcel's journey, because the carrier already has one and it is better.
+ * A tap hands the carrier's own tracking page to whatever opens links, the same as a link
+ * in a message — see [open]. A hold reads that page here instead, in a hidden browser, and
+ * puts the carrier's own status under the row: the mail says what it was told and when,
+ * and this says what the carrier says now. Neither replaces the other.
+ *
+ * No screen here tries to draw a map of a parcel's journey, because the carrier already
+ * has one and it is better.
  */
 @Composable
 fun ParcelsScreen(vm: MailboxViewModel) {
@@ -64,19 +68,21 @@ fun ParcelsScreen(vm: MailboxViewModel) {
     val context = LocalContext.current
 
     /*
-     * The live-tracking probe.
+     * Live tracking, and the rules it lives under.
      *
-     * Holding a parcel row loads the carrier's page in a hidden WebView and puts what the
-     * page ends up saying on screen. It exists because a plain HTTP client cannot get past
-     * the carriers' bot walls — all four answer an OkHttp request with Access Denied or
-     * "tracking attempt has been blocked" — while a WebView is a real browser with a real
-     * fingerprint, so it is the one client that might. This build answers one question: does
-     * it get through, and if so what does the page look like? It is not a feature yet, and
-     * it is the only thing in this app that fetches on its own.
+     * The list itself is free: it is read out of mail already on the phone and talks to
+     * nobody. This is the one thing on the screen that goes to the network, it happens
+     * only when a row is held, and it stops when the screen does. No polling, no
+     * background refresh, nothing kept — hold a row, get an answer, and the answer lives
+     * as long as the screen is open.
+     *
+     * A WebView because plain HTTP cannot get through: UPS, FedEx, USPS and DHL all answer
+     * an ordinary client with a bot wall before they look at the number. A WebView is a
+     * real browser with a real fingerprint. See [Live] for what is done with the text.
      */
-    var probing by remember { mutableStateOf<String?>(null) }
-    var probeText by remember { mutableStateOf<String?>(null) }
-    var probeN by remember { mutableStateOf(0) }
+    var live by remember { mutableStateOf<Map<String, Reading>>(emptyMap()) }
+    var asking by remember { mutableStateOf<Parcels.Parcel?>(null) }
+    var attempt by remember { mutableStateOf(0) }
 
     /*
      * Read on the way in, and asked for when the answer is nothing.
@@ -122,26 +128,32 @@ fun ParcelsScreen(vm: MailboxViewModel) {
                 items(parcels, key = { it.id }) { p ->
                     ParcelRow(
                         p,
+                        reading = live[p.id],
                         onOpen = { open(context, it) },
-                        onProbe = { u ->
-                            probeText = null
-                            probing = u
-                            probeN++
+                        onRead = {
+                            live = live + (p.id to Reading.Looking)
+                            asking = p
+                            attempt++
                         },
                     )
                     Spacer(Modifier.height(g * 0.45f))
+                }
+                item {
+                    Spacer(Modifier.height(g * 0.6f))
+                    T("Hold a parcel to read the carrier's page.", t.superfine, Secondary)
                 }
             }
         }
 
         /*
-         * The hidden browser, alive only while a probe is running, and keyed by the probe
-         * count so that holding the same row twice loads the page twice rather than
-         * re-showing what the first one saw.
+         * The hidden browser, alive only while a reading is running and keyed by the
+         * attempt so that holding the same row twice loads the page again rather than
+         * re-showing what the last one saw.
          */
-        val url = probing
-        if (url != null) {
-            androidx.compose.runtime.key(probeN) {
+        val target = asking
+        val targetUrl = target?.url
+        if (target != null && targetUrl != null) {
+            androidx.compose.runtime.key(attempt) {
                 AndroidView(
                     modifier = Modifier.size(1.dp),
                     factory = { ctx ->
@@ -151,31 +163,46 @@ fun ParcelsScreen(vm: MailboxViewModel) {
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView, page: String?) {
                                     /*
-                                     * The status arrives from the page's own JavaScript after
-                                     * the page has finished, so reading on the finished event
-                                     * reads an empty shell. Two looks, because these pages
-                                     * take their time, and the second one is discarded when
-                                     * the first already had something to say.
+                                     * The status arrives from the page's own JavaScript
+                                     * after the page has finished, so reading on the
+                                     * finished event reads an empty shell. UPS holds a
+                                     * bot-check interstitial for about five seconds before
+                                     * the real page appears at all.
+                                     *
+                                     * Two looks, and the second is skipped once the first
+                                     * has an answer.
                                      */
-                                    for (wait in listOf(8_000L, 20_000L)) {
-                                        view.postDelayed({ read(view, url) { probeText = it } }, wait)
+                                    for (wait in listOf(6_000L, 14_000L)) {
+                                        view.postDelayed({
+                                            if (live[target.id] !is Reading.Read) {
+                                                pageText(view) { text ->
+                                                    val status = text
+                                                        ?.let { Live.read(target.number, it) }
+                                                    live = live + (
+                                                        target.id to (
+                                                            status?.let { Reading.Read(it) }
+                                                                ?: Reading.Unreadable
+                                                            )
+                                                        )
+                                                }
+                                            }
+                                        }, wait)
                                     }
-                                    view.postDelayed({ probing = null }, 26_000L)
+                                    // Give up out loud rather than leaving a row saying
+                                    // "reading…" for the rest of the session.
+                                    view.postDelayed({
+                                        if (live[target.id] is Reading.Looking) {
+                                            live = live + (target.id to Reading.Unreadable)
+                                        }
+                                        asking = null
+                                    }, 18_000L)
                                 }
                             }
-                            loadUrl(url)
+                            loadUrl(targetUrl)
                         }
                     },
                 )
             }
-        }
-
-        val said = probeText
-        if (said != null) {
-            Spacer(Modifier.height(g * 0.8f))
-            T("LIVE PROBE", t.detail, Secondary)
-            Spacer(Modifier.height(g * 0.3f))
-            T(said, t.superfine)
         }
 
         /*
@@ -192,6 +219,21 @@ fun ParcelsScreen(vm: MailboxViewModel) {
 }
 
 /**
+ * What a live reading of a carrier's page is doing, for one parcel.
+ *
+ * [Unreadable] is a real outcome, not an error to hide. The bot walls do sometimes win,
+ * pages get redesigned, and a number can be too new for the carrier to know it — and in
+ * every one of those cases the honest screen is one that says so and offers the page,
+ * rather than one that silently shows what the email said and lets you believe it came
+ * from the carrier.
+ */
+private sealed interface Reading {
+    data object Looking : Reading
+    data class Read(val status: Live.Status) : Reading
+    data object Unreadable : Reading
+}
+
+/**
  * The shop leads, because that is what the parcel is *of* — "Amazon.com" says more than
  * "USPS" when both are true. A carrier's own notice has no shop on it, so the carrier
  * leads there instead. See `Parcels.merchantOf`.
@@ -200,19 +242,28 @@ fun ParcelsScreen(vm: MailboxViewModel) {
  * is the item when a mail named one and the shop otherwise, with the shop, carrier, number
  * and ETA underneath — the number is the one thing on this screen nobody can read at a
  * glance, so it is the smallest line.
+ *
+ * A live reading, when one has been asked for, goes under all of that in white: the mail's
+ * own word for the state stays where it is, and the carrier's word sits below it. Both are
+ * true and they are true at different times, so neither replaces the other.
  */
 @Composable
-private fun ParcelRow(p: Parcels.Parcel, onOpen: (String) -> Unit, onProbe: (String) -> Unit) {
+private fun ParcelRow(
+    p: Parcels.Parcel,
+    reading: Reading?,
+    onOpen: (String) -> Unit,
+    onRead: () -> Unit,
+) {
     val g = LocalGrid.current
     val t = LocalType.current
     Column(
         Modifier
             .fillMaxWidth()
-            // Tap goes to the carrier; hold runs the live probe. The hold is the heavier
+            // Tap goes to the carrier; hold reads the page here. The hold is the heavier
             // gesture and the one that reaches the network, which is the right way round.
             .lightHoldable(
                 enabled = p.url != null,
-                onLongClick = { p.url?.let(onProbe) },
+                onLongClick = { if (p.url != null) onRead() },
                 onClick = { p.url?.let(onOpen) },
             )
             .padding(vertical = g * 0.35f),
@@ -244,24 +295,49 @@ private fun ParcelRow(p: Parcels.Parcel, onOpen: (String) -> Unit, onProbe: (Str
             Secondary,
             maxLines = 1,
         )
+
+        when (reading) {
+            null -> Unit
+            Reading.Looking -> {
+                Spacer(Modifier.height(g * 0.3f))
+                T("reading " + hostOf(p.url) + "…", t.superfine, Secondary, maxLines = 1)
+            }
+            is Reading.Read -> {
+                Spacer(Modifier.height(g * 0.3f))
+                T(reading.status.headline, t.detail, maxLines = 1)
+                for ((label, value) in reading.status.facts) {
+                    T("$label · $value", t.superfine, Secondary, maxLines = 1)
+                }
+            }
+            Reading.Unreadable -> {
+                Spacer(Modifier.height(g * 0.3f))
+                // What to do about it, not just that it happened.
+                T("Could not read that page. Tap to open it.", t.superfine, Secondary)
+            }
+        }
     }
 }
+
+/** Just the host, for saying which page is being read without printing a URL. */
+private fun hostOf(url: String?): String =
+    runCatching { Uri.parse(url).host?.removePrefix("www.") }.getOrNull() ?: "the carrier"
 
 /**
  * What the page says once its JavaScript has run.
  *
- * `innerText`, so it is what a person would read rather than markup, and truncated — this is
- * a probe and the first screenful is the answer. The value arrives as a JSON string, which
- * is why it goes back through a tokenizer rather than being used as it lands. Logged as well
- * as shown, so `adb logcat -s parcelprobe` is an alternative to reading a small screen.
+ * `innerText`, so it is what a person would read rather than markup. The value arrives as
+ * a JSON string, which is why it goes back through a tokenizer rather than being used as
+ * it lands.
+ *
+ * Nothing is logged. While this was a probe it printed the page to logcat, which was the
+ * fastest way to see what carriers send — and is exactly the wrong thing to leave in a
+ * shipping feature, where the page is about somebody's parcel and their address is on it.
  */
-private fun read(view: WebView, url: String, done: (String) -> Unit) {
+private fun pageText(view: WebView, done: (String?) -> Unit) {
     runCatching {
         view.evaluateJavascript("document.body ? document.body.innerText : ''") { raw ->
             val text = runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull()
-            val said = text?.replace(Regex("""\n{2,}"""), "\n")?.trim()
-            Log.i("parcelprobe", if (said.isNullOrBlank()) "EMPTY $url" else "SAID $url\n$said")
-            done(said?.takeIf { it.isNotBlank() }?.take(1200) ?: "(the page said nothing at all)")
+            done(text?.takeIf { it.isNotBlank() })
         }
     }
 }

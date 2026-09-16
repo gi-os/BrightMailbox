@@ -1,3 +1,54 @@
+## BrightMailbox v2.53 — the carrier's own answer, on the row
+
+Hold a parcel and the app reads the carrier's tracking page and puts what it says under
+the row: "Delivered", "Delivered To · LONGVIEW, TX US", "Received By · TAYLOR". The line
+the mail gave you stays where it was. Both are true and they are true at different times —
+the mail says what the carrier announced and when it got round to announcing it, and this
+says what the carrier says now.
+
+This is what v2.51's probe was for, and the probe is gone.
+
+**The answer to the probe's question is yes.** All four carriers render for a real browser.
+UPS holds a bot-check interstitial for about five seconds and then serves the full page;
+USPS and FedEx answer straight away. A plain HTTP request still gets nothing — that part
+was never in doubt, and it is why this loads a WebView rather than a URL.
+
+**Text, not selectors.** A DOM query written against today's markup breaks the week a
+carrier ships a redesign, and it breaks silently into a screen that says nothing. Every
+one of these pages puts a label on one line and its value on the next, and those words
+change far more slowly than the markup around them. The parser is pure Kotlin with ten
+tests, and the fixtures in them are real pages captured from all four carriers rather than
+shapes I imagined.
+
+The rules it needed, none of which were guessable from a spec:
+
+- **Material icon ligatures land in the text as words.** UPS's status line is literally
+  "Delivered check_circle", and "Tips to Avoid Fraudchevron_right" has no space in it at
+  all. They are all lowercase with an underscore, which nothing else on a tracking page is.
+- **The tracking number has to be on the page.** A stale link redirects to a marketing
+  homepage that renders perfectly and says "delivered" in the advertising copy.
+- **Only the lines around the number are read.** These pages are mostly navigation, cookie
+  notice, careers advert and footer, and all four put the status directly under the number.
+  That one rule throws the rest away without a per-carrier list of things to ignore.
+- **Whole lines only.** "Your package has not yet been delivered" contains the answer and
+  means the opposite of it.
+- **A label is never a status.** "Delivered To" is one character class away from
+  "Delivered", and reading the label as the status marks a parcel delivered the moment the
+  page mentions where it is going.
+- **"Tracking Not Available" is not a status either.** Each carrier's not-found page is
+  otherwise a perfectly normal page, carrying the number and the word tracking, and a
+  hopeful parser reads a status straight out of one.
+
+**Anything it cannot read says so.** "Could not read that page. Tap to open it." A wrong
+status on a parcel is worse than no status, because nobody double-checks a screen that
+looks confident.
+
+Still nothing is stored and nothing runs in the background. The list is free and silent;
+this is the one thing on it that goes to the network, it happens because a row was held,
+and the answer lasts as long as the screen is open. Nothing is logged either — while it
+was a probe it printed the page to logcat, which is the wrong thing to leave in a feature
+whose pages have somebody's delivery address on them.
+
 ## BrightMailbox v2.52 — DHL's link never ran the search
 
 Tapping a DHL parcel opened `dhl.com/us-en/home/tracking.html?tracking-id=<number>`, which

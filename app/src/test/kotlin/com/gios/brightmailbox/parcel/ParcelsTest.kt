@@ -109,6 +109,30 @@ class ParcelsTest {
         assertTrue(detect(mail).isEmpty())
     }
 
+    /**
+     * The URL this file builds when the mail carries none of its own, which for DHL is most
+     * of them: the shipper's mail names DHL and the number and links nowhere useful.
+     *
+     * `tracking.html?tracking-id=` loads a page with the number in the query string and an
+     * empty form on it — the search never runs. That reads as a carrier who has lost your
+     * parcel rather than as a link that did nothing, which is why it went unnoticed. Both
+     * halves matter: the express path and `submit=1`.
+     */
+    @Test
+    fun `a dhl link actually runs the search`() {
+        val mail = """
+            From: "Example Goods" <orders@examplegoods.com>
+            Subject: Your order has shipped
+
+            Shipped via DHL.
+            Tracking number: 1234567890
+        """.trimIndent()
+        val url = detect(mail).single().url.orEmpty()
+        assertTrue("built a DHL link: $url", url.startsWith("https://www.dhl.com/"))
+        assertTrue("runs the search: $url", url.contains("submit=1"))
+        assertTrue("carries the number: $url", url.endsWith("1234567890"))
+    }
+
     @Test
     fun `an order number in a dhl mail is not a tracking number`() {
         val mail = """

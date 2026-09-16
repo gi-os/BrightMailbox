@@ -297,7 +297,13 @@ object Parcels {
         Carrier.UPS to "https://www.ups.com/track?tracknum=",
         Carrier.FEDEX to "https://www.fedex.com/fedextrack/?trknbr=",
         Carrier.USPS to "https://tools.usps.com/go/TrackConfirmAction?tLabels=",
-        Carrier.DHL to "https://www.dhl.com/us-en/home/tracking.html?tracking-id=",
+        // DHL needs the express path AND submit=1. Without them the page loads, the
+        // number is in the query string, and the form sits there empty waiting to be
+        // filled in by hand — which looks like a tracking page that has lost your
+        // parcel rather than a link that never ran the search. Verified against a live
+        // page: the same number returns results on this URL and nothing on the old one.
+        Carrier.DHL to
+            "https://www.dhl.com/us-en/home/tracking/tracking-express.html?submit=1&tracking-id=",
         Carrier.AMAZON to "https://track.amazon.com/tracking/",
     )
 

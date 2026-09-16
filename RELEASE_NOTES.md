@@ -1,3 +1,23 @@
+## BrightMailbox v2.52 — DHL's link never ran the search
+
+Tapping a DHL parcel opened `dhl.com/us-en/home/tracking.html?tracking-id=<number>`, which
+loads DHL's tracking page with the number sitting in the query string and the form on it
+empty. The search never ran. On screen that reads as a carrier who cannot find your parcel
+rather than as a link that did nothing, which is why it survived six releases.
+
+DHL wants the express path and `submit=1`:
+
+```
+https://www.dhl.com/us-en/home/tracking/tracking-express.html?submit=1&tracking-id=<number>
+```
+
+Checked against the live page rather than against the docs — the same number returns
+results on the new URL and an empty form on the old one.
+
+This only affects parcels where the app builds the link itself, which for DHL is most of
+them: a shipper's mail names DHL and the number and links to its own order page, so there
+is no carrier link in the mail to prefer.
+
 ## BrightMailbox v2.51 — a probe, not a feature
 
 Hold a parcel row and the app loads the carrier's tracking page in a hidden browser and

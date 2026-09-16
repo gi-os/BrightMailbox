@@ -225,12 +225,21 @@ class LiveTest {
         assertEquals(Parcels.State.SHIPPED, Live.read("1Z999AA10123456784", page)!!.state)
     }
 
+    /**
+     * Carriers print a number in groups and people paste it back with spaces in it, so the
+     * match that decides "is this page even about my parcel" ignores everything but letters
+     * and digits.
+     *
+     * The status here carries its own detail on purpose. A bare "Delivered" with nothing
+     * standing behind it is refused now — see the progress-bar tests — and this test is
+     * about the number, not about that rule.
+     */
     @Test
     fun `spacing and punctuation in the number do not matter`() {
         val page = """
             Tracking Details
             1Z 999 AA1 01 2345 6784
-            Delivered
+            Delivered, In/At Mailbox
         """.trimIndent()
         assertEquals(Parcels.State.DELIVERED, Live.read("1Z999AA10123456784", page)!!.state)
     }

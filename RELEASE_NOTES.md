@@ -1,3 +1,22 @@
+## BrightMailbox v2.56 — the header stops being the biggest thing on the screen
+
+Every screen wore a three-unit bar with a 30 px word in it. On a panel 31 units tall that
+is a tenth of the screen spent saying where you already are — and on the screens whose
+whole content is a list, the title was the largest thing drawn.
+
+The word is 22 px now and the bar is 2.2 units: about a third off the type and a quarter
+off the height, which is roughly one more row of mail on every list.
+
+A screen title has its own entry in the scale now instead of borrowing `subheading`. It was
+never a heading over anything: there is one per screen, it never sits beside body copy, and
+it does not need to hold its own against a paragraph. What it does need is to read as a
+title rather than a caption at that size, and the fix is the one the action bar already
+uses — tracking. 15% is what makes a bar label read as a control without a box around it,
+and it does the same for a small word at the top of a screen.
+
+Every screen moved together: Home, Notices, Parcels, Archive, Flagged, Sent, Drafts,
+Settings and the compose screen.
+
 ## BrightMailbox v2.55 — USPS said delivered on a parcel that was in transit
 
 Reported from a real parcel, and it was the parser, not the mail.

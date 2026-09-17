@@ -158,7 +158,7 @@ fun ArchiveScreen(vm: MailboxViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            T("ARCHIVE", t.subheading)
+            T("ARCHIVE", t.screenTitle)
             // Which part of how much, not just how many are on screen — a page has to
             // say where it sits or it reads as the whole archive.
             T(
@@ -251,7 +251,7 @@ fun FlaggedScreen(vm: MailboxViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            T("FLAGGED", t.subheading)
+            T("FLAGGED", t.screenTitle)
             T(if (rows.isEmpty()) "" else "${rows.size}", t.detail, Secondary)
         }
 
@@ -327,7 +327,7 @@ fun SentScreen(vm: MailboxViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            T("SENT", t.subheading)
+            T("SENT", t.screenTitle)
             T(if (rows.isEmpty()) "" else "${rows.size}", t.detail, Secondary)
         }
 
@@ -413,7 +413,7 @@ fun DraftsScreen(vm: MailboxViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            T("DRAFTS", t.subheading)
+            T("DRAFTS", t.screenTitle)
             T("${drafts.size}", t.detail, Secondary)
         }
 

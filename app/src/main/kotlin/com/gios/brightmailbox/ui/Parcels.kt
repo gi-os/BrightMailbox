@@ -82,7 +82,7 @@ fun ParcelsScreen(vm: MailboxViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            T("PARCELS", t.subheading)
+            T("PARCELS", t.screenTitle)
             T("${parcels.size}", t.detail, Secondary)
         }
 

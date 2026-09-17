@@ -64,7 +64,12 @@ val Secondary = Color(0xFFBBBBBB)
 class Grid(val unit: Dp) {
     operator fun times(n: Float): Dp = unit * n
     val inset: Dp get() = unit * 1f
-    val topBar: Dp get() = unit * 3f
+    /**
+     * Three units of header over every screen was two units of title and one of air, on a
+     * panel 31 units tall — a tenth of the screen spent saying where you already are. The
+     * bar now fits its own type with the same proportion of air around it.
+     */
+    val topBar: Dp get() = unit * 2.2f
     val actionBar: Dp get() = unit * 4f
     val icon: Dp get() = unit * 2f
 }
@@ -83,6 +88,21 @@ class Type(private val k: Float) {
     val subtitle = TextStyle(fontSize = sp(52f), fontWeight = FontWeight.Normal)
     val heading = TextStyle(fontSize = sp(38f), fontWeight = FontWeight.Normal)
     val subheading = TextStyle(fontSize = sp(30f), letterSpacing = sp(0.9f), fontWeight = FontWeight.Normal)
+
+    /**
+     * The word at the top of a screen: NOTICES, PARCELS, SETTINGS.
+     *
+     * Its own entry rather than [subheading], which is what it used to be, because a screen
+     * title is not a heading over anything — there is exactly one per screen, it never
+     * competes with body copy, and on a 3.9" panel every line it takes is a line of mail
+     * nobody can see. At 30 px in a three-unit bar it was the largest thing on screens whose
+     * whole content was the list underneath it.
+     *
+     * Smaller, with tracking to compensate: 15% is what makes a bar label read as a control
+     * rather than as text, and the same trick keeps a 22 px word reading as a title instead
+     * of as a caption.
+     */
+    val screenTitle = TextStyle(fontSize = sp(22f), letterSpacing = sp(2.4f), fontWeight = FontWeight.Normal)
     val copy = TextStyle(fontSize = sp(30f), fontWeight = FontWeight.Normal)
 
     /** 15% tracking. This is what makes a bar label read as a button without a box. */

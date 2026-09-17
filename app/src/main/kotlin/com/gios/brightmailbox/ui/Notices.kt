@@ -44,7 +44,7 @@ fun NoticesScreen(vm: MailboxViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         ) {
-            T("NOTICES", t.subheading)
+            T("NOTICES", t.screenTitle)
             T("$count", t.detail, Secondary)
         }
 

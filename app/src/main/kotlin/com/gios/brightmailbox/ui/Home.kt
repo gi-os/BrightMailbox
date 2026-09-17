@@ -790,7 +790,7 @@ fun TopBar(title: String = "MAILBOX", onSettings: (() -> Unit)? = null) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        T(title, t.subheading, maxLines = 1)
+        T(title, t.screenTitle, maxLines = 1)
         if (onSettings != null) {
             androidx.compose.foundation.Image(
                 painter = painterResource(R.drawable.ic_settings_white),

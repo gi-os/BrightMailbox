@@ -256,7 +256,7 @@ fun WriteScreen(
                     WriteMode.FORWARD -> "FORWARD"
                     WriteMode.NEW -> "WRITE"
                 },
-                t.subheading,
+                t.screenTitle,
                 maxLines = 1,
             )
             if (accounts.size > 1) {

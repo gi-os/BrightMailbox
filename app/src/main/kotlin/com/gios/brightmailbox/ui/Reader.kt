@@ -7,11 +7,13 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,12 +38,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -56,7 +63,11 @@ import com.gios.brightmailbox.mail.Attachment
 import com.gios.brightmailbox.sort.Pile
 import com.gios.brightmailbox.ui.theme.LocalGrid
 import com.gios.brightmailbox.ui.theme.LocalType
-import com.gios.brightmailbox.ui.theme.Screen as Frame
+import com.gios.brightmailbox.ui.theme.Background
+import com.gios.brightmailbox.ui.theme.Content
+import com.gios.brightmailbox.ui.theme.Paper
+import com.gios.brightmailbox.ui.theme.PaperInk
+import com.gios.brightmailbox.ui.theme.PaperSecondary
 import com.gios.brightmailbox.ui.theme.Secondary
 import com.gios.brightmailbox.ui.theme.T
 import com.gios.brightmailbox.ui.theme.lightClickable
@@ -217,7 +228,17 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             translate(top = pull.value) { this@drawWithContent.drawContent() }
         },
     ) {
-    Frame {
+    /*
+     * Not `Screen`, because a letter is not inset.
+     *
+     * Every other screen in the app sits inside a one-unit gutter. A message does not:
+     * the sheet is white and the gutter is black, and on this panel a black band beside a
+     * white page does not read as a margin — it reads as the background showing through,
+     * so every email looked like it had been left short of both edges. The sheet runs to
+     * the panel edges now and the inset is applied to the chrome instead, one child at a
+     * time, which is why this is a plain Column.
+     */
+    Column(Modifier.fillMaxSize().background(Background)) {
         /*
          * No top bar at all. The message is the screen.
          *
@@ -231,6 +252,23 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
         val thread by vm.thread.collectAsStateWithLifecycle()
         val fetching by vm.fetching.collectAsStateWithLifecycle()
         val formatted = !plainText && !html.isNullOrBlank()
+
+        /*
+         * Waiting for a message nobody prefetched, and it used to wait in black.
+         *
+         * `html` is null for two different reasons — the fetch has not answered yet, and
+         * the message has no HTML — so a letter that was not already on disk picked the
+         * black plain-text page, printed "Getting the message…" on it, and snapped into a
+         * white sheet the instant the fetch landed. The letter arrived as a black
+         * rectangle and turned into a page.
+         *
+         * While the fetch is still out and the reader is set to formatted, a sheet is
+         * what is coming, so a sheet is what is drawn: the same white shape in the same
+         * place, with the masthead already on it. The body then fades in over it. A
+         * message that turns out to have no HTML at all still falls through to the black
+         * page, which is the one case this cannot know in advance and the rare one.
+         */
+        val loading = !plainText && fetching && html.isNullOrBlank()
 
         /*
          * Hand the file to whatever opens that kind of file. A content:// URI from our
@@ -288,7 +326,36 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
          * instead solves both — one scroller, and the header goes away with the content
          * like it does in any other mail client.
          */
-        if (formatted) {
+        if (loading) {
+            /*
+             * Nothing but the sheet and who it is from. HtmlBody draws the same thing
+             * under the message until it has painted, so the handoff is invisible.
+             *
+             * A plain drag detector is the right tool here and nowhere else in this
+             * screen: it takes the gesture the moment it has vertical slop, which is a
+             * disaster next to a scroller and exactly what is wanted next to a sheet that
+             * has nothing to scroll yet. Without it, the one screen you might actually
+             * want to leave — the one still loading — is the one you cannot pull down.
+             */
+            Sheet(
+                msg,
+                accountWord(msg.accountId),
+                Modifier
+                    .weight(1f)
+                    .pointerInput(msg.key) {
+                        detectVerticalDragGestures(
+                            onDragEnd = { release(pull.value > commitPx) },
+                            onDragCancel = { release(false) },
+                        ) { _, dy ->
+                            if (!settling) {
+                                scope.launch {
+                                    pull.snapTo((pull.value + dy).coerceAtLeast(0f))
+                                }
+                            }
+                        }
+                    },
+            )
+        } else if (formatted) {
             HtmlBody(
                 html = html.orEmpty(),
                 msg = msg,
@@ -388,6 +455,9 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             Column(
                 Modifier
                     .weight(1f)
+                    // The gutter the screen no longer carries. Plain text is our own
+                    // page, not the sender's, so it is inset like every other screen.
+                    .padding(horizontal = g.inset)
                     .nestedScroll(drag)
                     .verticalScroll(scroll),
             ) {
@@ -481,7 +551,9 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
          * actually opened under its own history.
          */
         if (thread.isNotEmpty()) {
-            Thread(thread) { vm.open(it) }
+            Column(Modifier.fillMaxWidth().padding(horizontal = g.inset)) {
+                Thread(thread) { vm.open(it) }
+            }
         }
 
         /*
@@ -499,6 +571,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
         val invite by vm.invite.collectAsStateWithLifecycle()
         val answered by vm.rsvpSent.collectAsStateWithLifecycle()
         invite?.let {
+            Column(Modifier.fillMaxWidth().padding(horizontal = g.inset)) {
             Spacer(Modifier.height(g * 0.5f))
             if (answered != null) {
                 T("$answered — the organizer has been told.", t.detail, Secondary, maxLines = 1)
@@ -517,10 +590,13 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                     }
                 }
             }
+            }
         }
 
         if (showWhy) {
-            WhySheet(vm, msg) { showWhy = false }
+            Column(Modifier.fillMaxWidth().padding(horizontal = g.inset)) {
+                WhySheet(vm, msg) { showWhy = false }
+            }
         } else {
             /*
              * Icons, not words, and back at the head of them.
@@ -532,12 +608,29 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
              */
             // Abandoning a reply puts you back in the message you were replying to.
             val here = Screen.Read(msg.key)
+            /*
+             * The bar is part of the sheet when there is a sheet.
+             *
+             * Once the message runs to both edges, a black bar under it is a hard line
+             * across the bottom of the page and the white stops short of the panel. White
+             * carries the sheet all the way down, and the icons invert with it — the
+             * drawables are white artwork, so they are tinted rather than duplicated.
+             *
+             * Plain text is our own page, black with white type, and keeps the black bar:
+             * a white strip under a black page belongs to nothing.
+             */
+            val paper = loading || formatted
+            val ink = if (paper) PaperInk else Content
             Row(
-                Modifier.fillMaxWidth().height(g.actionBar),
+                Modifier
+                    .fillMaxWidth()
+                    .background(if (paper) Paper else Background)
+                    .height(g.actionBar)
+                    .padding(horizontal = g.inset),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                BarIcon(R.drawable.ic_back_white, "Back") { vm.leaveReader() }
+                BarIcon(R.drawable.ic_back_white, "Back", ink) { vm.leaveReader() }
                 /*
                  * Sent mail answers to a different bar.
                  *
@@ -548,19 +641,19 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                  * slot and the archive icon is simply absent.
                  */
                 if (msg.pile == "SENT") {
-                    BarIcon(R.drawable.ic_forward_white, "Forward") {
+                    BarIcon(R.drawable.ic_forward_white, "Forward", ink) {
                         vm.go(Screen.Write(msg, mode = WriteMode.FORWARD, from = here))
                     }
                 } else {
-                    BarIcon(R.drawable.ic_reply_white, "Reply") {
+                    BarIcon(R.drawable.ic_reply_white, "Reply", ink) {
                         vm.go(Screen.Write(msg, mode = WriteMode.REPLY, from = here))
                     }
-                    BarIcon(R.drawable.ic_archive_white, "Archive") { vm.archive(msg) }
+                    BarIcon(R.drawable.ic_archive_white, "Archive", ink) { vm.archive(msg) }
                 }
                 T(
                     "···",
                     t.button,
-                    Secondary,
+                    if (paper) PaperSecondary else Secondary,
                     Modifier.lightClickable { showWhy = true },
                     maxLines = 1,
                 )
@@ -571,15 +664,69 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
     }
 }
 
-/** One bar verb. Sized to the SDK's bar-icon unit so it matches every other bar. */
+/**
+ * One bar verb. Sized to the SDK's bar-icon unit so it matches every other bar.
+ *
+ * Tinted rather than drawn twice: the artwork is white, and a black copy of each icon
+ * would be four more files to keep in step with the three that already exist here because
+ * light-sdk has no archive, reply or forward.
+ */
 @Composable
-private fun BarIcon(res: Int, label: String, onClick: () -> Unit) {
+private fun BarIcon(res: Int, label: String, tint: Color, onClick: () -> Unit) {
     val g = LocalGrid.current
     Image(
         painter = painterResource(res),
         contentDescription = label,
+        colorFilter = ColorFilter.tint(tint),
         modifier = Modifier.size(g * 2f).lightClickable(onClick = onClick),
     )
+}
+
+/*
+ * The sheet's own type, in CSS pixels.
+ *
+ * Deliberately NOT the app's scale. These three lines are a Compose drawing of markup the
+ * WebView is about to paint in the same place, and the document sets them in px — so they
+ * are set here in the same numbers. Taking them from LocalType would size them off the
+ * panel height instead and the masthead would move a few pixels at the handoff, which is
+ * the one thing a crossfade between two drawings of one thing must not do.
+ */
+private val sheetSender = TextStyle(fontSize = 25.sp, lineHeight = 30.sp)
+private val sheetStamp = TextStyle(fontSize = 13.sp, lineHeight = 20.sp)
+private val sheetSubject = TextStyle(fontSize = 17.sp, lineHeight = 23.sp)
+
+/**
+ * The letter before the letter: the white page with the masthead already on it.
+ *
+ * Drawn twice — as the whole screen while the body is still being fetched, and under the
+ * WebView until it has painted — so that the message never arrives onto anything but its
+ * own sheet. Every number here is copied from [document]: 14dp down, 14dp top corners,
+ * a 20dp gutter, 22dp of air above the sender, the same #e2e2e2 rule. They have to agree,
+ * because the whole point is that nothing is seen to change when the document takes over.
+ */
+@Composable
+private fun Sheet(msg: Msg, account: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .padding(top = 14.dp)
+            .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
+            .background(Paper)
+            .padding(start = 20.dp, end = 20.dp, top = 22.dp),
+    ) {
+        T(msg.senderName.ifBlank { msg.sender }, sheetSender, PaperInk, maxLines = 2)
+        Spacer(Modifier.height(5.dp))
+        T(
+            longStamp(msg.receivedAt) + " · " + account,
+            sheetStamp,
+            PaperSecondary,
+            maxLines = 1,
+        )
+        Spacer(Modifier.height(14.dp))
+        T(msg.subject.ifBlank { "(no subject)" }, sheetSubject, PaperInk)
+        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFE2E2E2)))
+    }
 }
 
 /** Sender, time, subject — the same three lines whichever way the body is drawn. */
@@ -629,14 +776,14 @@ private fun HtmlBody(
     /*
      * How wide this view actually is, in CSS pixels.
      *
-     * CSS pixels are dp on Android, so no density arithmetic — but the screen's width is
-     * not the view's: `Frame` insets every screen by a grid unit on each side, so the
-     * WebView is two units narrower than the panel. Passing the screen width would
-     * compute a zoom slightly too large and leave the message scrolling inside its own
-     * box by a couple of dozen pixels — the old bug back in miniature.
+     * CSS pixels are dp on Android, so no density arithmetic — and since the reader
+     * stopped insetting itself, the view IS the panel. It used to be two grid units
+     * narrower, and that difference had to be subtracted here or the zoom came out
+     * slightly too large and the message scrolled inside its own box by a couple of dozen
+     * pixels. The subtraction is gone with the gutter; if the letter is ever inset again,
+     * it has to come back with it.
      */
-    val screenDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
-    val viewDp = (screenDp - 2 * LocalGrid.current.inset.value).toInt()
+    val viewDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
     val document = remember(html, msg.key, account, attachments, viewDp) {
         document(html, msg, account, attachments, viewDp)
     }
@@ -651,14 +798,24 @@ private fun HtmlBody(
      * and crossfades from the black rather than snapping.
      */
     /*
-     * Hard switch, not a fade.
+     * It fades in, and the reason it can now is that there is something underneath it.
      *
-     * The letter is either not there or fully there — it must never fade in, because it
-     * arrives by sliding up and a slide that also changes opacity reads as two different
-     * animations arguing. Zero until the page has actually painted, so what slides up is
-     * a rendered letter rather than an empty sheet that fills in afterwards.
+     * This was a hard switch on purpose: the letter slides up, and a slide that also
+     * changes opacity reads as two animations arguing — so the message was either absent
+     * or fully there. What it was absent *over* was a blank white sheet, which meant the
+     * body appeared in one frame, from nothing.
+     *
+     * [Sheet] now draws the masthead on that white while the page loads, in the same
+     * numbers the document uses. So this is no longer an appearance, it is a crossfade
+     * between two drawings of the same letter, and the only thing moving is the body
+     * arriving under a header that was already there.
      */
     var painted by remember(msg.key) { mutableStateOf(false) }
+    val fade by animateFloatAsState(
+        targetValue = if (painted) 1f else 0f,
+        animationSpec = tween(220),
+        label = "message",
+    )
 
     /*
      * The WebView, hoisted so the wheel can reach it.
@@ -688,14 +845,10 @@ private fun HtmlBody(
      * only up while the letter is on its way.
      */
     androidx.compose.foundation.layout.Box(modifier.fillMaxWidth()) {
-    if (!painted) {
-        Spacer(
-            Modifier
-                .matchParentSize()
-                .padding(top = 14.dp)
-                .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
-                .background(androidx.compose.ui.graphics.Color.White),
-        )
+    // Held until the message is fully opaque, not until it has painted: it is what the
+    // body fades UP from, so taking it away at the start of the fade is the flash again.
+    if (fade < 1f) {
+        Sheet(msg, account, Modifier.matchParentSize())
     }
     /*
      * `fillMaxSize`, and the missing word here was the black screen.
@@ -711,7 +864,7 @@ private fun HtmlBody(
      * fills the space and the thing inside it no longer does.
      */
     AndroidView(
-        modifier = Modifier.fillMaxSize().alpha(if (painted) 1f else 0f),
+        modifier = Modifier.fillMaxSize().alpha(fade),
         factory = { ctx ->
             val web = WebView(ctx).apply {
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -902,7 +1055,7 @@ private fun document(
     msg: Msg,
     account: String,
     attachments: List<Attachment>,
-    /** The WebView's own width in CSS pixels (dp), insets already taken off. */
+    /** The WebView's own width in CSS pixels (dp). The reader is not inset, so: the panel. */
     viewDp: Int,
 ): String {
     fun esc(s: String) = s

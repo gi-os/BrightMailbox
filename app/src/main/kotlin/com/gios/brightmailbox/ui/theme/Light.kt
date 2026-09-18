@@ -60,6 +60,19 @@ val Background = Color(0xFF000000)
 val Content = Color(0xFFFFFFFF)
 val Secondary = Color(0xFFBBBBBB)
 
+/**
+ * The sheet a message is drawn on, and the ink on it.
+ *
+ * Only the reader uses these three. Everywhere else in the app the ground is black and
+ * white is the ink; inside a letter that is inverted, because the message is a page the
+ * sender laid out and the app is what surrounds it. #777 is the exact gray the message
+ * document already sets its stamp line in, so the bar under the sheet and the masthead on
+ * it are the same two grays rather than two near-misses.
+ */
+val Paper = Color(0xFFFFFFFF)
+val PaperInk = Color(0xFF000000)
+val PaperSecondary = Color(0xFF777777)
+
 /** 27 wide x 31 tall. Every inset, bar height and icon size is expressed in these. */
 class Grid(val unit: Dp) {
     operator fun times(n: Float): Dp = unit * n

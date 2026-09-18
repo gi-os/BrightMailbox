@@ -1,3 +1,34 @@
+## BrightMailbox v2.57 — the letter runs to both edges
+
+Every screen in this app sits inside a one-unit gutter, and the reader was one of them. A
+message is white, the gutter is black, and black is what this panel shows when nothing is
+drawn — so the gutter never read as a margin around a page. It read as the background
+coming through, and every email looked like it had been set down short of both edges.
+
+The sheet goes edge to edge now. The gutter moved onto the chrome instead — plain text,
+the thread line, the invitation row — because those are our page, not the sender's.
+
+**The bar under the message is white.** With the sheet at both edges, a black bar was a
+hard line across the bottom of the page and the white stopped a few units short of the
+panel. White carries the page all the way down. The icons are the same white artwork,
+tinted black, rather than four more files to keep in step. Plain text keeps its black bar:
+a white strip under a black page belongs to nothing.
+
+**A message that was not already on the phone opened black.** The reader picks its layout
+off whether the message has HTML, and before the fetch answers, "no HTML" and "no answer
+yet" look the same — so a letter nobody had prefetched arrived as a black rectangle,
+printed a line about getting the text, and snapped into a white page when the fetch
+landed. While the fetch is still out, the sheet is what is coming, so the sheet is what is
+drawn: the same white shape, with the sender, the date and the subject already on it, in
+the same place the message will put them. It can be pulled down to leave, like any other
+message.
+
+**The body fades in over that sheet.** It used to switch on in one frame, which was the
+right call when what sat underneath was a blank white rectangle — the letter arrives by
+sliding up, and a slide that also changes opacity reads as two animations arguing. Now the
+header is already drawn in the numbers the message itself uses, so this is a crossfade
+between two drawings of one letter and the only thing moving is the body.
+
 ## BrightMailbox v2.56 — the header stops being the biggest thing on the screen
 
 Every screen wore a three-unit bar with a 30 px word in it. On a panel 31 units tall that

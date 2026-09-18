@@ -271,6 +271,18 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
         val loading = !plainText && fetching && html.isNullOrBlank()
 
         /*
+         * Is the letter a white page right now?
+         *
+         * Everything below the message and above the bottom edge — the thread line, an
+         * invitation, the bar itself — is on the same sheet as the message, so it takes
+         * the same ground and the same ink. Plain text is our own black page and keeps
+         * white type on black.
+         */
+        val paper = loading || formatted
+        val ink = if (paper) PaperInk else Content
+        val quiet = if (paper) PaperSecondary else Secondary
+
+        /*
          * Hand the file to whatever opens that kind of file. A content:// URI from our
          * FileProvider plus the read grant, never a file:// path — that has thrown
          * FileUriExposedException on every Android since 7.
@@ -551,8 +563,13 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
          * actually opened under its own history.
          */
         if (thread.isNotEmpty()) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = g.inset)) {
-                Thread(thread) { vm.open(it) }
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(if (paper) Paper else Background)
+                    .padding(horizontal = g.inset),
+            ) {
+                Thread(thread, ink, quiet) { vm.open(it) }
             }
         }
 
@@ -571,10 +588,15 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
         val invite by vm.invite.collectAsStateWithLifecycle()
         val answered by vm.rsvpSent.collectAsStateWithLifecycle()
         invite?.let {
-            Column(Modifier.fillMaxWidth().padding(horizontal = g.inset)) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(if (paper) Paper else Background)
+                    .padding(horizontal = g.inset),
+            ) {
             Spacer(Modifier.height(g * 0.5f))
             if (answered != null) {
-                T("$answered — the organizer has been told.", t.detail, Secondary, maxLines = 1)
+                T("$answered — the organizer has been told.", t.detail, quiet, maxLines = 1)
             } else {
                 Row(
                     Modifier.fillMaxWidth().padding(vertical = g * 0.3f),
@@ -584,6 +606,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                         T(
                             a.word.uppercase(),
                             t.button,
+                            ink,
                             modifier = Modifier.lightClickable { vm.rsvp(msg, a) },
                             maxLines = 1,
                         )
@@ -619,8 +642,6 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
              * Plain text is our own page, black with white type, and keeps the black bar:
              * a white strip under a black page belongs to nothing.
              */
-            val paper = loading || formatted
-            val ink = if (paper) PaperInk else Content
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -967,7 +988,7 @@ private fun HtmlBody(
  * same subject, so printing it five times says nothing at all.
  */
 @Composable
-private fun Thread(messages: List<Msg>, onOpen: (Msg) -> Unit) {
+private fun Thread(messages: List<Msg>, ink: Color, quiet: Color, onOpen: (Msg) -> Unit) {
     val g = LocalGrid.current
     val t = LocalType.current
     var open by remember(messages.firstOrNull()?.key) { mutableStateOf(false) }
@@ -976,7 +997,7 @@ private fun Thread(messages: List<Msg>, onOpen: (Msg) -> Unit) {
     T(
         if (open) "EARLIER — ${messages.size}" else "${messages.size} EARLIER IN THIS THREAD",
         t.detail,
-        Secondary,
+        ink,
         Modifier.fillMaxWidth().lightClickable { open = !open }.padding(vertical = g * 0.3f),
         maxLines = 1,
     )
@@ -989,13 +1010,19 @@ private fun Thread(messages: List<Msg>, onOpen: (Msg) -> Unit) {
                     .padding(vertical = g * 0.25f),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                T(m.senderName.ifBlank { m.sender }, t.detail, modifier = Modifier.weight(1f), maxLines = 1)
+                T(
+                    m.senderName.ifBlank { m.sender },
+                    t.detail,
+                    ink,
+                    Modifier.weight(1f),
+                    maxLines = 1,
+                )
                 Spacer(Modifier.width(g * 0.5f))
-                T(stamp(m.receivedAt), t.superfine, Secondary, maxLines = 1)
+                T(stamp(m.receivedAt), t.superfine, quiet, maxLines = 1)
             }
         }
         if (messages.size > 5) {
-            T("and ${messages.size - 5} more", t.superfine, Secondary, maxLines = 1)
+            T("and ${messages.size - 5} more", t.superfine, quiet, maxLines = 1)
         }
     }
 }

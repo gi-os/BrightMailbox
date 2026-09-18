@@ -1,3 +1,14 @@
+## BrightMailbox v2.59 — the thread line is on the page, not under it
+
+"3 EARLIER IN THIS THREAD" sat in gray on black between a white message and a white bar, so
+the one strip of the reader that was still the app's own ground had the letter above it and
+the letter's bar below it. It is white now, in black type, and so is an invitation's row of
+answers, which sits in the same place for the same reason.
+
+Whether the reader is a page or not is decided once, at the top, and the message, the
+thread, the invitation and the bar all read that one answer. Plain text keeps white type on
+black throughout.
+
 ## BrightMailbox v2.58 — two more lines of air at the top of a letter
 
 The masthead sat 22 px under the top of the sheet, which is a gutter, not a margin. The

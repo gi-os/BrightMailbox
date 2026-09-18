@@ -1,3 +1,18 @@
+## BrightMailbox v2.58 — two more lines of air at the top of a letter
+
+The masthead sat 22 px under the top of the sheet, which is a gutter, not a margin. The
+sender's name started just below the rounded corner and the letter read as though it had
+been cut off at the top rather than laid down. It is 62 px now, about two lines more.
+
+The number is one constant shared by both drawings of the masthead — the Compose sheet
+that is up while the message loads, and the document the WebView paints over it. They have
+to agree or the header moves at the handoff, which is the one thing a crossfade between two
+drawings of the same letter must not do.
+
+**The ··· in the reader's bar is black.** It was set in the secondary gray, which on the
+white bar put a #777 mark beside three black icons and read as disabled rather than as the
+quietest of four controls. A bar is one row.
+
 ## BrightMailbox v2.57 — the letter runs to both edges
 
 Every screen in this app sits inside a one-unit gutter, and the reader was one of them. A

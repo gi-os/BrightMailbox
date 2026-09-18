@@ -650,10 +650,18 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                     }
                     BarIcon(R.drawable.ic_archive_white, "Archive", ink) { vm.archive(msg) }
                 }
+                /*
+                 * The same weight as the icons beside it.
+                 *
+                 * It was drawn in the secondary gray, which on a white bar put a #777
+                 * mark next to three black ones — it read as disabled rather than as the
+                 * quietest of four controls. A bar is one row: everything in it is either
+                 * a control or it is not.
+                 */
                 T(
                     "···",
                     t.button,
-                    if (paper) PaperSecondary else Secondary,
+                    ink,
                     Modifier.lightClickable { showWhy = true },
                     maxLines = 1,
                 )
@@ -691,6 +699,17 @@ private fun BarIcon(res: Int, label: String, tint: Color, onClick: () -> Unit) {
  * panel height instead and the masthead would move a few pixels at the handoff, which is
  * the one thing a crossfade between two drawings of one thing must not do.
  */
+/**
+ * The air above the sender, in CSS pixels.
+ *
+ * It was 22, which is a gutter rather than a margin: the sender's name started a few
+ * pixels under the rounded corner and the letter opened feeling like it had been cut off
+ * at the top. Two more lines of it, and the constant is shared because [Sheet] and
+ * [document] draw the same masthead and a difference between them is visible at the
+ * handoff.
+ */
+private const val SHEET_TOP = 62
+
 private val sheetSender = TextStyle(fontSize = 25.sp, lineHeight = 30.sp)
 private val sheetStamp = TextStyle(fontSize = 13.sp, lineHeight = 20.sp)
 private val sheetSubject = TextStyle(fontSize = 17.sp, lineHeight = 23.sp)
@@ -712,7 +731,7 @@ private fun Sheet(msg: Msg, account: String, modifier: Modifier = Modifier) {
             .padding(top = 14.dp)
             .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
             .background(Paper)
-            .padding(start = 20.dp, end = 20.dp, top = 22.dp),
+            .padding(start = 20.dp, end = 20.dp, top = SHEET_TOP.dp),
     ) {
         T(msg.senderName.ifBlank { msg.sender }, sheetSender, PaperInk, maxLines = 2)
         Spacer(Modifier.height(5.dp))
@@ -1253,7 +1272,7 @@ $shrink</style>
   the larger of the two.
 -->
 <div style="width:${viewDp}px;max-width:100%;box-sizing:border-box;margin-top:14px;background:#fff;border-radius:14px 14px 0 0;overflow:hidden">
-<div style="padding:22px 20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#000">
+<div style="padding:${SHEET_TOP}px 20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#000">
   <div style="font-size:25px;line-height:1.2;font-weight:400;color:#000">$sender</div>
   <div style="font-size:13px;line-height:1.5;color:#777;margin-top:5px">$stamp</div>
   <div style="font-size:17px;line-height:1.35;color:#000;margin-top:14px">$subject</div>

@@ -15,9 +15,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -63,6 +72,8 @@ fun HomeScreen(vm: MailboxViewModel) {
     val noticeTotal by vm.noticeTotal.collectAsStateWithLifecycle()
     val waiting by vm.waiting.collectAsStateWithLifecycle()
     val allowed by vm.allowed.collectAsStateWithLifecycle()
+    // Has anything actually been read and checked yet? See MailboxViewModel.settled.
+    val settled by vm.settled.collectAsStateWithLifecycle()
 
     val unlimited = vm.repo.ration == Ration.UNLIMITED
     val visible = vm.visibleLetters(all)
@@ -170,7 +181,7 @@ fun HomeScreen(vm: MailboxViewModel) {
          * even said so — `last sync: 0 min ago` with no error beside it.
          */
         if (all.isEmpty() && notices.isEmpty()) {
-            Nothing(vm)
+            Nothing(vm, settled)
             return@Frame
         }
 
@@ -217,8 +228,9 @@ fun HomeScreen(vm: MailboxViewModel) {
              * Keyed on the thread rather than on the newest message, so a reply arriving
              * updates the row in place instead of removing one and inserting another.
              */
-            items(visible, key = { it.id }) { c ->
+            itemsIndexed(visible, key = { _, c -> c.id }) { i, c ->
                 val m = c.newest
+                Cascade(c.id, i, vm) {
                 LetterRow(
                     m,
                     // The newest opens and the rest go read — one thread, one of the five.
@@ -230,6 +242,7 @@ fun HomeScreen(vm: MailboxViewModel) {
                     read = c.read,
                     starred = c.starred,
                 )
+                }
             }
 
             if (all.isEmpty()) {
@@ -283,14 +296,16 @@ fun HomeScreen(vm: MailboxViewModel) {
                     }
                     Spacer(Modifier.height(g * 0.6f))
                 }
-                items(notices.take(4), key = { "n" + it.key }) { m ->
-                    NoticeRow(
-                        m,
-                        onClick = { vm.open(m) },
-                        onHold = { vm.star(m) },
-                        left = vm.swipe(swipeLeft, m),
-                        right = vm.swipe(swipeRight, m),
-                    )
+                itemsIndexed(notices.take(4), key = { _, m -> "n" + m.key }) { i, m ->
+                    Cascade("n" + m.key, i, vm) {
+                        NoticeRow(
+                            m,
+                            onClick = { vm.open(m) },
+                            onHold = { vm.star(m) },
+                            left = vm.swipe(swipeLeft, m),
+                            right = vm.swipe(swipeRight, m),
+                        )
+                    }
                 }
                 item {
                     T(
@@ -393,7 +408,7 @@ private fun DayDone(vm: MailboxViewModel, waiting: Int, notices: Int) {
  * design — it is what the SDK does with a screen that has one thing to say.
  */
 @Composable
-private fun Nothing(vm: MailboxViewModel) {
+private fun Nothing(vm: MailboxViewModel, settled: Boolean) {
     val g = LocalGrid.current
     val t = LocalType.current
     val waiting by vm.waiting.collectAsStateWithLifecycle()
@@ -405,9 +420,28 @@ private fun Nothing(vm: MailboxViewModel) {
         // the true middle, and the action bar takes four units off the bottom anyway.
         Spacer(Modifier.height(g * 6f))
 
-        T(if (error != null) "Can't reach\nyour mail." else "Clear\nskies.", t.title)
-        Spacer(Modifier.height(g * 0.8f))
-        T(if (error != null) "Nothing came in." else "Your inbox is empty.", t.detail, Secondary)
+        /*
+         * Nothing is claimed until something is known.
+         *
+         * "Clear skies." is a statement about a mailbox, and for the first moments of a
+         * launch nobody has looked in one — the lists start empty, so the app opened on an
+         * empty inbox whatever was in it. While that is still true the screen says what it
+         * is doing instead, at the same size and in the same place, so the answer replaces
+         * it rather than pushing it around.
+         */
+        if (!settled) {
+            T("One\nmoment.", t.title, Secondary)
+            Spacer(Modifier.height(g * 0.8f))
+            T("Looking in your mailbox.", t.detail, Secondary)
+        } else {
+            T(if (error != null) "Can't reach\nyour mail." else "Clear\nskies.", t.title)
+            Spacer(Modifier.height(g * 0.8f))
+            T(
+                if (error != null) "Nothing came in." else "Your inbox is empty.",
+                t.detail,
+                Secondary,
+            )
+        }
 
         Spacer(Modifier.height(g * 1.4f))
 
@@ -941,3 +975,52 @@ fun providerWord(accountId: String): String =
         "microsoft" -> "outlook"
         else -> ""
     }
+
+/**
+ * A row arrives rather than appearing.
+ *
+ * Mail turning up in a list is the one moment in this app where something happens without
+ * anybody asking for it, and a row that is simply there on the next frame is easy to miss
+ * — which for a mailbox built on a small daily ration is the whole event. Each row fades
+ * up and settles the last few pixels into place, and the ones below it start a little
+ * later, so a list arrives as a cascade instead of a flash.
+ *
+ * Once per row per process. [MailboxViewModel.drawn] holds what has been seen, so coming
+ * back from reading a letter does not replay the whole list — only genuinely new rows
+ * animate. Scrolling a long list does not either, since a row recycled off screen and
+ * back is not new.
+ *
+ * The stagger is capped: past the eighth row the delay stops growing, because a list of
+ * forty would otherwise still be arriving a minute after it was drawn.
+ */
+@Composable
+private fun Cascade(
+    id: String,
+    index: Int,
+    vm: MailboxViewModel,
+    content: @Composable () -> Unit,
+) {
+    val first = remember(id) { vm.drawn.add(id) }
+    var shown by remember(id) { mutableStateOf(!first) }
+    val step = with(LocalDensity.current) { 10.dp.toPx() }
+    val arrive by animateFloatAsState(
+        targetValue = if (shown) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = 280,
+            delayMillis = if (first) minOf(index, 8) * 55 else 0,
+        ),
+        label = "row",
+    )
+    LaunchedEffect(id) { shown = true }
+    androidx.compose.foundation.layout.Box(
+        Modifier.graphicsLayer {
+            alpha = arrive
+            // Down, not up: the row settles into the place the list has already made for
+            // it. Drawn, not laid out — moving the row for real would push every row
+            // under it and the list would ripple.
+            translationY = -(1f - arrive) * step
+        },
+    ) {
+        content()
+    }
+}

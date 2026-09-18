@@ -38,7 +38,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.text.TextStyle
@@ -283,6 +285,37 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
         val quiet = if (paper) PaperSecondary else Secondary
 
         /*
+         * The chrome sits ON the letter, and that is what lets it fade.
+         *
+         * A white bar under a white message is invisible; a white bar under a SHORT
+         * message is a white box floating in black, because the page ends where its
+         * content ends. The fix is the one iOS uses: the bar is not below the message, it
+         * is over it, and its ground fades from nothing at the top to solid at the
+         * bottom, so whatever is behind — the letter or the black beneath it — dissolves
+         * into the bar instead of meeting it at a line.
+         *
+         * A gradient only works this way round. Drawn below the message it would fade to
+         * the app's black, which is a dark band between two whites.
+         *
+         * The body is then padded by the solid part alone, so the last line of a letter
+         * can scroll under the fade but never under an icon.
+         */
+        var chrome by remember { mutableStateOf(0.dp) }
+        val fade = if (paper && !showWhy) g * 1.2f else 0.dp
+        val fadePx = with(density) { fade.toPx() }
+        val ground = when {
+            // The ··· panel is a solid thing the app puts over the letter to talk. It is
+            // drawn in white on black wherever it appears, so it brings its own ground.
+            showWhy -> androidx.compose.ui.graphics.SolidColor(Background)
+            paper -> Brush.verticalGradient(
+                listOf(Color.Transparent, Paper),
+                startY = 0f,
+                endY = fadePx,
+            )
+            else -> androidx.compose.ui.graphics.SolidColor(Background)
+        }
+
+        /*
          * Hand the file to whatever opens that kind of file. A content:// URI from our
          * FileProvider plus the read grant, never a file:// path — that has thrown
          * FileUriExposedException on every Android since 7.
@@ -338,6 +371,10 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
          * instead solves both — one scroller, and the header goes away with the content
          * like it does in any other mail client.
          */
+        Box(Modifier.weight(1f)) {
+        val bodyModifier = Modifier
+            .fillMaxSize()
+            .padding(bottom = (chrome - fade).coerceAtLeast(0.dp))
         if (loading) {
             /*
              * Nothing but the sheet and who it is from. HtmlBody draws the same thing
@@ -352,8 +389,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             Sheet(
                 msg,
                 accountWord(msg.accountId),
-                Modifier
-                    .weight(1f)
+                bodyModifier
                     .pointerInput(msg.key) {
                         detectVerticalDragGestures(
                             onDragEnd = { release(pull.value > commitPx) },
@@ -374,7 +410,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 account = accountWord(msg.accountId),
                 images = vm.repo.showImages,
                 attachments = attachments,
-                modifier = Modifier.weight(1f),
+                modifier = bodyModifier,
                 onAttachment = openFile,
                 onPullDrag = { dy -> if (!settling) scope.launch { pull.snapTo(dy) } },
                 onPullEnd = { committed -> release(committed) },
@@ -465,8 +501,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 }
             }
             Column(
-                Modifier
-                    .weight(1f)
+                bodyModifier
                     // The gutter the screen no longer carries. Plain text is our own
                     // page, not the sender's, so it is inset like every other screen.
                     .padding(horizontal = g.inset)
@@ -549,6 +584,17 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             }
         }
 
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .onSizeChanged { chrome = with(density) { it.height.toDp() } }
+                .background(ground),
+        ) {
+        // Where the fade happens. Nothing is drawn in it; it is the distance over which
+        // the letter stops being visible, and the icons stay clear of it by construction.
+        Spacer(Modifier.height(fade))
+
         /*
          * The conversation this message belongs to, above the bar.
          *
@@ -563,12 +609,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
          * actually opened under its own history.
          */
         if (thread.isNotEmpty()) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .background(if (paper) Paper else Background)
-                    .padding(horizontal = g.inset),
-            ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = g.inset)) {
                 Thread(thread, ink, quiet) { vm.open(it) }
             }
         }
@@ -588,12 +629,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
         val invite by vm.invite.collectAsStateWithLifecycle()
         val answered by vm.rsvpSent.collectAsStateWithLifecycle()
         invite?.let {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .background(if (paper) Paper else Background)
-                    .padding(horizontal = g.inset),
-            ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = g.inset)) {
             Spacer(Modifier.height(g * 0.5f))
             if (answered != null) {
                 T("$answered — the organizer has been told.", t.detail, quiet, maxLines = 1)
@@ -645,7 +681,6 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .background(if (paper) Paper else Background)
                     .height(g.actionBar)
                     .padding(horizontal = g.inset),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -688,6 +723,8 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 )
             }
         }
+        }
+        }
     }
     }
     }
@@ -721,15 +758,19 @@ private fun BarIcon(res: Int, label: String, tint: Color, onClick: () -> Unit) {
  * the one thing a crossfade between two drawings of one thing must not do.
  */
 /**
- * The air above the sender, in CSS pixels.
+ * How far down the panel the white page starts, and the air inside it above the sender.
  *
- * It was 22, which is a gutter rather than a margin: the sender's name started a few
- * pixels under the rounded corner and the letter opened feeling like it had been cut off
- * at the top. Two more lines of it, and the constant is shared because [Sheet] and
- * [document] draw the same masthead and a difference between them is visible at the
- * handoff.
+ * v2.58 put two lines of air above the sender by growing the sheet's own top padding,
+ * which pushed the masthead down *inside* the white. The air wanted to be behind the page,
+ * not on it — the same move as taking the gutter off the sides: the sheet starts lower and
+ * black shows above it, and that black scrolls away with the letter because it is the
+ * document's own top margin rather than a bar.
+ *
+ * Both numbers are shared, because [Sheet] and [document] draw the same masthead in the
+ * same place and any difference between them is visible at the handoff.
  */
-private const val SHEET_TOP = 62
+private const val SHEET_GAP = 54
+private const val SHEET_TOP = 22
 
 private val sheetSender = TextStyle(fontSize = 25.sp, lineHeight = 30.sp)
 private val sheetStamp = TextStyle(fontSize = 13.sp, lineHeight = 20.sp)
@@ -749,7 +790,7 @@ private fun Sheet(msg: Msg, account: String, modifier: Modifier = Modifier) {
     Column(
         modifier
             .fillMaxWidth()
-            .padding(top = 14.dp)
+            .padding(top = SHEET_GAP.dp)
             .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
             .background(Paper)
             .padding(start = 20.dp, end = 20.dp, top = SHEET_TOP.dp),
@@ -1298,7 +1339,7 @@ $shrink</style>
   trusting a computation I cannot see. max-width keeps it honest if that number is ever
   the larger of the two.
 -->
-<div style="width:${viewDp}px;max-width:100%;box-sizing:border-box;margin-top:14px;background:#fff;border-radius:14px 14px 0 0;overflow:hidden">
+<div style="width:${viewDp}px;max-width:100%;box-sizing:border-box;margin-top:${SHEET_GAP}px;background:#fff;border-radius:14px 14px 0 0;overflow:hidden">
 <div style="padding:${SHEET_TOP}px 20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#000">
   <div style="font-size:25px;line-height:1.2;font-weight:400;color:#000">$sender</div>
   <div style="font-size:13px;line-height:1.5;color:#777;margin-top:5px">$stamp</div>

@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -249,6 +251,29 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val waiting = repo.waitingLetters()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /*
+     * "Clear skies." is a claim, and it was being made before anything had been read.
+     *
+     * Every list here is a `stateIn` with an empty initial value, so for the first frames
+     * of a launch the app holds an empty inbox that nothing has looked at yet — and Home
+     * drew the empty screen on it. A mailbox with four hundred messages in it opened on
+     * "your inbox is empty" every single time, for as long as the first query took.
+     *
+     * Two things have to have happened before that sentence is true, and they are
+     * different questions: the database has answered, and the first check of this launch
+     * has finished. The first is the flicker; the second is the honest part — a phone that
+     * has just been handed a new account has an empty database and mail on the way.
+     *
+     * The database answer is read from its own short-lived collection rather than from the
+     * flows above, because **a StateFlow drops a value equal to the one it holds**: Room
+     * answering "empty" to an initial value of empty emits nothing at all, so there is no
+     * emission to wait for up there.
+     */
+    private val _stored = MutableStateFlow(false)
+    private val _checked = MutableStateFlow(false)
+    val settled: StateFlow<Boolean> = combine(_stored, _checked) { a, b -> a && b }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
     val rules: StateFlow<List<SenderRule>> = repo.rules()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -415,7 +440,12 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The launch check: silent, and at most once a minute however often it is asked. */
     fun syncOnOpen() {
-        if (System.currentTimeMillis() - lastAutoSync < 60_000) return
+        // Nothing to check, or checked a moment ago: either way this launch is as
+        // informed as it is going to get, and the empty screen may speak.
+        if (!repo.auth.isSignedIn || System.currentTimeMillis() - lastAutoSync < 60_000) {
+            _checked.value = true
+            return
+        }
         syncNow(announce = false)
     }
 
@@ -427,12 +457,29 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
      * screen that names an account reads this instead, and anything that changes an
      * account calls [refreshAccounts].
      */
+    /**
+     * Rows this process has already drawn.
+     *
+     * A row fades in the first time it is seen and never again, so the list cascades on
+     * the first draw and when mail arrives, and does NOT re-run every time you come back
+     * from reading something. It lives on the ViewModel rather than in the screen's
+     * composition for exactly that reason: the screen is rebuilt on every navigation.
+     */
+    val drawn = mutableSetOf<String>()
+
     private val _accounts = MutableStateFlow(repo.auth.accounts())
     val accounts: StateFlow<List<com.gios.brightmailbox.auth.Account>> = _accounts.asStateFlow()
 
     fun refreshAccounts() { _accounts.value = repo.auth.accounts() }
 
-    init { refreshRation() }
+    init {
+        refreshRation()
+        viewModelScope.launch {
+            combine(repo.letters(repo.today()), repo.notices()) { l, n -> l.size + n.size }
+                .first()
+            _stored.value = true
+        }
+    }
 
     fun go(s: Screen) {
         _screen.value = s
@@ -1274,6 +1321,10 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
             }
             .onFailure { said("Couldn't reach the server.") }
         _busy.value = false
+        // However it went, the first check of this launch is over and the empty screen
+        // has an answer to report — including "couldn't reach the server", which it shows
+        // instead of claiming the inbox is empty.
+        _checked.value = true
         refreshRation()
         prefetch()
     }

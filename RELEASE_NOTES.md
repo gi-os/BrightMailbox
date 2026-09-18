@@ -1,3 +1,35 @@
+## BrightMailbox v2.61 — the app stops opening on an empty inbox
+
+**"Clear skies." was being said before anything had been read.** Every list in the app
+starts as an empty one and is filled when the database answers, so for the first frames of
+a launch the app holds an empty inbox that nobody has looked in — and the empty screen was
+drawn on it. A mailbox with four hundred messages in it opened on "your inbox is empty"
+every single time.
+
+Two things have to be true before that sentence is, and they are separate questions: the
+database has answered, and the first check of this launch has finished. Until both are, the
+screen says "One moment. Looking in your mailbox." in the same place and at the same size,
+so the answer replaces it instead of moving it. The second half matters on a phone that has
+just been given an account: an empty database with mail on the way is not an empty mailbox.
+
+**Mail arrives now instead of appearing.** A row fades up and settles the last few pixels
+into place, and the rows under it start a little later, so a list arrives as a cascade. It
+happens once per row: coming back from reading a letter does not replay the list, and
+scrolling a long one does not either. Only rows this run of the app has never drawn.
+
+**The air above a letter moved behind the page.** The last release added two lines of it by
+growing the sheet's own top padding, which pushed the sender down inside the white. It is
+the sheet that starts lower now, with black above it — the same move as taking the gutter
+off the sides — and that black scrolls away with the message, because it is the document's
+top margin and not a bar.
+
+**The bar under a letter fades in rather than starting.** A white bar under a short message
+was a white box sitting in black, with a line where the two met. The bar is drawn over the
+letter now, on a ground that goes from nothing at the top to solid white at the bottom, so
+the message dissolves into it. The fade is above the icons, never behind them, and the
+letter is only ever padded by the solid part — a line of text can scroll under the fade and
+never under a control.
+
 ## BrightMailbox v2.60 — the sorter stops being trained to agree with itself
 
 `retrain()` labelled every stored message with `m.pile == LETTER` — the verdict the header

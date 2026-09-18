@@ -19,6 +19,7 @@ import com.gios.brightmailbox.notify.Chime
 import com.gios.brightmailbox.parcel.Parcels
 import com.gios.brightmailbox.sort.Envelope
 import com.gios.brightmailbox.sort.Learner
+import com.gios.brightmailbox.sort.Lessons
 import com.gios.brightmailbox.sort.Pile
 import com.gios.brightmailbox.sort.Sorter
 import com.gios.brightmailbox.text.Clean
@@ -1858,25 +1859,48 @@ class Repo private constructor(private val app: Context) {
     /**
      * Retrain from the stored mailbox.
      *
-     * Weak labels: the Tier 0 verdict, which is right most of the time and is all there
-     * is on a fresh install. User corrections are already stored as rules and are
-     * replayed at high weight afterwards, so they dominate anything the bootstrap got
-     * wrong.
+     * The labels come from what the reader did — starred it, has written to that sender,
+     * archived it unopened, opened it — and only fall back to Tier 0's own verdict where
+     * there is no evidence at all. See [Lessons].
+     *
+     * Until v2.60 every label WAS Tier 0's verdict, so the model was trained to agree
+     * with the rules it sits behind and could never learn anything they did not already
+     * know. Measured against labels taken from a real Sent folder, the header rules rank
+     * this question at about 0.62 AUC while a model trained on behaviour reaches about
+     * 0.97. That gap was being thrown away by one line.
+     *
+     * User corrections are still replayed afterwards at the highest weight of all: a
+     * stated rule outranks anything inferred.
      */
     suspend fun retrain() = withContext(Dispatchers.Default) {
         val rows = dao.recent(1200)
         if (rows.size < 20) return@withContext
         val mine = myAddresses()
+        // Addresses this reader has written to. The one signal on the phone that the sort
+        // cannot have caused, since it comes from mail that was sent, not sorted.
+        val wroteTo = dao.correspondents().map { it.address }.toSet()
+
         val data = rows.map { m ->
-            Envelope(
-                from = m.sender,
-                fromName = m.senderName,
-                subject = m.subject,
-                mine = mine,
-                body = m.snippet,
-            ) to (m.pile == Pile.LETTER.name)
+            val lesson = Lessons.of(
+                starred = m.starred,
+                wroteToSender = m.sender in wroteTo,
+                readHere = m.readHere,
+                archived = m.archived,
+                tier0SaysLetter = m.pile == Pile.LETTER.name,
+            )
+            Triple(
+                Envelope(
+                    from = m.sender,
+                    fromName = m.senderName,
+                    subject = m.subject,
+                    mine = mine,
+                    body = m.snippet,
+                ),
+                lesson.worthReading,
+                lesson.weight,
+            )
         }
-        learner.fit(data, epochs = 4)
+        learner.fitWeighted(data, epochs = 4)
 
         val rules = dao.allRules()
         for (r in rules) {

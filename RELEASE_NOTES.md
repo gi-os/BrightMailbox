@@ -1,3 +1,30 @@
+## BrightMailbox v2.60 — the sorter stops being trained to agree with itself
+
+`retrain()` labelled every stored message with `m.pile == LETTER` — the verdict the header
+rules had already reached. A model trained on the output of the rules it sits behind cannot
+learn anything those rules do not already know, however much mail it sees. It was copying
+them, and the ration was being picked by the copy.
+
+Labels now come from what you did with a message, ordered by how little the app itself
+could have caused it. Starring is an explicit act with no default. Having written to an
+address comes from the Sent folder, which the sort has no hand in. Archiving something
+without ever opening it is a rejection, and it counts most for mail the rules had called a
+Letter. Opening it here counts too, but least: Letters are shown first and rationed, so
+they get opened partly because of where they were put. Where there is no evidence at all,
+Tier 0's verdict still starts the model off, at a weight any of the above outweighs.
+
+Measured on 7,654 messages from a real mailbox, against labels taken from its Sent folder
+and scored over ten splits that share no senders between training and test: the header
+rules rank this question at 0.62 AUC, and a model trained on behaviour reaches 0.97.
+Average precision goes from 0.054 to 0.74. The rules were never the ceiling.
+
+Corrections you make by hand still outrank everything inferred, at eight times the weight,
+exactly as before.
+
+Nothing about the piles changes today. The learned score ranks Letters and picks which
+five a ration shows, so this is a change to the order mail arrives in and to which mail
+waits for tomorrow.
+
 ## BrightMailbox v2.59 — the thread line is on the page, not under it
 
 "3 EARLIER IN THIS THREAD" sat in gray on black between a white message and a white bar, so

@@ -179,6 +179,34 @@ class Learner(
         }
     }
 
+    /**
+     * Train from a whole mailbox where the examples do not all count the same.
+     *
+     * Same shuffle and same fixed seed as [fit] — a build has to be reproducible — but
+     * each example carries its own weight, because the labels no longer come from one
+     * source. See [Lessons] for where the weights come from and why they differ by an
+     * order of magnitude.
+     *
+     * A separate name rather than an overload: both erase to `List` on the JVM and the
+     * compiler rejects the clash.
+     */
+    fun fitWeighted(data: List<Triple<Envelope, Boolean, Double>>, epochs: Int = 4, seed: Long = 7L) {
+        if (data.isEmpty()) return
+        val cached = data.map { Triple(features(it.first), it.second, it.third) }
+        val rnd = java.util.Random(seed)
+        val order = MutableList(cached.size) { it }
+        repeat(epochs) {
+            for (i in order.indices.reversed()) {
+                val j = rnd.nextInt(i + 1)
+                val t = order[i]; order[i] = order[j]; order[j] = t
+            }
+            for (i in order) {
+                val (f, y, w) = cached[i]
+                learn(f, y, w)
+            }
+        }
+    }
+
     /** Mean log-loss. Lower is better; 0.693 is a coin flip. */
     fun logLoss(data: List<Pair<Envelope, Boolean>>): Double {
         if (data.isEmpty()) return 0.0

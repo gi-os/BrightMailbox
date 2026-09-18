@@ -1,3 +1,12 @@
+## BrightMailbox v2.63 — the fade was gray, because transparent is black
+
+The ramp under a letter started at `Color.Transparent`, which is transparent black. A
+gradient interpolates color as well as alpha, so it ran from black through half-opaque gray
+before it reached white, and the bottom of every message wore a dark haze.
+
+It starts at white with no alpha now. The only thing that changes down the ramp is how much
+white there is.
+
 ## BrightMailbox v2.62 — the bar is the gradient, all the way down
 
 The fade stopped a fifth of the way into the chrome and the rest was a white box with four

@@ -311,9 +311,19 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
             // The ··· panel is a solid thing the app puts over the letter to talk. It is
             // drawn in white on black wherever it appears, so it brings its own ground.
             showWhy -> androidx.compose.ui.graphics.SolidColor(Background)
-            // No startY/endY: a background brush sizes itself to what it is painting, so
-            // the ramp is the block's own height and ends at the bottom edge of the panel.
-            paper -> Brush.verticalGradient(listOf(Color.Transparent, Paper))
+            /*
+             * Transparent WHITE at the top, not `Color.Transparent`.
+             *
+             * `Color.Transparent` is `0x00000000` — transparent **black** — and a gradient
+             * interpolates the color channels as well as the alpha, so a ramp from it to
+             * white passes through half-opaque black. Over a letter that is a dark haze
+             * across the bottom of the page, which is the opposite of the intent. The same
+             * white at zero alpha only ever changes how much of it there is.
+             *
+             * No startY/endY: a background brush sizes itself to what it is painting, so
+             * the ramp is the block's own height and ends at the bottom edge of the panel.
+             */
+            paper -> Brush.verticalGradient(listOf(Paper.copy(alpha = 0f), Paper))
             else -> androidx.compose.ui.graphics.SolidColor(Background)
         }
 

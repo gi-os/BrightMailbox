@@ -297,21 +297,23 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
          * A gradient only works this way round. Drawn below the message it would fade to
          * the app's black, which is a dark band between two whites.
          *
-         * The body is then padded by the solid part alone, so the last line of a letter
-         * can scroll under the fade but never under an icon.
+         * The body is then padded by the fade alone, so the last line of a letter can
+         * scroll into the top of the gradient but never as far as an icon.
+         *
+         * **The gradient runs the whole height of the chrome**, rather than resolving to
+         * solid white a fifth of the way down and painting a white box behind the icons.
+         * A box is the thing this replaces. It takes exactly the space the white one took,
+         * and the only white in it is the last row of pixels on the panel.
          */
         var chrome by remember { mutableStateOf(0.dp) }
         val fade = if (paper && !showWhy) g * 1.2f else 0.dp
-        val fadePx = with(density) { fade.toPx() }
         val ground = when {
             // The ··· panel is a solid thing the app puts over the letter to talk. It is
             // drawn in white on black wherever it appears, so it brings its own ground.
             showWhy -> androidx.compose.ui.graphics.SolidColor(Background)
-            paper -> Brush.verticalGradient(
-                listOf(Color.Transparent, Paper),
-                startY = 0f,
-                endY = fadePx,
-            )
+            // No startY/endY: a background brush sizes itself to what it is painting, so
+            // the ramp is the block's own height and ends at the bottom edge of the panel.
+            paper -> Brush.verticalGradient(listOf(Color.Transparent, Paper))
             else -> androidx.compose.ui.graphics.SolidColor(Background)
         }
 

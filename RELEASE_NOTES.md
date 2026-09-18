@@ -1,3 +1,10 @@
+## BrightMailbox v2.62 — the bar is the gradient, all the way down
+
+The fade stopped a fifth of the way into the chrome and the rest was a white box with four
+icons on it, which is the thing the fade exists to get rid of. The ramp is the whole height
+of that block now, in the space the box took, so the only fully white row of pixels is the
+last one on the panel.
+
 ## BrightMailbox v2.61 — the app stops opening on an empty inbox
 
 **"Clear skies." was being said before anything had been read.** Every list in the app

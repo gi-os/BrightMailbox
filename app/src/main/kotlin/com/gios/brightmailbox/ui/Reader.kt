@@ -700,7 +700,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                BarIcon(R.drawable.ic_back_white, "Back", ink) { vm.leaveReader() }
+                BarIcon(R.drawable.ic_bar_back, "Back", ink) { vm.leaveReader() }
                 /*
                  * Sent mail answers to a different bar.
                  *
@@ -711,30 +711,25 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                  * slot and the archive icon is simply absent.
                  */
                 if (msg.pile == "SENT") {
-                    BarIcon(R.drawable.ic_forward_white, "Forward", ink) {
+                    BarIcon(R.drawable.ic_bar_forward, "Forward", ink) {
                         vm.go(Screen.Write(msg, mode = WriteMode.FORWARD, from = here))
                     }
                 } else {
-                    BarIcon(R.drawable.ic_reply_white, "Reply", ink) {
+                    BarIcon(R.drawable.ic_bar_reply, "Reply", ink) {
                         vm.go(Screen.Write(msg, mode = WriteMode.REPLY, from = here))
                     }
-                    BarIcon(R.drawable.ic_archive_white, "Archive", ink) { vm.archive(msg) }
+                    BarIcon(R.drawable.ic_bar_archive, "Archive", ink) { vm.archive(msg) }
                 }
                 /*
-                 * The same weight as the icons beside it.
+                 * The fourth control is a glyph now, not three characters of text.
                  *
-                 * It was drawn in the secondary gray, which on a white bar put a #777
-                 * mark next to three black ones — it read as disabled rather than as the
-                 * quietest of four controls. A bar is one row: everything in it is either
-                 * a control or it is not.
+                 * `···` was set at `button` tracking, which means its own font metrics, its
+                 * own baseline and its own idea of the middle of a line — so it sat off the
+                 * axis the three icons shared and could not be talked onto it. Drawn on the
+                 * same lattice as the others it lands where they land, and it stops being
+                 * the only thing in the row that is type.
                  */
-                T(
-                    "···",
-                    t.button,
-                    ink,
-                    Modifier.lightClickable { showWhy = true },
-                    maxLines = 1,
-                )
+                BarIcon(R.drawable.ic_bar_more, "More", ink) { showWhy = true }
             }
         }
         }
@@ -745,11 +740,15 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
 }
 
 /**
- * One bar verb. Sized to the SDK's bar-icon unit so it matches every other bar.
+ * One bar verb, from the reader's own dot-matrix set (`ic_bar_*`).
  *
- * Tinted rather than drawn twice: the artwork is white, and a black copy of each icon
- * would be four more files to keep in step with the three that already exist here because
- * light-sdk has no archive, reply or forward.
+ * Five glyphs on one 7x7 lattice, each centered on the same point, so the row sits on one
+ * axis by construction rather than by four separate files agreeing. The bar used to mix an
+ * icon from light-sdk, two drawn here and a line of text, which is why nothing lined up.
+ *
+ * Tinted rather than drawn twice: the artwork is white, the bar is white over a letter and
+ * black over plain text, and a second copy of every glyph would be five more files to keep
+ * in step. The old `ic_*_white` icons stay — other screens still use them.
  */
 @Composable
 private fun BarIcon(res: Int, label: String, tint: Color, onClick: () -> Unit) {

@@ -1,0 +1,24 @@
+<!--
+  ic_bar_archive — reader bar, dot-matrix set.
+
+  Five glyphs on one 7x7 lattice of identical dots: pitch 1.5, radius 0.55, first center
+  at 1.5, inside a 12x12 viewport. Every glyph is centered on (6,6), which is the half of
+  this that is not decoration — the bar used to hold one icon from light-sdk, two drawn
+  here and a row of text, each with its own padding and its own idea of where the middle
+  was, so none of them sat on the same line.
+
+  Nothing is stroked and nothing is scaled. A glyph is only ever which dots are lit, so
+  the set cannot drift: a new one is a new dot map and it lines up by construction.
+
+  White, and tinted where it is used. The bar is white over a letter and black over plain
+  text, and one file serves both.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="12"
+    android:viewportHeight="12">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M0.95,1.5 A0.55,0.55 0 1 0 2.05,1.5 A0.55,0.55 0 1 0 0.95,1.5 Z M2.45,1.5 A0.55,0.55 0 1 0 3.55,1.5 A0.55,0.55 0 1 0 2.45,1.5 Z M2.45,4.5 A0.55,0.55 0 1 0 3.55,4.5 A0.55,0.55 0 1 0 2.45,4.5 Z M2.45,6 A0.55,0.55 0 1 0 3.55,6 A0.55,0.55 0 1 0 2.45,6 Z M2.45,7.5 A0.55,0.55 0 1 0 3.55,7.5 A0.55,0.55 0 1 0 2.45,7.5 Z M2.45,9 A0.55,0.55 0 1 0 3.55,9 A0.55,0.55 0 1 0 2.45,9 Z M2.45,10.5 A0.55,0.55 0 1 0 3.55,10.5 A0.55,0.55 0 1 0 2.45,10.5 Z M3.95,1.5 A0.55,0.55 0 1 0 5.05,1.5 A0.55,0.55 0 1 0 3.95,1.5 Z M3.95,6 A0.55,0.55 0 1 0 5.05,6 A0.55,0.55 0 1 0 3.95,6 Z M3.95,10.5 A0.55,0.55 0 1 0 5.05,10.5 A0.55,0.55 0 1 0 3.95,10.5 Z M5.45,1.5 A0.55,0.55 0 1 0 6.55,1.5 A0.55,0.55 0 1 0 5.45,1.5 Z M5.45,6 A0.55,0.55 0 1 0 6.55,6 A0.55,0.55 0 1 0 5.45,6 Z M5.45,10.5 A0.55,0.55 0 1 0 6.55,10.5 A0.55,0.55 0 1 0 5.45,10.5 Z M6.95,1.5 A0.55,0.55 0 1 0 8.05,1.5 A0.55,0.55 0 1 0 6.95,1.5 Z M6.95,6 A0.55,0.55 0 1 0 8.05,6 A0.55,0.55 0 1 0 6.95,6 Z M6.95,10.5 A0.55,0.55 0 1 0 8.05,10.5 A0.55,0.55 0 1 0 6.95,10.5 Z M8.45,1.5 A0.55,0.55 0 1 0 9.55,1.5 A0.55,0.55 0 1 0 8.45,1.5 Z M8.45,4.5 A0.55,0.55 0 1 0 9.55,4.5 A0.55,0.55 0 1 0 8.45,4.5 Z M8.45,6 A0.55,0.55 0 1 0 9.55,6 A0.55,0.55 0 1 0 8.45,6 Z M8.45,7.5 A0.55,0.55 0 1 0 9.55,7.5 A0.55,0.55 0 1 0 8.45,7.5 Z M8.45,9 A0.55,0.55 0 1 0 9.55,9 A0.55,0.55 0 1 0 8.45,9 Z M8.45,10.5 A0.55,0.55 0 1 0 9.55,10.5 A0.55,0.55 0 1 0 8.45,10.5 Z M9.95,1.5 A0.55,0.55 0 1 0 11.05,1.5 A0.55,0.55 0 1 0 9.95,1.5 Z"/>
+</vector>

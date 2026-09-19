@@ -1,3 +1,21 @@
+## BrightMailbox v2.65 — four controls on one line, drawn as dots
+
+The bar under a letter carried an icon from light-sdk, two drawn in this repo and a row of
+three dots set as text. Four different amounts of padding and four ideas of where the middle
+of the row was, so nothing sat on the same line, and nothing looked like it came from the
+same hand.
+
+They are one set now. Five glyphs — back, reply, forward, archive, more — on a single 7x7
+lattice of identical dots, every one of them centered on the same point. A glyph is which
+dots are lit and nothing else, so the set cannot drift: the next one lines up by
+construction.
+
+The three dots stopped being type. Text brings its own baseline and its own metrics, which
+is why that one could never be talked onto the axis the icons shared.
+
+The rest of the app keeps the icons it had. If the dots belong everywhere, that is a
+separate change.
+
 ## BrightMailbox v2.64 — the letter goes under the glass
 
 The fade still read as a dark band, and the color was never the cause. The message was being

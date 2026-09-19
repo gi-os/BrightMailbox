@@ -325,8 +325,20 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
              *
              * No startY/endY: a background brush sizes itself to what it is painting, so
              * the ramp is the block's own height and ends at the bottom edge of the panel.
+             *
+             * The stops are not even, and that is the difference between a fade and a
+             * bar you can read. A straight ramp puts the icons at about two thirds white,
+             * and a black glyph on two thirds white over a letter is a gray glyph over
+             * text. Most of the fading happens in the first fifth, above the icons; by the
+             * time the row starts the white is at 80% and by its middle it is at 97%. Soft
+             * where nothing is drawn, solid where something is.
              */
-            paper -> Brush.verticalGradient(listOf(Paper.copy(alpha = 0f), Paper))
+            paper -> Brush.verticalGradient(
+                0f to Paper.copy(alpha = 0f),
+                0.22f to Paper.copy(alpha = 0.80f),
+                0.45f to Paper.copy(alpha = 0.97f),
+                1f to Paper,
+            )
             else -> androidx.compose.ui.graphics.SolidColor(Background)
         }
 

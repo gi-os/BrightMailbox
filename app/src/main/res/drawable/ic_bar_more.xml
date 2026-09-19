@@ -1,6 +1,11 @@
 <!--
   ic_bar_more — reader bar, dot-matrix set.
 
+  Three rules, five dots each. It was three dots in a row, which is the same glyph the
+  bar used to set in type and carries the same problem at this size: three marks on one
+  line read as punctuation left behind rather than as a control. Three lines read as a
+  menu, which is what the panel behind it is.
+
   Five glyphs on one 7x7 lattice of identical dots: pitch 1.5, radius 0.55, first center
   at 1.5, inside a 12x12 viewport. Every glyph is centered on (6,6), which is the half of
   this that is not decoration — the bar used to hold one icon from light-sdk, two drawn
@@ -20,5 +25,5 @@
     android:viewportHeight="12">
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M2.45,6 A0.55,0.55 0 1 0 3.55,6 A0.55,0.55 0 1 0 2.45,6 Z M5.45,6 A0.55,0.55 0 1 0 6.55,6 A0.55,0.55 0 1 0 5.45,6 Z M8.45,6 A0.55,0.55 0 1 0 9.55,6 A0.55,0.55 0 1 0 8.45,6 Z"/>
+        android:pathData="M2.45,3 A0.55,0.55 0 1 0 3.55,3 A0.55,0.55 0 1 0 2.45,3 Z M3.95,3 A0.55,0.55 0 1 0 5.05,3 A0.55,0.55 0 1 0 3.95,3 Z M5.45,3 A0.55,0.55 0 1 0 6.55,3 A0.55,0.55 0 1 0 5.45,3 Z M6.95,3 A0.55,0.55 0 1 0 8.05,3 A0.55,0.55 0 1 0 6.95,3 Z M8.45,3 A0.55,0.55 0 1 0 9.55,3 A0.55,0.55 0 1 0 8.45,3 Z M2.45,6 A0.55,0.55 0 1 0 3.55,6 A0.55,0.55 0 1 0 2.45,6 Z M3.95,6 A0.55,0.55 0 1 0 5.05,6 A0.55,0.55 0 1 0 3.95,6 Z M5.45,6 A0.55,0.55 0 1 0 6.55,6 A0.55,0.55 0 1 0 5.45,6 Z M6.95,6 A0.55,0.55 0 1 0 8.05,6 A0.55,0.55 0 1 0 6.95,6 Z M8.45,6 A0.55,0.55 0 1 0 9.55,6 A0.55,0.55 0 1 0 8.45,6 Z M2.45,9 A0.55,0.55 0 1 0 3.55,9 A0.55,0.55 0 1 0 2.45,9 Z M3.95,9 A0.55,0.55 0 1 0 5.05,9 A0.55,0.55 0 1 0 3.95,9 Z M5.45,9 A0.55,0.55 0 1 0 6.55,9 A0.55,0.55 0 1 0 5.45,9 Z M6.95,9 A0.55,0.55 0 1 0 8.05,9 A0.55,0.55 0 1 0 6.95,9 Z M8.45,9 A0.55,0.55 0 1 0 9.55,9 A0.55,0.55 0 1 0 8.45,9 Z"/>
 </vector>

@@ -1,3 +1,17 @@
+## BrightMailbox v2.66 — white where the icons are, air above them
+
+The ramp under a letter was a straight line from nothing to white, which put the icons at
+about two thirds white. A black glyph on two thirds white over a paragraph is a gray glyph
+over text, and the bar was hard to read against a busy message.
+
+The stops are uneven now. Most of the fading happens in the first fifth, above the row, where
+nothing is drawn. By the time the icons start the white is at 80%, and by the middle of them
+it is at 97%. Soft where there is nothing, solid where there is something.
+
+The fourth control is three rules rather than three dots. Three marks on one line read as
+punctuation somebody left behind. Three lines read as a menu, which is what the panel behind
+it holds.
+
 ## BrightMailbox v2.65 — four controls on one line, drawn as dots
 
 The bar under a letter carried an icon from light-sdk, two drawn in this repo and a row of

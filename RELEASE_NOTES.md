@@ -1,3 +1,17 @@
+## BrightMailbox v2.64 — the letter goes under the glass
+
+The fade still read as a dark band, and the color was never the cause. The message was being
+padded to stop just above the bar, so the top of the gradient had the app's black behind it
+rather than the letter. A fade needs something to fade.
+
+The letter reaches the bottom edge now and the bar sits over it, so the last lines pass under
+the glass and dissolve into white. The air at the end of a message comes from the message:
+the page carries a tall spacer at its foot, and the plain-text view ends with one measured
+from the bar, so nothing is ever left under an icon at the end of a scroll.
+
+A short message is a full page as well. The sheet used to be as tall as what was on it, which
+left black under a two-line note for the fade to arrive at. It fills the screen.
+
 ## BrightMailbox v2.63 — the fade was gray, because transparent is black
 
 The ramp under a letter started at `Color.Transparent`, which is transparent black. A

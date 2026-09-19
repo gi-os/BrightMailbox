@@ -297,13 +297,16 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
          * A gradient only works this way round. Drawn below the message it would fade to
          * the app's black, which is a dark band between two whites.
          *
-         * The body is then padded by the fade alone, so the last line of a letter can
-         * scroll into the top of the gradient but never as far as an icon.
+         * **The letter runs all the way to the bottom edge, under the chrome.** It was
+         * padded to stop just above the bar, which put the top of the gradient over the
+         * app's black rather than over the message — so the ramp read as a dark band
+         * whatever color it started from. Nothing is behind a fade if the thing it is
+         * supposed to be fading has been moved out from under it.
          *
-         * **The gradient runs the whole height of the chrome**, rather than resolving to
-         * solid white a fifth of the way down and painting a white box behind the icons.
-         * A box is the thing this replaces. It takes exactly the space the white one took,
-         * and the only white in it is the last row of pixels on the panel.
+         * The air at the end of a message comes from the message instead: the document
+         * carries a tall trailing spacer, and the plain-text column ends with one measured
+         * from the chrome. Both mean the last line clears the icons at the end of a scroll
+         * while the middle of a long letter still passes under the glass.
          */
         var chrome by remember { mutableStateOf(0.dp) }
         val fade = if (paper && !showWhy) g * 1.2f else 0.dp
@@ -384,9 +387,7 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
          * like it does in any other mail client.
          */
         Box(Modifier.weight(1f)) {
-        val bodyModifier = Modifier
-            .fillMaxSize()
-            .padding(bottom = (chrome - fade).coerceAtLeast(0.dp))
+        val bodyModifier = Modifier.fillMaxSize()
         if (loading) {
             /*
              * Nothing but the sheet and who it is from. HtmlBody draws the same thing
@@ -592,7 +593,8 @@ fun ReaderScreen(vm: MailboxViewModel, msg: Msg) {
                     Spacer(Modifier.height(g * 0.8f))
                     T("getting the file list…", t.detail, Secondary)
                 }
-                Spacer(Modifier.height(g * 1.5f))
+                // Clear the chrome, which is over this column rather than under it.
+                Spacer(Modifier.height(g * 1.5f + chrome))
             }
         }
 
@@ -1351,7 +1353,17 @@ $shrink</style>
   trusting a computation I cannot see. max-width keeps it honest if that number is ever
   the larger of the two.
 -->
-<div style="width:${viewDp}px;max-width:100%;box-sizing:border-box;margin-top:${SHEET_GAP}px;background:#fff;border-radius:14px 14px 0 0;overflow:hidden">
+<!--
+  min-height, so a short message is still a full page.
+
+  The sheet is as tall as what is on it, and the bar at the bottom of the screen is a
+  gradient that fades into whatever is behind it. Behind a two-line email that was the app's
+  black, so the fade had nothing to fade into and read as a dark band under the note. A page
+  that reaches the bottom of the screen gives it white to arrive at. `100vh` is the WebView's
+  own viewport, so this is the rest of the screen below the gap, and a long message ignores
+  it.
+-->
+<div style="width:${viewDp}px;max-width:100%;box-sizing:border-box;margin-top:${SHEET_GAP}px;min-height:calc(100vh - ${SHEET_GAP}px);background:#fff;border-radius:14px 14px 0 0;overflow:hidden">
 <div style="padding:${SHEET_TOP}px 20px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#000">
   <div style="font-size:25px;line-height:1.2;font-weight:400;color:#000">$sender</div>
   <div style="font-size:13px;line-height:1.5;color:#777;margin-top:5px">$stamp</div>
@@ -1369,7 +1381,9 @@ $files
 <div style="padding:16px 18px 0;overflow-x:auto;-webkit-overflow-scrolling:touch">
 $openZoom$html$closeZoom
 </div>
-<div style="height:24px"></div>
+<!-- The end of the message clears the bar. 24px put the last line under the icons once
+     the letter stopped being padded away from them. -->
+<div style="height:110px"></div>
 </div>
 </body></html>"""
 }

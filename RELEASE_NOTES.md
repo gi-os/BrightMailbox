@@ -10,6 +10,10 @@ lattice of identical dots, every one of them centered on the same point. A glyph
 dots are lit and nothing else, so the set cannot drift: the next one lines up by
 construction.
 
+Archive is an arrow going down into a tray. The lidded box it replaced needed a lid, two
+walls, a floor and a line across the middle, and 23 dots in a 7x7 lattice at this size is a
+filled rectangle with texture in it. The line meant to read as a slot read as a divider.
+
 The three dots stopped being type. Text brings its own baseline and its own metrics, which
 is why that one could never be talked onto the axis the icons shared.
 

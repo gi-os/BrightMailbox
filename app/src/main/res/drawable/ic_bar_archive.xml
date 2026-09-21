@@ -1,32 +1,19 @@
 <!--
-  ic_bar_archive — reader bar, dot-matrix set.
+  Archive: a tabbed folder with a label slot. Not a bin, and never ic_trash: archive MOVEs
+  the message to All Mail, and a lid over a tapered box would promise something this button
+  does not do.
 
-  An arrow going down into an open tray. The first draft was a lidded box: a lid, two
-  walls, a floor and a line across the middle came to 23 dots in a 7x7 lattice, which at
-  29dp on this panel is a filled rectangle with texture in it. The line meant to read as a
-  slot read as a divider. This is 17 dots and the shape does the work.
-
-  Not a bin, and never ic_trash: archive MOVEs the message to All Mail, and a lid over a
-  tapered box would promise something this button does not do.
-
-  Five glyphs on one 7x7 lattice of identical dots: pitch 1.5, radius 0.55, first center
-  at 1.5, inside a 12x12 viewport. Every glyph is centered on (6,6), which is the half of
-  this that is not decoration — the bar used to hold one icon from light-sdk, two drawn
-  here and a row of text, each with its own padding and its own idea of where the middle
-  was, so none of them sat on the same line.
-
-  Nothing is stroked and nothing is scaled. A glyph is only ever which dots are lit, so
-  the set cannot drift: a new one is a new dot map and it lines up by construction.
-
-  White, and tinted where it is used. The bar is white over a letter and black over plain
-  text, and one file serves both.
+  Pigeonholes set: a sorting case and the cards that move through it. 24-unit viewport,
+  2.2 stroke, round caps and joins, white and tinted where it is used. Plain paths only,
+  every coordinate already in place, so nothing here is scaled or transformed at runtime.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="12"
-    android:viewportHeight="12">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M0.95,9 A0.55,0.55 0 1 0 2.05,9 A0.55,0.55 0 1 0 0.95,9 Z M0.95,10.5 A0.55,0.55 0 1 0 2.05,10.5 A0.55,0.55 0 1 0 0.95,10.5 Z M2.45,4.5 A0.55,0.55 0 1 0 3.55,4.5 A0.55,0.55 0 1 0 2.45,4.5 Z M2.45,10.5 A0.55,0.55 0 1 0 3.55,10.5 A0.55,0.55 0 1 0 2.45,10.5 Z M3.95,6 A0.55,0.55 0 1 0 5.05,6 A0.55,0.55 0 1 0 3.95,6 Z M3.95,10.5 A0.55,0.55 0 1 0 5.05,10.5 A0.55,0.55 0 1 0 3.95,10.5 Z M5.45,1.5 A0.55,0.55 0 1 0 6.55,1.5 A0.55,0.55 0 1 0 5.45,1.5 Z M5.45,3 A0.55,0.55 0 1 0 6.55,3 A0.55,0.55 0 1 0 5.45,3 Z M5.45,4.5 A0.55,0.55 0 1 0 6.55,4.5 A0.55,0.55 0 1 0 5.45,4.5 Z M5.45,7.5 A0.55,0.55 0 1 0 6.55,7.5 A0.55,0.55 0 1 0 5.45,7.5 Z M5.45,10.5 A0.55,0.55 0 1 0 6.55,10.5 A0.55,0.55 0 1 0 5.45,10.5 Z M6.95,6 A0.55,0.55 0 1 0 8.05,6 A0.55,0.55 0 1 0 6.95,6 Z M6.95,10.5 A0.55,0.55 0 1 0 8.05,10.5 A0.55,0.55 0 1 0 6.95,10.5 Z M8.45,4.5 A0.55,0.55 0 1 0 9.55,4.5 A0.55,0.55 0 1 0 8.45,4.5 Z M8.45,10.5 A0.55,0.55 0 1 0 9.55,10.5 A0.55,0.55 0 1 0 8.45,10.5 Z M9.95,9 A0.55,0.55 0 1 0 11.05,9 A0.55,0.55 0 1 0 9.95,9 Z M9.95,10.5 A0.55,0.55 0 1 0 11.05,10.5 A0.55,0.55 0 1 0 9.95,10.5 Z"/>
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M 3.6 17.6 V 5.7 Q 3.6 4.2 5.1 4.2 H 9.1 L 11.6 6.8 H 19.1 Q 20.6 6.8 20.6 8.3 V 17.6 Q 20.6 19.1 19.1 19.1 H 5.1 Q 3.6 19.1 3.6 17.6 Z"/>
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M 9.3 12.7 H 14.9"/>
 </vector>

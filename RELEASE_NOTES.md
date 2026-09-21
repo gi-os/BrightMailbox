@@ -1,3 +1,27 @@
+## BrightMailbox v2.67 — one set of icons, drawn for the app
+
+Every icon in the app used to come from a different place: light-sdk for the header, a
+dot-matrix set for the reader bar, a paper plane for write, an envelope with a mailbox flag
+on the launcher. They are one family now, the Pigeonholes set: a sorting case and the cards
+that move through it.
+
+The launcher is a five-compartment case with one letter standing out of its upper bay. Five
+bays, five letters a day. The menu icon is the same case in small. Forward is a card leaving
+an open bay to the right. Archive is a tabbed folder, not a bin, because archive moves a
+message and never deletes one. Back, reply and refresh are the plain versions of themselves,
+drawn to the same 2.2 stroke with round ends so they sit on one line with the rest.
+
+Write is an envelope in flight, tilted up with two motion lines behind it. The first draft
+was a diagonal arrow leaving a box, which is what every other app on Android uses for "open
+in a browser". A letter with a flap is mail and nothing else.
+
+The notification icon is the case and its letter as one solid shape, so it survives the
+alpha-only treatment Android gives small icons. docs/icon.png is the launcher at 192 px for
+the BrightMarket listing.
+
+Four light-sdk icon files that nothing referenced any more are gone. The gear on the
+settings screens and the star on held letters are still light-sdk's own.
+
 ## BrightMailbox v2.66 — white where the icons are, air above them
 
 The ramp under a letter was a straight line from nothing to white, which put the icons at

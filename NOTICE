@@ -5,15 +5,16 @@ MIT licence — see LICENSE.
 Design system
 -------------
 The grid, type scale and interaction rules are ported from lightphone/light-sdk,
-which is MIT licensed. ic_settings_white.xml, ic_back_white.xml,
-ic_refresh_white.xml and ic_reply_white.xml (the SDK's ic_directions_uturn_left)
-are that project's own files, used unchanged under the same licence, so the bars
-look like every other bar on the phone.
+which is MIT licensed. ic_settings_white.xml and ic_star_white.xml are that
+project's own files, used unchanged under the same licence.
 
-ic_archive_white.xml is drawn for this app, to the same 60x60 viewport and 4.0
-stroke, because the SDK has 105 icons and none of them is archive. The closest
-was ic_trash, and using it would have been a lie: archive moves a message to All
-Mail and delete does not.
+Icons
+-----
+The launcher, the notification icon and the bar icons (ic_bar_*.xml,
+ic_send_white.xml, ic_refresh_white.xml, ic_menu_white.xml) are the Pigeonholes
+set, drawn for this app in 2026 and released with it under the MIT licence.
+None of them is ic_trash: archive moves a message to All Mail and delete does
+not, and the icon must not promise otherwise.
 
 Sounds
 ------

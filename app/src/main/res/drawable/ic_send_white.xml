@@ -1,19 +1,23 @@
 <!--
-  Send.
+  Write / send: an envelope in flight, 28 degrees up, two motion lines behind it along its
+  own axis with a clear gap so nothing touches. The designer's send was a diagonal arrow out
+  of a box, which is the external-link glyph everywhere else on Android; a letter with a flap
+  is mail and nothing else.
 
-  A paper plane, which is what "send" looks like everywhere and therefore needs no
-  learning — the point of replacing the word WRITE with a glyph is only worth anything if
-  the glyph is more immediate than the word, and an invented mark would not be.
-
-  Solid, with the fold drawn as a notch in the silhouette rather than as a second stroke:
-  a hairline detail at this size dissolves into grey on a matte LCD.
+  Pigeonholes set: a sorting case and the cards that move through it. 24-unit viewport,
+  2.2 stroke, round caps and joins, white and tinted where it is used. Plain paths only,
+  every coordinate already in place, so nothing here is scaled or transformed at runtime.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M2.6,20.4L21.4,12L2.6,3.6L2.6,10.1L15.2,12L2.6,13.9Z" />
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M 8.44 9.21 L 17.10 4.61 Q 18.51 3.85 19.26 5.27 L 22.22 10.83 Q 22.97 12.24 21.56 12.99 L 12.90 17.59 Q 11.49 18.35 10.74 16.93 L 7.78 11.37 Q 7.03 9.96 8.44 9.21 Z"/>
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M 8.12 10.51 L 15.00 11.10 L 18.36 5.07"/>
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M 1.30 16.01 L 6.16 13.42 M 4.60 19.01 L 8.13 17.13"/>
 </vector>

@@ -1,35 +1,17 @@
+<!--
+  Launcher: a five-compartment sorting case with one letter standing out of its upper bay.
+  Five bays for the five letters a day. Every point of the white art lies within radius 33.9
+  of (54,54), inside the r=36 circle a launcher may mask to. The background layer paints the
+  black; this file is the art alone.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-
-    <!--
-      An envelope with the mailbox flag up beside it.
-
-      Everything sits inside the adaptive-icon safe circle — radius 36 about (54,54) —
-      because a launcher is free to mask this to a circle and a flag tip outside it is a
-      flag tip the phone crops off. The furthest point is the flag at (86,46), which is
-      1088 from centre against the 1296 the circle allows.
-
-      Strokes, not fills, at 3.6 — the weight the light-sdk icons use, and the reason a
-      hand-drawn icon beside them always looks wrong. Pure white on the black background
-      layer: LightOS has three colours and an app icon does not get a fourth.
-    -->
-
-    <!-- Envelope body -->
-    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.6"
-        android:fillColor="#00000000" android:strokeLineJoin="round"
-        android:pathData="M24,42 L64,42 L64,70 L24,70 Z" />
-    <!-- Flap -->
-    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.6"
-        android:fillColor="#00000000" android:strokeLineJoin="round"
-        android:strokeLineCap="round"
-        android:pathData="M24,42 L44,57 L64,42" />
-
-    <!-- Flag post -->
-    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.6"
-        android:fillColor="#00000000" android:strokeLineCap="round"
-        android:pathData="M76,72 L76,42" />
-    <!-- Flag, up: there is mail -->
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M76,42 L86,46 L76,50 Z" />
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.6" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M33.5 36H31.5Q30 36 30 39.5V73.5Q30 77 33.5 77H74.5Q78 77 78 73.5V39.5Q78 36 74.5 36H53.8"/>
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.6" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M54 36V77M30 56.5H54M54 49.7H78M54 63.3H78"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M34.8 33.1L48.3 30.2Q49.6 29.9 49.9 31.2L52.2 41.9Q52.5 43.2 51.2 43.5L37.7 46.4Q36.4 46.7 36.1 45.4L33.8 34.7Q33.5 33.4 34.8 33.1Z"/>
 </vector>

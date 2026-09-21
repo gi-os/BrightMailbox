@@ -1,7 +1,9 @@
+<!--
+  Notification small icon: the case and its letter as one closed silhouette. Android keeps
+  only the alpha of this drawable, so there is no stroke and no interior detail to lose.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24"
-    android:tint="#FFFFFF">
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M3,6 L21,6 L21,18 L3,18 Z M3,6 L12,13 L21,6" />
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M5.3 8H5.2Q3.5 8 3.5 9.7V18.8Q3.5 20.5 5.2 20.5H18.8Q20.5 20.5 20.5 18.8V9.7Q20.5 8 18.8 8H13L12.2 4.5Q12 3.7 11.2 3.9L5.2 5.3Q4.4 5.5 4.6 6.3L5 8Z"/>
 </vector>

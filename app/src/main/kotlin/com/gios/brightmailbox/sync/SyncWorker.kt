@@ -32,6 +32,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         } catch (e: Exception) {
             // Retry rather than fail: a failed periodic worker is not rescheduled, and
             // the app would then quietly stop syncing until it is next opened.
+            if (e !is kotlinx.coroutines.CancellationException) {
+                com.gios.light.common.report.Trouble.record(
+                    "check mail",
+                    com.gios.brightmailbox.report.Detail.of(e),
+                )
+            }
             return Result.retry()
         }
 

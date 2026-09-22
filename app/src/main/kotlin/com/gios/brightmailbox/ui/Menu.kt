@@ -92,13 +92,17 @@ fun MenuScreen(vm: MailboxViewModel) {
             MenuItem("VIEW ARCHIVE", "Mail you have put away.") { vm.go(Screen.Archive) }
             MenuItem("SENT", "What you have written.") { vm.go(Screen.Sent) }
             val waiting by vm.queued.collectAsStateWithLifecycle()
+            val failed by vm.failedSends.collectAsStateWithLifecycle()
             MenuItem(
                 "DRAFTS",
                 // A queued message is a draft that will send itself, and this is the only
-                // place anybody would look for it — so this line has to say so.
-                when (waiting) {
-                    0 -> "Messages you started and did not send."
-                    1 -> "1 waiting to go out."
+                // place anybody would look for it — so this line has to say so. One that
+                // gave up says so louder, because it is the one that needs a person.
+                when {
+                    failed == 1 -> "1 could not be sent."
+                    failed > 1 -> "$failed could not be sent."
+                    waiting == 0 -> "Messages you started and did not send."
+                    waiting == 1 -> "1 waiting to go out."
                     else -> "$waiting waiting to go out."
                 },
             ) { vm.go(Screen.Drafts) }
@@ -468,14 +472,29 @@ fun DraftsScreen(vm: MailboxViewModel) {
                         if (d.remoteId.isNotBlank()) {
                             T("from your mailbox", t.superfine, Secondary, maxLines = 1)
                         }
-                        if (d.queued) {
-                            T(
+                        /*
+                         * Where it is on its way out, in words.
+                         *
+                         * Four states a person can see and one line each. FAILED says
+                         * why, because "could not send" alone is a row nobody can act
+                         * on: the reason is the difference between fixing an address
+                         * and waiting for a signal.
+                         */
+                        val stateLine = when (com.gios.brightmailbox.data.SendState.of(d.state)) {
+                            com.gios.brightmailbox.data.SendState.QUEUED ->
                                 if (d.tries == 0) "waiting to send"
-                                else "waiting to send · ${d.tries} tries",
-                                t.superfine,
-                                Secondary,
-                                maxLines = 1,
-                            )
+                                else "waiting to send · ${d.tries} ${if (d.tries == 1) "try" else "tries"}"
+                            com.gios.brightmailbox.data.SendState.SENDING -> "sending…"
+                            com.gios.brightmailbox.data.SendState.FAILED ->
+                                "could not send" + if (d.error.isBlank()) "" else " · ${d.error}"
+                            else -> null
+                        }
+                        if (stateLine != null) {
+                            T(stateLine, t.superfine, Secondary, maxLines = 2)
+                        }
+                        if (d.files.isNotBlank()) {
+                            val n = d.files.lineSequence().count { it.isNotBlank() }
+                            T("$n file${if (n == 1) "" else "s"} attached", t.superfine, Secondary, maxLines = 1)
                         }
                     }
                 }

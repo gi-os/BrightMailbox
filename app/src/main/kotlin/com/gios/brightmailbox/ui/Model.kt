@@ -9,8 +9,11 @@ import com.gios.brightmailbox.data.Ration
 import com.gios.brightmailbox.data.Reading
 import com.gios.brightmailbox.data.Repo
 import com.gios.brightmailbox.data.SenderRule
+import com.gios.brightmailbox.mail.Outfile
 import com.gios.brightmailbox.mail.Outgoing
 import com.gios.brightmailbox.parcel.Parcels
+import com.gios.brightmailbox.report.Detail
+import com.gios.light.common.report.Trouble
 import com.gios.brightmailbox.sort.Pile
 import com.gios.brightmailbox.text.Clean
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +25,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Where the app is. Flat on purpose — LightOS supplies the back button. */
 sealed interface Screen {
@@ -654,6 +659,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     ) = viewModelScope.launch {
         said("Getting ${att.name}…")
         val f = repo.attachmentFile(msg, att)
+        // The failure itself was noted in Repo, with the exception; this is the sentence.
         if (f == null) said("Could not fetch that file.") else { said(null); onReady(f) }
     }
 
@@ -668,6 +674,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             said("Saving ${att.name}…")
             val name = repo.saveToDownloads(msg, att)
+            if (name == null) Trouble.record("save an attachment to Downloads", null)
             said(if (name == null) "Could not save that file." else "Saved to Downloads as $name.")
         }
 
@@ -696,6 +703,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
             _rsvpSent.value = answer.word
             said("${answer.word}. The organizer has been told.")
         } else {
+            // Noted in Repo.rsvp with the exception, when there was one.
             said("Could not send that reply.")
         }
     }
@@ -723,6 +731,8 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     fun unarchive(msg: Msg) = viewModelScope.launch {
         val ok = working("Moving back") { repo.unarchive(msg) }
         if (!ok) {
+            // A refusal (no Message-ID, not found) is not a failure; an exception was
+            // already noted in Repo.unarchive.
             said("Could not move that back.")
             return@launch
         }
@@ -1066,7 +1076,10 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
                 openPage(out.url)
             }
             is Repo.Left.None -> said("This sender offers no way to unsubscribe.")
-            is Repo.Left.Failed -> said("Could not unsubscribe — ${out.why}.")
+            is Repo.Left.Failed -> {
+                Trouble.record("unsubscribe", Detail.ofText(out.why))
+                said("Could not unsubscribe — ${out.why}.")
+            }
         }
     }
 
@@ -1101,6 +1114,10 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
 
     /** How many messages are waiting to go out. Zero almost always. */
     val queued = repo.queuedCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** How many gave up after five tries and are waiting for a person. */
+    val failedSends = repo.failedCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     /**
@@ -1224,7 +1241,10 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         _busy.value = false
         result.fold(
             onSuccess = { onDone(null); refreshAccounts(); firstSync() },
-            onFailure = { onDone(it.message ?: "That did not work.") },
+            onFailure = {
+                Trouble.record("sign in", Detail.of(it))
+                onDone(it.message ?: "That did not work.")
+            },
         )
     }
 
@@ -1243,15 +1263,27 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
                 _busy.value = false
                 r.fold(
                     onSuccess = { refreshAccounts(); firstSync() },
-                    onFailure = { said(it.message ?: "That code did not work.") },
+                    onFailure = {
+                        Trouble.record("sign in from a code", Detail.of(it))
+                        said(it.message ?: "That code did not work.")
+                    },
                 )
             }
         }
     }
 
     fun completeSignIn(uri: android.net.Uri) = viewModelScope.launch {
-        val account = runCatching { repo.auth.onRedirect(uri) }.getOrNull()
+        val account = try {
+            repo.auth.onRedirect(uri)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Trouble.record("finish signing in", Detail.of(e))
+            null
+        }
         if (account == null) {
+            // Deduped against the one above: the first reason of a cascade is the one kept.
+            Trouble.record("finish signing in", null)
             said("Sign-in didn't complete.")
             return@launch
         }
@@ -1268,7 +1300,12 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
             repo.firstSync { done, total, letters, notices ->
                 _progress.value = SyncProgress(done, total, letters, notices)
             }
-        }.onFailure { said("Sync failed. It will keep trying in the background.") }
+        }.onFailure {
+            if (it !is kotlinx.coroutines.CancellationException) {
+                Trouble.record("finish the first sync", Detail.of(it))
+            }
+            said("Sync failed. It will keep trying in the background.")
+        }
         refreshRation()
         prefetch()
     }
@@ -1313,13 +1350,19 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
                 when {
+                    // The chip for this was raised in Repo.sync, with the exception.
                     r.failures.isNotEmpty() -> said(r.failures.first())
                     !announce -> Unit
                     r.fetched > 0 -> said("${r.fetched} new.")
                     else -> said("Nothing new.")
                 }
             }
-            .onFailure { said("Couldn't reach the server.") }
+            .onFailure {
+                if (it !is kotlinx.coroutines.CancellationException) {
+                    Trouble.record("check mail", Detail.of(it))
+                }
+                said("Couldn't reach the server.")
+            }
         _busy.value = false
         // However it went, the first check of this launch is over and the empty screen
         // has an answer to report — including "couldn't reach the server", which it shows
@@ -1353,51 +1396,95 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
+     * One draft write at a time.
+     *
+     * The compose screen saves while you type and again as it leaves, and a send drops or
+     * queues the same row. Two of those in flight together with the row not yet
+     * numbered is how a draft becomes two drafts: both insert with id 0. Serializing
+     * them, and reading the screen's state *inside* the lock, means the second write
+     * always sees the id the first one was given.
+     */
+    private val draftLock = Mutex()
+
+    /**
      * Keep what is on the compose screen.
      *
      * Fire-and-forget on the ViewModel's scope, not the screen's: this is called as the
      * screen is going away, and a coroutine tied to the composition would be cancelled
      * halfway through the write that is meant to save it.
+     *
+     * @param snapshot read under [draftLock], so it sees the id an earlier save assigned.
+     *   Returning null means "nothing to keep after all" — the message was sent in the
+     *   meantime, or nothing was ever touched.
+     * @param files the attachments, or null when they have not changed since last time.
      */
-    fun keepDraft(d: com.gios.brightmailbox.data.Draft, onSaved: (Long) -> Unit = {}) =
-        viewModelScope.launch { onSaved(repo.keepDraft(d)) }
+    fun keepDraft(
+        snapshot: () -> com.gios.brightmailbox.data.Draft?,
+        files: () -> List<Outfile>? = { null },
+        onSaved: (Long) -> Unit = {},
+    ) = viewModelScope.launch {
+        draftLock.withLock {
+            val d = snapshot() ?: return@withLock
+            onSaved(repo.keepDraft(d, files()))
+        }
+    }
 
-    fun dropDraft(id: Long) = viewModelScope.launch { repo.dropDraft(id) }
+    fun dropDraft(id: Long) = viewModelScope.launch { draftLock.withLock { repo.dropDraft(id) } }
+
+    /** Reopening a draft: its files, back off disk. */
+    suspend fun draftFiles(d: com.gios.brightmailbox.data.Draft): List<Outfile> = repo.draftFiles(d)
 
     fun send(
         accountId: String,
         msg: Outgoing,
-        draftId: Long = 0L,
+        /** Read late, under the lock: an autosave may number the draft while SMTP runs. */
+        draftId: () -> Long = { 0L },
         /** Called when it did not go, so the screen can start keeping the draft again. */
         onFailed: () -> Unit = {},
+        /** Called with the row it was queued under, so the screen keeps editing that one. */
+        onQueued: (Long) -> Unit = {},
     ) = viewModelScope.launch {
         _sending.value = true
         _work.value = Work("Sending")
-        runCatching { repo.send(accountId, msg) }
-            .onSuccess {
-                // Only once it is gone. "Not sent. Your draft is still here." has to be
-                // true, and it was not: nothing was keeping the draft at all.
-                repo.dropDraft(draftId)
-                said("Sent.")
-                go(Screen.Home)
-            }
-            .onFailure {
-                /*
-                 * Queue it rather than hand it back.
-                 *
-                 * "Your draft is still here" was true and still asked the person to be the
-                 * retry loop: press send, walk into a tunnel, remember later. A queued
-                 * message goes out on the next sync, which is on open and every fifteen
-                 * minutes — so send means will send.
-                 *
-                 * `onFailed()` still runs: the compose screen has to start keeping its
-                 * draft again, because the row it is about to be saved into is the very
-                 * one that is now queued.
-                 */
-                onFailed()
-                val id = repo.queue(
+        val failed: Exception? = try {
+            repo.send(accountId, msg)
+            null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e
+        }
+        if (failed == null) {
+            // Only once it is gone. "Not sent. Your draft is still here." has to be
+            // true, and it was not: nothing was keeping the draft at all.
+            draftLock.withLock { repo.dropDraft(draftId()) }
+            said("Sent.")
+            go(Screen.Home)
+        } else {
+            /*
+             * Queue it rather than hand it back.
+             *
+             * "Your draft is still here" was true and still asked the person to be the
+             * retry loop: press send, walk into a tunnel, remember later. A queued
+             * message goes out on the next sync, which is on open and every fifteen
+             * minutes — so send means will send.
+             *
+             * `onFailed()` still runs: the compose screen has to start keeping its
+             * draft again, because the row it is about to be saved into is the very
+             * one that is now queued.
+             *
+             * The files go into the queue with it. They used to be dropped, and the
+             * sentence said so; now they are written beside the row and the retry sends
+             * them. See [com.gios.brightmailbox.data.Draft.files].
+             */
+            onFailed()
+            Trouble.record("send a message", Detail.of(failed))
+            val why = failed.message?.replace('\n', ' ')?.take(160)
+                ?: failed::class.java.simpleName
+            val id = draftLock.withLock {
+                repo.queue(
                     com.gios.brightmailbox.data.Draft(
-                        id = draftId,
+                        id = draftId(),
                         accountId = accountId,
                         to = msg.to.joinToString(", "),
                         cc = msg.cc.joinToString(", "),
@@ -1408,13 +1495,14 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
                         threadId = msg.threadId,
                         updatedAt = System.currentTimeMillis(),
                     ),
+                    msg.files,
+                    why,
                 )
-                said(
-                    if (msg.files.isEmpty()) "No connection. It will go out on the next check."
-                    else "No connection. Kept in Drafts — the files need attaching again.",
-                )
-                if (id != 0L && msg.files.isEmpty()) go(Screen.Home)
             }
+            if (id != 0L) onQueued(id)
+            said("No connection. It will go out on the next check.")
+            if (id != 0L) go(Screen.Home)
+        }
         _work.value = null
         _sending.value = false
     }
@@ -1468,6 +1556,7 @@ class MailboxViewModel(app: Application) : AndroidViewModel(app) {
     fun forgetAccount(id: String) = viewModelScope.launch {
         repo.auth.forget(id)
         runCatching { repo.dao.deleteAccount(id) }
+        repo.forgetCheckpoint(id)
         refreshAccounts()
         if (repo.auth.isSignedIn) go(Screen.Settings) else go(Screen.Setup)
     }

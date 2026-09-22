@@ -10,6 +10,7 @@ import com.gios.brightmailbox.mail.Content
 import com.gios.brightmailbox.mail.Imap
 import com.gios.brightmailbox.mail.MailService
 import com.gios.brightmailbox.mail.Message
+import com.gios.brightmailbox.mail.Outfile
 import com.gios.brightmailbox.mail.Outgoing
 import com.gios.brightmailbox.mail.Unsub
 import okhttp3.MediaType.Companion.toMediaType
@@ -22,8 +23,11 @@ import com.gios.brightmailbox.sort.Learner
 import com.gios.brightmailbox.sort.Lessons
 import com.gios.brightmailbox.sort.Pile
 import com.gios.brightmailbox.sort.Sorter
+import com.gios.brightmailbox.sync.Catchup
+import com.gios.brightmailbox.report.Detail
 import com.gios.brightmailbox.text.Clean
 import com.gios.brightmailbox.text.Ics
+import com.gios.light.common.report.Trouble
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.Flow
@@ -140,6 +144,7 @@ class Repo private constructor(private val app: Context) {
             MailDb.MIGRATION_5_6,
             MailDb.MIGRATION_6_7,
             MailDb.MIGRATION_7_8,
+            MailDb.MIGRATION_8_9,
         )
         .fallbackToDestructiveMigration()
         .build()
@@ -268,6 +273,49 @@ class Repo private constructor(private val app: Context) {
         get() = prefs.getString("last_error", null)
         private set(v) = prefs.edit().putString("last_error", v).apply()
 
+    /* --------------------------------------------------------------- checkpoints */
+
+    /**
+     * Where the last sync of one account's INBOX got to. See [Catchup].
+     *
+     * Per account and per folder in the key, although only INBOX is ever synced this
+     * way: the day another folder is, the key is already shaped for it. Kept in
+     * preferences rather than a table because it is one short string per account and a
+     * migration for that would be ceremony.
+     */
+    private fun checkpointKey(accountId: String) = "checkpoint/$accountId/INBOX"
+
+    private fun checkpoint(accountId: String): Catchup.Checkpoint? =
+        Catchup.Checkpoint.decode(prefs.getString(checkpointKey(accountId), null))
+
+    private fun saveCheckpoint(accountId: String, cp: Catchup.Checkpoint?) {
+        // commit, not apply: the next sync may be a different process (the worker), and
+        // a bookmark that did not reach disk is a page fetched twice at best.
+        val key = checkpointKey(accountId)
+        prefs.edit().apply { if (cp == null) remove(key) else putString(key, cp.encode()) }.commit()
+    }
+
+    /** The account is gone; its bookmark must not outlive it and greet a re-added one. */
+    fun forgetCheckpoint(accountId: String) = saveCheckpoint(accountId, null)
+
+    /**
+     * A page read by position — the first sync and the deep sync — still moves the
+     * bookmark. Those walks start at the newest message, so whatever they saw at the
+     * top is the top, and the ordinary sync afterwards only needs what arrives above it.
+     */
+    private fun raiseCheckpoint(accountId: String, messages: List<Message>) {
+        val ids = messages.map { it.id }
+        val validity = ids.firstOrNull()?.substringBefore('-')?.toLongOrNull() ?: return
+        val top = Catchup.highestStored(ids, validity) ?: return
+        val stored = checkpoint(accountId)
+        val next = if (stored != null && stored.validity == validity) {
+            Catchup.Checkpoint(validity, maxOf(stored.uid, top))
+        } else {
+            Catchup.Checkpoint(validity, top)
+        }
+        saveCheckpoint(accountId, next)
+    }
+
     /** Letters read past the ration today, unlocked one at a time by a wheel hold. */
     var extraToday: Int
         get() = if (prefs.getInt("extra_day", 0) == today()) prefs.getInt("extra_n", 0) else 0
@@ -380,8 +428,11 @@ class Repo private constructor(private val app: Context) {
     /**
      * Pull new mail and sort it.
      *
-     * @param limit per account. 20 on a background pass so a first sync is not killed by
-     *   WorkManager's ten-minute budget; the setup screen walks a bigger number itself.
+     * @param limit the page size per account — 20 on a background pass, 30 from the
+     *   refresh button. Since v2.68 it is a page and not a ceiling: the walk continues
+     *   from the last bookmark until it is caught up or has read [Catchup.MAX_PAGES]
+     *   pages, and the next run carries on from wherever this one stopped. The setup
+     *   screen walks history with its own numbers.
      */
     suspend fun sync(limit: Int = 20): SyncResult = withContext(Dispatchers.IO) {
         val mine = myAddresses()
@@ -424,27 +475,65 @@ class Repo private constructor(private val app: Context) {
              * arrived. That is the shape of the first field report this app got, and the
              * bug was not the fetch, it was that nobody could see the fetch failing.
              */
-            val messages = try {
-                svc.list(limit, null).first
-            } catch (e: Exception) {
-                failures.add("${account.word}: ${reason(e)}")
-                continue
-            }
-            worked++
+            /*
+             * From the bookmark up, in pages, until caught up or capped.
+             *
+             * This used to be one call for the newest [limit] messages, and that is the
+             * gap: eighty arrivals while the phone was in a drawer meant the same twenty
+             * newest were checked on every refresh and the sixty beneath them never were.
+             * The walk is driven by [Catchup], which decides from UIDs alone; the bookmark
+             * is written after every page so a run that dies halfway has still moved on.
+             */
+            val run = Catchup.Run(stored = checkpoint(account.id), pageSize = limit)
+            var ask = run.first()
+            var pagesRead = 0
+            while (true) {
+                val page = try {
+                    svc.newer(ask.after, ask.limit)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    failures.add("${account.word}: ${reason(e)}")
+                    Trouble.record("check mail", Detail.of(e))
+                    break
+                }
+                pagesRead++
+                // What the rows already knew, read BEFORE this page joins them — only
+                // when the walk has no bookmark to go on. See Catchup.needsKnown.
+                val known = if (Catchup.needsKnown(run.checkpoint, ask, page.validity)) {
+                    Catchup.highestStored(dao.providerIds(account.id), page.validity)
+                } else {
+                    null
+                }
 
-            val rows = ArrayList<Msg>(messages.size)
-            for (m in messages) {
-                val key = "${account.id}/${m.id}"
-                if (dao.get(key) != null) continue
-                val row = classify(m, sorter, mine)
-                rows.add(row)
-                fetched++
-                if (row.pile == Pile.LETTER.name && m.receivedAt > newest) {
-                    newLetters++
-                    if (first == null) first = row
+                val rows = ArrayList<Msg>(page.messages.size)
+                for (m in page.messages) {
+                    val key = "${account.id}/${m.id}"
+                    if (dao.get(key) != null) continue
+                    val row = classify(m, sorter, mine)
+                    rows.add(row)
+                    fetched++
+                    if (row.pile == Pile.LETTER.name && m.receivedAt > newest) {
+                        newLetters++
+                        // The newest of them, not the first seen: pages arrive oldest first.
+                        if (first == null || row.receivedAt > first.receivedAt) first = row
+                    }
+                }
+                if (rows.isNotEmpty()) dao.put(rows)
+
+                val step = run.advance(
+                    ask,
+                    Catchup.Page(page.validity, page.lowest, page.highest, page.more),
+                    known,
+                )
+                saveCheckpoint(account.id, run.checkpoint)
+                when (step) {
+                    is Catchup.Step.More -> ask = step.ask
+                    is Catchup.Step.Done -> break
                 }
             }
-            if (rows.isNotEmpty()) dao.put(rows)
+            if (pagesRead == 0) continue
+            worked++
 
             /*
              * The other direction — see [reconcile] for what it agrees to.
@@ -472,6 +561,23 @@ class Repo private constructor(private val app: Context) {
         if (worked > 0) lastSync = System.currentTimeMillis()
         lastError = failures.joinToString("; ").ifBlank { null }
         SyncResult(fetched, newLetters, first, failures)
+    }
+
+    /**
+     * Run something that may fail, and if it does, say so on the report chip.
+     *
+     * The shape every "best effort" call in this file wants: null on failure, the
+     * failure noted once (light-common dedupes per [what] per hour), and a cancellation
+     * passed straight through because a screen going away is not something to report.
+     * [what] is lower case and finishes the sentence "Mailbox could not …".
+     */
+    private inline fun <T> noting(what: String, block: () -> T): T? = try {
+        block()
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Trouble.record(what, Detail.of(e))
+        null
     }
 
     /**
@@ -543,7 +649,7 @@ class Repo private constructor(private val app: Context) {
             var token: String? = null
             var taken = 0
             while (taken < perAccount) {
-                val (messages, next) = runCatching { svc.list(50, token) }.getOrNull() ?: break
+                val (messages, next) = noting("read older mail") { svc.list(50, token) } ?: break
                 if (messages.isEmpty()) break
                 /*
                  * Only rows that are NEW.
@@ -558,6 +664,7 @@ class Repo private constructor(private val app: Context) {
                     .filter { dao.get("${it.accountId}/${it.id}") == null }
                     .map { classify(it, sorter, mine) }
                 if (rows.isNotEmpty()) dao.put(rows)
+                raiseCheckpoint(account.id, messages)
                 rows.forEach { if (it.pile == Pile.LETTER.name) letters++ else notices++ }
                 done += rows.size
                 taken += rows.size
@@ -573,8 +680,8 @@ class Repo private constructor(private val app: Context) {
     /**
      * Walk the whole inbox again, thoroughly, and reconcile everything held.
      *
-     * The ordinary sync reads the newest thirty per account — enough to notice new mail
-     * and nothing more. This pages back through INBOX as far as the depth setting allows,
+     * The ordinary sync reads upward from its bookmark — what arrived since the last
+     * check, and nothing older. This pages back through INBOX as far as the depth setting allows,
      * adds anything missing, and then asks the server about every non-archived row the app
      * holds, so reads and archives done elsewhere land here in one pass.
      *
@@ -597,7 +704,7 @@ class Repo private constructor(private val app: Context) {
             var token: String? = null
             var seen = 0
             while (seen < depth.perAccount) {
-                val (messages, next) = runCatching { svc.list(50, token) }.getOrNull() ?: break
+                val (messages, next) = noting("read older mail") { svc.list(50, token) } ?: break
                 if (messages.isEmpty()) break
                 seen += messages.size
                 val rows = messages
@@ -607,6 +714,7 @@ class Repo private constructor(private val app: Context) {
                     dao.put(rows)
                     added += rows.size
                 }
+                raiseCheckpoint(account.id, messages)
                 onProgress(seen)
                 token = next ?: break
             }
@@ -755,19 +863,19 @@ class Repo private constructor(private val app: Context) {
         if (!ways.any) return@withContext Left.None
 
         if (msg.oneClick && ways.http != null) {
-            val ok = runCatching {
+            val ok = noting("unsubscribe") {
                 val body = Unsub.ONE_CLICK_BODY.toRequestBody(
                     "application/x-www-form-urlencoded".toMediaType(),
                 )
                 http.newCall(Request.Builder().url(ways.http).post(body).build())
                     .execute().use { it.isSuccessful }
-            }.getOrDefault(false)
+            } ?: false
             if (ok) return@withContext Left.Done
             // Fall through rather than fail: the other routes are still there.
         }
 
         ways.mailto?.let { to ->
-            val sent = runCatching {
+            val sent = noting("unsubscribe") {
                 serviceFor(msg.accountId)?.send(
                     Outgoing(
                         to = listOf(to),
@@ -777,7 +885,7 @@ class Repo private constructor(private val app: Context) {
                         body = "unsubscribe",
                     ),
                 ) != null
-            }.getOrDefault(false)
+            } ?: false
             if (sent) return@withContext Left.Done
         }
 
@@ -1015,13 +1123,22 @@ class Repo private constructor(private val app: Context) {
      * blanked that message permanently — every later open read the empty file back and
      * showed the same black screen without going near the network.
      */
-    suspend fun body(msg: Msg): Clean.Body? = withContext(Dispatchers.IO) {
+    /**
+     * @param report whether a failed fetch raises the report chip. The reader passes the
+     *   default — a message that will not open is the sentence on the screen and the
+     *   person is looking at it. The prefetch passes false: it is a loop over rows,
+     *   nobody asked for any one of them, and the reader will ask again.
+     */
+    suspend fun body(msg: Msg, report: Boolean = true): Clean.Body? = withContext(Dispatchers.IO) {
         val f = bodyFile(msg.key)
         if (f.exists()) return@withContext Clean.body(f.readText())
 
         val svc = serviceFor(msg.accountId) ?: return@withContext null
-        val c: Content = runCatching { svc.content(msg.providerId) }
-            .getOrElse { return@withContext null }
+        val c: Content = if (report) {
+            noting("fetch a message") { svc.content(msg.providerId) }
+        } else {
+            runCatching { svc.content(msg.providerId) }.getOrNull()
+        } ?: return@withContext null
         /*
          * Always write the HTML file, empty when the message had none.
          *
@@ -1108,7 +1225,7 @@ class Repo private constructor(private val app: Context) {
                 val text = if (have) {
                     runCatching { Clean.body(bodyFile(m.key).readText()).text }.getOrNull()
                 } else {
-                    runCatching { body(m)?.text }.getOrNull()
+                    runCatching { body(m, report = false)?.text }.getOrNull()
                 }
                 if (m.snippet.isBlank()) {
                     preview(text).takeIf { it.isNotBlank() }?.let { dao.setSnippet(m.key, it) }
@@ -1331,9 +1448,9 @@ class Repo private constructor(private val app: Context) {
         if (out.exists() && out.length() > 0) return@withContext out
 
         val svc = serviceFor(msg.accountId) ?: return@withContext null
-        val bytes = runCatching { svc.attachment(msg.providerId, att.part) }.getOrNull()
+        val bytes = noting("fetch an attachment") { svc.attachment(msg.providerId, att.part) }
             ?: return@withContext null
-        runCatching { out.writeBytes(bytes); out }.getOrNull()
+        noting("save an attachment") { out.writeBytes(bytes); out }
     }
 
     /**
@@ -1442,7 +1559,7 @@ class Repo private constructor(private val app: Context) {
     suspend fun unarchive(msg: Msg): Boolean = withContext(Dispatchers.IO) {
         val id = msg.messageId?.takeIf { it.isNotBlank() } ?: return@withContext false
         val svc = serviceFor(msg.accountId) ?: return@withContext false
-        val moved = runCatching { svc.unarchive(id) }.getOrDefault(false)
+        val moved = noting("move a message back to the inbox") { svc.unarchive(id) } ?: false
         if (moved) dao.forget(msg.key)
         moved
     }
@@ -1476,7 +1593,7 @@ class Repo private constructor(private val app: Context) {
                 .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
                 .format(java.util.Date())
             val body = Ics.reply(invite, account.email, account.name, answer, stamp)
-            runCatching {
+            noting("answer an invitation") {
                 serviceFor(msg.accountId)?.send(
                     Outgoing(
                         to = listOf(invite.organizer),
@@ -1488,7 +1605,7 @@ class Repo private constructor(private val app: Context) {
                         calendarReply = body,
                     ),
                 ) ?: return@withContext false
-            }.isSuccess
+            } != null
         }
 
     /**
@@ -1629,18 +1746,100 @@ class Repo private constructor(private val app: Context) {
      *
      * @return the row id, so the screen can keep updating the same draft rather than
      *   writing a new one each time.
+     * @param files the attachments to keep with it, or null to leave whatever is already
+     *   stored alone. The compose screen passes them only when the list changed, because
+     *   this is called on every pause in typing and rewriting eight megabytes every
+     *   second and a half is not what autosave is for.
      */
-    suspend fun keepDraft(d: Draft): Long = withContext(Dispatchers.IO) {
-        val empty = d.to.isBlank() && d.subject.isBlank() && d.body.isBlank()
+    suspend fun keepDraft(d: Draft, files: List<Outfile>? = null): Long = withContext(Dispatchers.IO) {
+        /*
+         * A REPLACE that must not lose the columns the screen does not carry.
+         *
+         * `putDraft` is an insert-or-replace of the whole row, and the compose screen
+         * builds its snapshot from what it is showing — which is not the state, not the
+         * error, not the file list. Reading the stored row first and carrying those across
+         * is what stops an autosave from turning a queued message back into a plain draft
+         * or from forgetting its files. A FAILED row being edited is exactly the case: the
+         * person is fixing the address, and the reason it failed should still be there
+         * until it goes.
+         */
+        val stored = if (d.id != 0L) dao.draft(d.id) else null
+        val keptFiles = files?.isNotEmpty() ?: !stored?.files.isNullOrBlank()
+        val empty = d.to.isBlank() && d.subject.isBlank() && d.body.isBlank() && !keptFiles
         if (empty) {
-            if (d.id != 0L) dao.dropDraft(d.id)
+            if (d.id != 0L) dropDraft(d.id)
             return@withContext 0L
         }
-        dao.putDraft(d.copy(updatedAt = System.currentTimeMillis()))
+        val row = d.copy(
+            updatedAt = System.currentTimeMillis(),
+            state = stored?.state ?: d.state,
+            error = stored?.error ?: d.error,
+            queued = SendState.of(stored?.state ?: d.state).inOutbox,
+            files = stored?.files ?: d.files,
+        )
+        val id = dao.putDraft(row)
+        if (files != null) keepFiles(id, files)
+        id
     }
 
     suspend fun dropDraft(id: Long) = withContext(Dispatchers.IO) {
-        if (id != 0L) dao.dropDraft(id)
+        if (id == 0L) return@withContext
+        dao.dropDraft(id)
+        draftDir(id).deleteRecursively()
+    }
+
+    /* -------------------------------------------------------------- draft files */
+
+    private fun draftDir(id: Long) = File(app.filesDir, "drafts/$id")
+
+    /**
+     * Write a draft's attachments to disk and record them on the row.
+     *
+     * The whole set every time, not a diff: the list is short, the screen already holds
+     * the bytes, and "replace the directory" has no state to get wrong. The directory is
+     * cleared first so a file removed on the screen is removed here too.
+     */
+    private suspend fun keepFiles(id: Long, files: List<Outfile>) {
+        if (id == 0L) return
+        val dir = draftDir(id)
+        dir.deleteRecursively()
+        if (files.isEmpty()) {
+            dao.setFiles(id, "")
+            return
+        }
+        dir.mkdirs()
+        val lines = ArrayList<String>(files.size)
+        files.forEachIndexed { n, f ->
+            try {
+                File(dir, n.toString()).writeBytes(f.bytes)
+                lines.add("$n\t${f.name.replace('\t', ' ').replace('\n', ' ')}\t${f.mime}")
+            } catch (e: Exception) {
+                // One file that will not write must not lose the draft. It is left off the
+                // list, which is what the screen will show, and the chip says why.
+                Trouble.record("keep an attachment with a draft", Detail.of(e))
+            }
+        }
+        dao.setFiles(id, lines.joinToString("\n"))
+    }
+
+    /**
+     * A draft's attachments, read back off disk.
+     *
+     * Used by the compose screen when it reopens a draft and by the outbox when it sends
+     * one. A file the index names but the disk no longer has is skipped rather than
+     * failing the whole set: the message can still go with the rest, and the screen shows
+     * what it will go with.
+     */
+    suspend fun draftFiles(d: Draft): List<Outfile> = withContext(Dispatchers.IO) {
+        if (d.id == 0L || d.files.isBlank()) return@withContext emptyList()
+        val dir = draftDir(d.id)
+        d.files.lineSequence().mapNotNull { line ->
+            val p = line.split('\t')
+            if (p.size < 3) return@mapNotNull null
+            val f = File(dir, p[0])
+            val bytes = runCatching { f.readBytes() }.getOrNull() ?: return@mapNotNull null
+            Outfile(p[1], p[2], bytes)
+        }.toList()
     }
 
     /* ------------------------------------------------------------------- outbox */
@@ -1661,6 +1860,28 @@ class Repo private constructor(private val app: Context) {
     /* ------------------------------------------------------- drafts from the server */
 
     /**
+     * What one account's drafts folder said.
+     *
+     * A sealed pair rather than a list, because a list has no way to say "I could not
+     * look": a failed read used to come back as `emptyList()`, and an empty folder is the
+     * signal that every draft imported from it has been finished elsewhere. One dropped
+     * connection therefore deleted every imported draft on the phone. A null meaning two
+     * things has bitten this app four times; this is the fifth place it will not.
+     */
+    private sealed class DraftsRead {
+        data class Read(val drafts: List<Message>) : DraftsRead()
+        data class Failed(val error: Exception) : DraftsRead()
+    }
+
+    private suspend fun readServerDrafts(svc: MailService, limit: Int): DraftsRead = try {
+        DraftsRead.Read(svc.serverDrafts(limit))
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        DraftsRead.Failed(e)
+    }
+
+    /**
      * Pull drafts written elsewhere into the drafts list.
      *
      * **One way only.** Uploading this app's drafts would mean an APPEND per keystroke
@@ -1670,7 +1891,9 @@ class Repo private constructor(private val app: Context) {
      *
      * Matched on `remoteId`, so a folder read on every sync imports each draft once rather
      * than ninety-six times a day. An imported draft that has since disappeared from the
-     * server is dropped, which is what "I sent it from my laptop" looks like from here.
+     * server is dropped, which is what "I sent it from my laptop" looks like from here —
+     * but only when the folder was actually read. A folder that could not be reached has
+     * not said anything is gone, and until v2.68 it was treated as though it had.
      *
      * @return how many arrived that were not already here.
      */
@@ -1678,9 +1901,18 @@ class Repo private constructor(private val app: Context) {
         var added = 0
         val known = dao.importedDrafts().associateBy { it.remoteId }
         val seen = HashSet<String>()
+        // Only a folder that was actually read can say what is no longer in it.
+        val readOk = HashSet<String>()
         for (account in auth.accounts()) {
             val svc = serviceFor(account.id) ?: continue
-            val found = runCatching { svc.serverDrafts(limit) }.getOrDefault(emptyList())
+            val found = when (val r = readServerDrafts(svc, limit)) {
+                is DraftsRead.Failed -> {
+                    Trouble.record("read the drafts folder", Detail.of(r.error))
+                    continue
+                }
+                is DraftsRead.Read -> r.drafts
+            }
+            readOk.add(account.id)
             for (m in found) {
                 val key = "${account.id}/${m.id}"
                 seen.add(key)
@@ -1713,7 +1945,12 @@ class Repo private constructor(private val app: Context) {
             }
         }
         // Gone from the server means sent or thrown away there; either way it is finished.
-        for (d in known.values) if (d.remoteId !in seen) dao.dropDraft(d.id)
+        // Only for accounts whose folder answered: an unread folder has said nothing.
+        for (d in known.values) {
+            // Rows imported before v2.67 carry no remoteAccount; the key still names it.
+            val from = d.remoteAccount.ifBlank { d.remoteId.substringBefore('/') }
+            if (from in readOk && d.remoteId !in seen) dropDraft(d.id)
+        }
         added
     }
 
@@ -1755,6 +1992,8 @@ class Repo private constructor(private val app: Context) {
 
     fun queuedCount(): Flow<Int> = dao.queuedCount()
 
+    fun failedCount(): Flow<Int> = dao.failedCount()
+
     /** Everyone this mailbox has written to or heard from, most recent first. */
     suspend fun addressBook(): List<String> = withContext(Dispatchers.IO) {
         dao.recentCorrespondents(400).map { it.address }
@@ -1770,8 +2009,21 @@ class Repo private constructor(private val app: Context) {
      *
      * @return the row id it was kept under.
      */
-    suspend fun queue(d: Draft): Long = withContext(Dispatchers.IO) {
-        dao.putDraft(d.copy(queued = true, updatedAt = System.currentTimeMillis()))
+    suspend fun queue(d: Draft, files: List<Outfile>, why: String): Long = withContext(Dispatchers.IO) {
+        val again = Outbox.requeued()
+        val id = dao.putDraft(
+            d.copy(
+                state = again.state.name,
+                tries = again.tries,
+                error = why.take(200),
+                queued = true,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+        // The files go with it. This is the whole reason a queued message can carry
+        // attachments now: they are on disk beside the row, not in a screen that is gone.
+        keepFiles(id, files)
+        id
     }
 
     /**
@@ -1788,7 +2040,17 @@ class Repo private constructor(private val app: Context) {
      */
     suspend fun flushOutbox(): Int = withContext(Dispatchers.IO) {
         var sent = 0
+        // Tombstones first: accepted by the server, not yet deleted. See SendState.SENT.
+        for (d in dao.sentDrafts()) dropDraft(d.id)
+
         for (d in dao.queuedDrafts()) {
+            if (!Outbox.shouldTry(SendState.of(d.state), d.tries)) continue
+            /*
+             * Attachments used to be dropped here, on purpose: an Outfile holds bytes,
+             * and a queued deck in the database would have been backed up and kept long
+             * after the message went. They live on disk beside the row now — see
+             * [Draft.files] — so a send that failed with files goes out with them.
+             */
             val out = Outgoing(
                 to = Addr.addresses(d.to),
                 cc = Addr.addresses(d.cc),
@@ -1797,22 +2059,28 @@ class Repo private constructor(private val app: Context) {
                 inReplyTo = d.inReplyTo,
                 references = d.references,
                 threadId = d.threadId,
+                files = draftFiles(d),
             )
-            /*
-             * Attachments do not survive the queue, and that is on purpose.
-             *
-             * An Outfile holds the bytes, and storing a queued message's files would mean
-             * putting somebody's 8 MB deck in the database — where it would be backed up,
-             * synced, and kept long after the message went. A send with files that fails
-             * stays a plain draft and says so; the person re-attaches. Rare, and the
-             * alternative is worse.
-             */
-            val ok = runCatching { send(d.accountId, out) }.isSuccess
-            if (ok) {
-                dao.dropDraft(d.id)
+            dao.setState(d.id, SendState.SENDING.name, d.tries, d.error, true)
+            val failed: Exception? = try {
+                send(d.accountId, out)
+                null
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Cancelled mid-send: leave it SENDING. The next flush treats that as
+                // unsent, which it is, and a cancellation is not a failure to report.
+                throw e
+            } catch (e: Exception) {
+                e
+            }
+            if (failed == null) {
+                val ok = Outbox.sent()
+                dao.setState(d.id, ok.state.name, ok.tries, ok.error, false)
+                dropDraft(d.id)
                 sent++
             } else {
-                dao.setQueued(d.id, true, d.tries + 1)
+                val after = Outbox.failed(d.tries, reason(failed))
+                dao.setState(d.id, after.state.name, after.tries, after.error, after.state.inOutbox)
+                Trouble.record("send a message", Detail.of(failed))
             }
         }
         sent

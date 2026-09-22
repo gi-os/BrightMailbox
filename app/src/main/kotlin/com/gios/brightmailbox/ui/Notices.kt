@@ -62,12 +62,19 @@ fun NoticesScreen(vm: MailboxViewModel) {
                     Spacer(Modifier.height(g * 0.5f))
                 }
                 items(rows.size, key = { i -> rows[i].key }) { i ->
+                    val m = rows[i]
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val code = androidx.compose.runtime.remember(m.subject, m.snippet) {
+                        com.gios.brightmailbox.text.Codes.find(m.subject, m.snippet)
+                    }
                     NoticeRow(
-                        rows[i],
-                        onClick = { vm.open(rows[i], Screen.Notices) },
-                        onHold = { vm.star(rows[i]) },
-                        left = vm.swipe(left, rows[i]),
-                        right = vm.swipe(right, rows[i]),
+                        m,
+                        onClick = { vm.open(m, Screen.Notices) },
+                        onHold = { vm.star(m) },
+                        left = vm.swipe(left, m),
+                        right = vm.swipe(right, m),
+                        code = code,
+                        onCopy = { copyCode(context, it, vm::said) },
                     )
                     Spacer(Modifier.height(g * 0.45f))
                 }

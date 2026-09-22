@@ -47,6 +47,9 @@ import com.gios.brightmailbox.ui.theme.lightClickable
  */
 private const val MAX_ATTACHED = 8 * 1024 * 1024
 
+/** How long after the last keystroke the draft is written. */
+private const val AUTOSAVE_MS = 1_500L
+
 /**
  * Read a picked file into memory, with its real name.
  *
@@ -57,7 +60,7 @@ private const val MAX_ATTACHED = 8 * 1024 * 1024
 private fun readPicked(
     context: android.content.Context,
     uri: android.net.Uri,
-): com.gios.brightmailbox.mail.Outfile? = runCatching {
+): com.gios.brightmailbox.mail.Outfile? = try {
     val resolver = context.contentResolver
     val name = resolver.query(uri, null, null, null, null)?.use { c ->
         val i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
@@ -69,7 +72,15 @@ private fun readPicked(
         mime = resolver.getType(uri) ?: "application/octet-stream",
         bytes = bytes,
     )
-}.getOrNull()
+} catch (e: Exception) {
+    // The exception, not the URI: a content URI can name the file and the file is
+    // somebody's.
+    com.gios.light.common.report.Trouble.record(
+        "read a file to attach",
+        com.gios.brightmailbox.report.Detail.of(e),
+    )
+    null
+}
 
 /**
  * Compose and reply.
@@ -138,6 +149,25 @@ fun WriteScreen(
     var editingSubject by remember { mutableStateOf(replyTo == null) }
 
     /*
+     * Has a person changed anything?
+     *
+     * A reply opens with To and Subject already filled, so "is there text in the
+     * fields" cannot tell an untouched screen from a written one — and an untouched
+     * screen must not become a draft, or every reply you open and back out of leaves one
+     * behind. Set by the fields and the file picker, never by what the screen fills in
+     * itself, and it gates both the autosave and the save on the way out.
+     */
+    var edited by remember { mutableStateOf(false) }
+    /** The file list changed since it was last written; the next save carries it. */
+    var filesDirty by remember { mutableStateOf(false) }
+    /**
+     * Bumped on every change to the file list, and what the autosave is keyed on in its
+     * place. Keying on the list itself would compare it on every recomposition, and an
+     * Outfile compares by its bytes — eight megabytes of `contentEquals` per frame.
+     */
+    var filesStamp by remember { mutableStateOf(0) }
+
+    /*
      * A forward carries the original. A reply does not.
      *
      * Quoting on reply is the habit that turns a five-line exchange into a scroll of its
@@ -175,7 +205,12 @@ fun WriteScreen(
             f == null -> vm.said("Could not read that file.")
             files.sumOf { it.bytes.size } + f.bytes.size > MAX_ATTACHED ->
                 vm.said("That is too big to send. About 8 MB in total is the limit.")
-            else -> files = files + f
+            else -> {
+                files = files + f
+                edited = true
+                filesDirty = true
+                filesStamp++
+            }
         }
     }
 
@@ -207,6 +242,13 @@ fun WriteScreen(
         if (saved.cc.isNotBlank()) cc = TextFieldValue(saved.cc)
         if (saved.subject.isNotBlank()) subject = TextFieldValue(saved.subject)
         if (saved.body.isNotBlank()) body = TextFieldValue(saved.body)
+        // The files come back too. Read off disk, so a draft queued with a deck reopens
+        // with the deck rather than with a line saying it needs attaching again.
+        if (saved.files.isNotBlank() && files.isEmpty()) files = vm.draftFiles(saved)
+        // What the draft still says about itself: a FAILED one says why, once, here.
+        if (saved.error.isNotBlank() &&
+            saved.state == com.gios.brightmailbox.data.SendState.FAILED.name
+        ) vm.said("Could not send last time — ${saved.error}")
     }
 
     /** Everything the screen is holding, as a row. */
@@ -239,8 +281,43 @@ fun WriteScreen(
      * then the send has already happened.
      */
     var sent by remember { mutableStateOf(false) }
+
+    /**
+     * One save, whichever moment asked for it.
+     *
+     * The snapshot is a lambda because the ViewModel reads it under its draft lock, after
+     * any save already in flight has finished and handed back the row id — so a second
+     * save writes into the same row rather than a new one. Null tells it there is
+     * nothing to keep: sent, or never touched.
+     */
+    fun save() {
+        val carry = filesDirty
+        val toSave = files
+        filesDirty = false
+        vm.keepDraft(
+            snapshot = { if (sent || !edited) null else snapshot() },
+            files = { if (carry) toSave else null },
+            onSaved = { id -> if (id != 0L) draftId = id },
+        )
+    }
+
     androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose { if (!sent) vm.keepDraft(snapshot()) }
+        onDispose { save() }
+    }
+
+    /*
+     * …and while you type.
+     *
+     * Leaving the screen was the only moment a draft was written, and the two ways a
+     * message is lost on this phone happen before that moment: the process is killed
+     * behind an incoming call, or the battery goes. A pause of a second and a half after
+     * the last keystroke is long enough not to write on every letter and short enough
+     * that what is lost is a word. Keyed on the text, so every edit restarts the wait.
+     */
+    LaunchedEffect(to.text, cc.text, subject.text, body.text, accountId, filesStamp) {
+        if (!edited || sent) return@LaunchedEffect
+        kotlinx.coroutines.delay(AUTOSAVE_MS)
+        save()
     }
 
     Frame {
@@ -267,13 +344,14 @@ fun WriteScreen(
                     Modifier.lightClickable {
                         val i = accounts.indexOfFirst { it.id == accountId }
                         accountId = accounts[(i + 1) % accounts.size].id
+                        edited = true
                     },
                 )
             }
         }
 
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).imePadding()) {
-            Field("To", to, { to = it }, g, t)
+            Field("To", to, { to = it; edited = true }, g, t)
 
             /*
              * Who you have written to before.
@@ -311,6 +389,7 @@ fun WriteScreen(
                             val whole =
                                 (if (before.isBlank()) "" else before.trimEnd() + ", ") + hit + ", "
                             to = TextFieldValue(whole, TextRange(whole.length))
+                            edited = true
                         }
                         .padding(vertical = g * 0.3f),
                     maxLines = 1,
@@ -318,7 +397,7 @@ fun WriteScreen(
             }
             if (editingSubject) {
                 Spacer(Modifier.height(g * 0.8f))
-                Field("Subject", subject, { subject = it }, g, t)
+                Field("Subject", subject, { subject = it; edited = true }, g, t)
             } else {
                 Spacer(Modifier.height(g * 0.6f))
                 T(
@@ -333,7 +412,7 @@ fun WriteScreen(
             // fills in taking a line from a 472dp screen.
             if (cc.text.isNotBlank() || mode == WriteMode.REPLY_ALL) {
                 Spacer(Modifier.height(g * 0.8f))
-                Field("Cc", cc, { cc = it }, g, t)
+                Field("Cc", cc, { cc = it; edited = true }, g, t)
             }
 
             Spacer(Modifier.height(g * 0.9f))
@@ -357,7 +436,12 @@ fun WriteScreen(
                     Secondary,
                     Modifier
                         .fillMaxWidth()
-                        .lightClickable { files = files - f }
+                        .lightClickable {
+                            files = files - f
+                            edited = true
+                            filesDirty = true
+                            filesStamp++
+                        }
                         .padding(vertical = g * 0.2f),
                     maxLines = 1,
                 )
@@ -366,7 +450,7 @@ fun WriteScreen(
             Spacer(Modifier.height(g * 1.2f))
             BasicTextField(
                 value = body,
-                onValueChange = { body = it },
+                onValueChange = { body = it; edited = true },
                 textStyle = t.paragraph.copy(color = Content),
                 cursorBrush = SolidColor(Content),
                 modifier = Modifier.fillMaxWidth().background(Background),
@@ -394,8 +478,11 @@ fun WriteScreen(
                             threadId = if (mode == WriteMode.FORWARD) null else replyTo?.threadId,
                             files = files,
                         ),
-                        draftId,
+                        draftId = { draftId },
                         onFailed = { sent = false },
+                        // The queued row is this screen's draft from now on, so the save
+                        // on the way out writes into it rather than beside it.
+                        onQueued = { draftId = it },
                     )
                 }
             },

@@ -162,6 +162,27 @@ interface MailService {
     /** Newest first. [since] is a provider cursor, or null for a first sync. */
     suspend fun list(limit: Int, pageToken: String?): Pair<List<Message>, String?>
 
+    /**
+     * What arrived in INBOX above a UID, oldest first.
+     *
+     * The catch-up read. [list] pages by position from the newest and forgets where it
+     * was, which is fine for reading history and wrong for keeping up: eighty messages
+     * arriving while the phone is in a drawer means twenty are seen and sixty are never
+     * asked for. A UID is IMAP's own promise that "everything above N is new", and it is
+     * the only cursor that survives between two syncs, because it does not renumber when
+     * something is expunged in between.
+     *
+     * [after] null is the bootstrap — the newest [limit] by position — for a mailbox this
+     * app has no bookmark in yet. Otherwise the answer is the [limit] oldest messages
+     * whose UID is above [after], with [Newer.more] saying whether there were others
+     * beyond them, so the caller can walk up in pages and stop when it chooses.
+     *
+     * UIDVALIDITY comes back with every page. The caller compares it to the one its
+     * bookmark was taken under, and a mismatch means the bookmark is void — see
+     * `Catchup` for what it does about that.
+     */
+    suspend fun newer(after: Long?, limit: Int): Newer
+
     suspend fun content(id: String): Content
 
     /**
@@ -308,6 +329,21 @@ interface MailService {
      */
     suspend fun watch(onMail: suspend () -> Unit)
 }
+
+/**
+ * One page of a catch-up read. See [MailService.newer].
+ *
+ * [lowest] and [highest] bound the slice the server handed over, counting messages that
+ * could not be converted: a message with an unparseable header must still advance the
+ * bookmark, or every sync would ask for it again and fail on it again.
+ */
+data class Newer(
+    val validity: Long,
+    val messages: List<Message>,
+    val lowest: Long?,
+    val highest: Long?,
+    val more: Boolean,
+)
 
 /** Bytes used and bytes allowed, from the IMAP QUOTA extension. */
 data class Quota(val usedBytes: Long, val limitBytes: Long) {

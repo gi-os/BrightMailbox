@@ -118,8 +118,17 @@ fun ScanScreen(vm: MailboxViewModel, service: Service) {
                         }
                         val future = ProcessCameraProvider.getInstance(ctx)
                         future.addListener({
-                            val provider = runCatching { future.get() }.getOrNull()
-                                ?: return@addListener
+                            val provider = try {
+                                future.get()
+                            } catch (e: Exception) {
+                                // A camera that will not open is a silent black square
+                                // otherwise; the chip is the only way anybody hears of it.
+                                com.gios.light.common.report.Trouble.record(
+                                    "open the camera to scan a code",
+                                    com.gios.brightmailbox.report.Detail.of(e),
+                                )
+                                return@addListener
+                            }
                             val preview = Preview.Builder().build()
                                 .also { it.setSurfaceProvider(view.surfaceProvider) }
                             val analysis = ImageAnalysis.Builder()
@@ -155,13 +164,18 @@ fun ScanScreen(vm: MailboxViewModel, service: Service) {
                                         },
                                     )
                                 }
-                            runCatching {
+                            try {
                                 provider.unbindAll()
                                 provider.bindToLifecycle(
                                     owner,
                                     CameraSelector.DEFAULT_BACK_CAMERA,
                                     preview,
                                     analysis,
+                                )
+                            } catch (e: Exception) {
+                                com.gios.light.common.report.Trouble.record(
+                                    "open the camera to scan a code",
+                                    com.gios.brightmailbox.report.Detail.of(e),
                                 )
                             }
                         }, ContextCompat.getMainExecutor(ctx))

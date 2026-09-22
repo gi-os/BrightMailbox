@@ -103,6 +103,52 @@ class Imap(
         }
     }
 
+    override suspend fun newer(after: Long?, limit: Int): Newer = io {
+        withFolder("INBOX", write = false) { f ->
+            val validity = f.getUIDValidity()
+            val total = f.messageCount
+            if (total <= 0) return@withFolder Newer(validity, emptyList(), null, null, false)
+
+            val slice: List<JavaMailMessage>
+            val more: Boolean
+            if (after == null) {
+                // No bookmark: the newest by position, the same page `list` would open with.
+                slice = f.getMessages(maxOf(1, total - limit + 1), total).toList()
+                more = false
+            } else {
+                /*
+                 * `UID FETCH after+1:* (UID)` — one line per message above the bookmark,
+                 * no headers. RFC 3501 says a range ending in `*` always includes the
+                 * last message even when the start is above every UID in the folder, so
+                 * the server's answer to "anything after 5000?" on a folder that tops
+                 * out at 4990 is message 4990. Filtering on the UID is not defensive, it
+                 * is the protocol.
+                 */
+                val above = f.getMessagesByUID(after + 1, UIDFolder.LASTUID)
+                    .filterNotNull()
+                    .filter { runCatching { f.getUID(it) }.getOrDefault(-1L) > after }
+                slice = above.take(limit)
+                more = above.size > limit
+            }
+            if (slice.isEmpty()) return@withFolder Newer(validity, emptyList(), null, null, false)
+
+            val msgs = slice.toTypedArray()
+            f.fetch(
+                msgs,
+                FetchProfile().apply {
+                    add(UIDFolder.FetchProfileItem.UID)
+                    add(IMAPFolder.FetchProfileItem.HEADERS)
+                    add(FetchProfile.Item.FLAGS)
+                    add(FetchProfile.Item.ENVELOPE)
+                },
+            )
+            val uids = msgs.mapNotNull { runCatching { f.getUID(it) }.getOrNull()?.takeIf { u -> u > 0 } }
+            // Oldest first, and one unparseable message must not lose the page.
+            val out = msgs.mapNotNull { m -> runCatching { convert(f, m, validity) }.getOrNull() }
+            Newer(validity, out, uids.minOrNull(), uids.maxOrNull(), more)
+        }
+    }
+
     override suspend fun content(id: String): Content = io {
         withFolder(folderOf(id), write = false) { f ->
             val m = f.getMessageByUID(uidOf(id)) ?: return@withFolder Content(null, null)

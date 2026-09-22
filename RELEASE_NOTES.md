@@ -1,3 +1,51 @@
+## BrightMailbox v2.68 — mail that arrived while you were away, all of it
+
+**A refresh used to look at the twenty newest messages and stop, whatever had piled up
+underneath.** Eighty messages arriving while the phone sat in a drawer meant every check
+re-read the same twenty, agreed they were already here, and never asked for the sixty below
+them. Nothing failed, which is why nobody could see it.
+
+The sync keeps a bookmark now: the highest UID it has stored, per account, written after
+every page. Each check asks the server for everything above it, in pages, until it is caught
+up or has read eight pages, and the next check carries on from where that one stopped. The
+bookmark travels with the folder's UIDVALIDITY. If the server renumbers the folder the
+bookmark is thrown away and the walk restarts from what the database holds, never from a
+number that now means something else. The first check after this update starts from the
+highest message already stored, so a gap that opened before the update is filled too.
+`Catchup.kt` makes every one of those decisions and has no Android in it; 16 tests.
+
+Sending says where a message is. An outgoing message is a draft, queued, sending, failed or
+sent, and the DRAFTS list says which, with the reason when it failed. Five tries, as before,
+then it waits for you. A send that failed with files attached used to come back without them
+and ask you to attach them again; the files are written beside the draft now and go out with
+the retry. A drafts folder that could not be reached on the server used to read as an empty
+folder, and an empty folder meant every draft imported from it was finished elsewhere and
+could be dropped. A folder that did not answer has said nothing, and nothing is dropped.
+
+The compose screen saves while you type, a second and a half after the last keystroke, and
+still on the way out. One row, never two, and never a copy of a message that just left. A
+reply you open and back out of without typing no longer leaves a draft behind.
+
+The header counts the ration, not the rows: "2 of 5 read", with held letters counted beside
+it, because a held letter is neither one of the five nor one of the read. A notice that
+carries a verification code has COPY on its row. It is careful about what it calls a code: a
+year, a price, a phone number and an order number are not one, and a number is only a code
+when the notice says so.
+
+Every place the app catches a failure and turns it into a sentence now also raises the SEND
+ERROR? chip, with the kind of failure and never the correspondence. Reports arrive without
+anyone having to remember the shake.
+
+The release signing key is out of the repository. It sat in `keystore/` with its password
+three lines under it, so anyone could build an APK the phone would take as an update. It is
+a CI secret now, and the path is ignored so it cannot come back by accident. Same key, so
+this installs over v2.67 like any other update. The old file is still in git history, so the
+key is still public; what changed is that a branch build no longer produces an APK signed
+with it.
+
+Database 8 → 9: three columns on `drafts`, backfilled. Installs over 2.67 and keeps
+everything.
+
 ## BrightMailbox v2.67 — one set of icons, drawn for the app
 
 Every icon in the app used to come from a different place: light-sdk for the header, a

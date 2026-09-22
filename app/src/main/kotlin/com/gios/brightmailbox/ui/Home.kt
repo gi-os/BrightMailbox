@@ -72,11 +72,20 @@ fun HomeScreen(vm: MailboxViewModel) {
     val noticeTotal by vm.noticeTotal.collectAsStateWithLifecycle()
     val waiting by vm.waiting.collectAsStateWithLifecycle()
     val allowed by vm.allowed.collectAsStateWithLifecycle()
+    val readToday by vm.readToday.collectAsStateWithLifecycle()
     // Has anything actually been read and checked yet? See MailboxViewModel.settled.
     val settled by vm.settled.collectAsStateWithLifecycle()
 
     val unlimited = vm.repo.ration == Ration.UNLIMITED
     val visible = vm.visibleLetters(all)
+    /*
+     * Held, counted apart.
+     *
+     * A starred conversation sits on the list whatever the ration says, so it is neither
+     * one of the day's five nor one of the ones read against them. Counting it in either
+     * number made the header lie in one direction or the other.
+     */
+    val heldCount = visible.count { it.starred }
 
     /*
      * The finished-day screen is now the empty case only.
@@ -115,15 +124,28 @@ fun HomeScreen(vm: MailboxViewModel) {
              * same redundancy MAILBOX was, one row further down. What is left is the
              * count, which is the only part that ever changes.
              */
+            /*
+             * What the count counts: **the ration spent, not the rows drawn.**
+             *
+             * It used to be `visible.size`, which is every conversation on the list —
+             * held ones, read ones and the unread five alike. "5 of 5" above a list you
+             * had not opened anything on was the header describing the screen rather
+             * than the day. It is now read-today over the day's ration, which is five
+             * plus whatever the wheel unlocked, and the held ones are counted beside it
+             * because they belong to neither number.
+             */
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (unlimited) {
-                    T("${visible.size} today", t.copy, Secondary, maxLines = 1)
+                    T("$readToday read", t.copy, Secondary, maxLines = 1)
                 } else {
                     Row {
-                        T("${visible.size}", t.copy, maxLines = 1)
-                        T(" of ${Ration.FIVE.perDay}", t.copy, Secondary, maxLines = 1)
+                        T("$readToday", t.copy, maxLines = 1)
+                        T(" of ${readToday + allowed} read", t.copy, Secondary, maxLines = 1)
                     }
+                }
+                if (heldCount > 0) {
+                    T(" · $heldCount held", t.copy, Secondary, maxLines = 1)
                 }
                 Spacer(Modifier.width(g * 0.8f))
                 /*
@@ -298,12 +320,18 @@ fun HomeScreen(vm: MailboxViewModel) {
                 }
                 itemsIndexed(notices.take(4), key = { _, m -> "n" + m.key }) { i, m ->
                     Cascade("n" + m.key, i, vm) {
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        val code = androidx.compose.runtime.remember(m.subject, m.snippet) {
+                            com.gios.brightmailbox.text.Codes.find(m.subject, m.snippet)
+                        }
                         NoticeRow(
                             m,
                             onClick = { vm.open(m) },
                             onHold = { vm.star(m) },
                             left = vm.swipe(swipeLeft, m),
                             right = vm.swipe(swipeRight, m),
+                            code = code,
+                            onCopy = { copyCode(context, it, vm::said) },
                         )
                     }
                 }
@@ -671,6 +699,14 @@ fun NoticeRow(
     onHold: () -> Unit = {},
     left: SwipeSpec? = null,
     right: SwipeSpec? = null,
+    /**
+     * A verification code found in the notice, or null. See `Codes`.
+     *
+     * Passed in rather than found here so the list computes it once per row change
+     * rather than once per frame; the extractor runs a handful of regexes.
+     */
+    code: String? = null,
+    onCopy: (String) -> Unit = {},
 ) {
     val g = LocalGrid.current
     val t = LocalType.current
@@ -687,12 +723,45 @@ fun NoticeRow(
             modifier = Modifier.weight(1f),
             maxLines = 1,
         )
+        if (code != null) {
+            /*
+             * COPY, on the row, with its own target.
+             *
+             * A clickable inside a clickable: the inner one takes the tap and the row
+             * never sees it, which is what makes this a copy and not a copy that also
+             * opens the reader. The padding is the touch target — the word is small and
+             * a finger is not.
+             */
+            Spacer(Modifier.width(g * 0.4f))
+            T(
+                "COPY",
+                t.superfine,
+                Secondary,
+                Modifier
+                    .lightClickable { onCopy(code) }
+                    .padding(horizontal = g * 0.3f, vertical = g * 0.25f),
+                maxLines = 1,
+            )
+        }
         if (m.starred) {
             Spacer(Modifier.width(g * 0.4f))
             Star()
         }
     }
     }
+}
+
+/**
+ * Put a code on the clipboard and say so.
+ *
+ * The system service, not Compose's `LocalClipboardManager`: the toast is the only
+ * confirmation on this phone, and the sentence has to carry the code so a glance at it
+ * tells you what you are about to paste.
+ */
+fun copyCode(context: android.content.Context, code: String, said: (String) -> Unit) {
+    val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+    cm?.setPrimaryClip(android.content.ClipData.newPlainText("code", code))
+    said("Copied $code.")
 }
 
 /**

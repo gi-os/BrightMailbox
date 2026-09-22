@@ -191,10 +191,44 @@ data class Draft(
      * a draft in every way that matters — same fields, same screen, same edit — and the
      * only difference is that something will try to send it again without being asked. A
      * separate table would have duplicated all of that to express one boolean.
+     *
+     * **Since v2.68 this mirrors [state] and nothing reads it.** The boolean could not say
+     * why a message was still here, so [state] took over; the column stays because
+     * SQLite on this phone cannot drop one and a table rebuild to lose a flag is not
+     * worth the risk to somebody's drafts. Every write sets it to `state.inOutbox` so a
+     * downgrade still sees a sane outbox.
      */
     @ColumnInfo(defaultValue = "0") val queued: Boolean = false,
     /** How many attempts have failed. Stops an unsendable message retrying for ever. */
     @ColumnInfo(defaultValue = "0") val tries: Int = 0,
+    /**
+     * Where it is on its way out — a [SendState] name. See that enum for the story.
+     *
+     * Text rather than the enum so a schema dump reads as words, and so a name this
+     * build does not know reads as a plain draft rather than a crash.
+     */
+    @ColumnInfo(defaultValue = "DRAFT") val state: String = SendState.DRAFT.name,
+    /**
+     * Why the last attempt did not go. Blank when it has not failed.
+     *
+     * The last error, not the first: the first is history and the last is what is still
+     * true. Shown on the drafts list, because a row that says "could not send" and does
+     * not say why is a row nobody can act on.
+     */
+    @ColumnInfo(defaultValue = "") val error: String = "",
+    /**
+     * The files that go with it, as `n\tname\tmime` lines.
+     *
+     * The bytes are on disk under `filesDir/drafts/<id>/<n>`, never in this row: a
+     * queued message with an 8 MB deck would otherwise put the deck in SQLite, where it
+     * is read on every list query. Same tab-separated shape as the attachment index a
+     * received message keeps beside its body, for the same reason — three fields, one
+     * writer, one reader, and a dependency for that would be silly.
+     *
+     * Blank for most drafts. Before v2.68 a queued send lost its files entirely and the
+     * list said so; now they ride along and come back when the draft is reopened.
+     */
+    @ColumnInfo(defaultValue = "") val files: String = "",
     /**
      * The provider id of the server-side draft this came from, blank for a local one.
      *
@@ -477,6 +511,15 @@ interface MailDao {
     suspend fun newestFor(accountId: String): Long?
 
     /**
+     * Every provider id this account has, archived included, for finding the highest
+     * INBOX UID already stored — the sync's bookmark when none has been written yet, or
+     * when the one written has gone stale. Asked rarely: once per account on the first
+     * run after the update, and again only when the server renumbers the folder.
+     */
+    @Query("SELECT providerId FROM messages WHERE accountId = :accountId")
+    suspend fun providerIds(accountId: String): List<String>
+
+    /**
      * Everything that came to one mailbox, for when that mailbox is removed.
      *
      * Without this the rows outlive the credential: they still draw in both piles, and
@@ -549,29 +592,58 @@ interface MailDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putDraft(d: Draft): Long
 
-    @Query("SELECT * FROM drafts ORDER BY updatedAt DESC")
+    /** Everything a person can still do something with. A SENT row is a tombstone. */
+    @Query("SELECT * FROM drafts WHERE state != 'SENT' ORDER BY updatedAt DESC")
     fun drafts(): Flow<List<Draft>>
+
+    @Query("SELECT * FROM drafts WHERE id = :id")
+    suspend fun draft(id: Long): Draft?
 
     @Query("DELETE FROM drafts WHERE id = :id")
     suspend fun dropDraft(id: Long)
 
-    /** The outbox: what is waiting to go, oldest first so a queue stays a queue. */
-    @Query("SELECT * FROM drafts WHERE queued AND tries < 5 ORDER BY updatedAt ASC")
+    /**
+     * The outbox: what is waiting to go, oldest first so a queue stays a queue.
+     *
+     * SENDING is included on purpose — a row still saying so at the start of a flush was
+     * left by a process that died mid-send. See [SendState.SENDING].
+     */
+    @Query(
+        "SELECT * FROM drafts WHERE state IN ('QUEUED', 'SENDING') AND tries < 5 ORDER BY updatedAt ASC",
+    )
     suspend fun queuedDrafts(): List<Draft>
+
+    /** Tombstones: accepted by the server, not yet deleted. Swept at the start of a flush. */
+    @Query("SELECT * FROM drafts WHERE state = 'SENT'")
+    suspend fun sentDrafts(): List<Draft>
 
     @Query("SELECT * FROM drafts WHERE remoteId != ''")
     suspend fun importedDrafts(): List<Draft>
 
-    @Query("SELECT COUNT(*) FROM drafts WHERE queued")
+    @Query("SELECT COUNT(*) FROM drafts WHERE state IN ('QUEUED', 'SENDING')")
     fun queuedCount(): Flow<Int>
 
-    @Query("UPDATE drafts SET queued = :on, tries = :tries WHERE id = :id")
-    suspend fun setQueued(id: Long, on: Boolean, tries: Int)
+    /** Given up on, waiting for a person. The menu line has to say so. */
+    @Query("SELECT COUNT(*) FROM drafts WHERE state = 'FAILED'")
+    fun failedCount(): Flow<Int>
+
+    /**
+     * Move a draft along. One statement, so a state and the reason for it can never be
+     * written apart; `queued` rides along as the mirror the column comment describes.
+     */
+    @Query(
+        "UPDATE drafts SET state = :state, tries = :tries, error = :error, queued = :queued " +
+            "WHERE id = :id",
+    )
+    suspend fun setState(id: Long, state: String, tries: Int, error: String, queued: Boolean)
+
+    @Query("UPDATE drafts SET files = :files WHERE id = :id")
+    suspend fun setFiles(id: Long, files: String)
 }
 
 @Database(
     entities = [Msg::class, SenderRule::class, Correspondent::class, Draft::class, ParcelRow::class],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class MailDb : RoomDatabase() {
@@ -617,6 +689,32 @@ abstract class MailDb : RoomDatabase() {
          * everything already here, which reads as "no link" — the safe direction, and the
          * next sync fills it in for anything new.
          */
+        /**
+         * v8 → v9: an outgoing message has a state, a reason, and its files.
+         *
+         * `state` is backfilled from the two columns it replaces, so a message that was
+         * waiting when the app updated is still waiting afterwards and one that had used
+         * its five tries says so rather than quietly becoming a draft again. `queued`
+         * stays and keeps being written — see [Draft.queued] for why a column this app
+         * no longer reads is still here.
+         */
+        val MIGRATION_8_9 = object : androidx.room.migration.Migration(8, 9) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE drafts ADD COLUMN state TEXT NOT NULL DEFAULT 'DRAFT'")
+                db.execSQL("ALTER TABLE drafts ADD COLUMN error TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE drafts ADD COLUMN files TEXT NOT NULL DEFAULT ''")
+                db.execSQL(
+                    """
+                    UPDATE drafts SET state = CASE
+                        WHEN queued != 0 AND tries >= 5 THEN 'FAILED'
+                        WHEN queued != 0 THEN 'QUEUED'
+                        ELSE 'DRAFT'
+                    END
+                    """.trimIndent(),
+                )
+            }
+        }
+
         /**
          * v7 → v8: parcels become a table.
          *

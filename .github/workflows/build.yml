@@ -70,6 +70,17 @@ jobs:
       #
       # NOTE: one env block. Two `env:` keys on the same step is legal YAML and the
       # second silently wins, which is how an earlier project lost its client id.
+      # The signing key is a secret, not a file in the repository. It is written here and
+      # nowhere else, and the path is git-ignored so a local checkout cannot commit it back.
+      - name: Restore signing keystore
+        run: |
+          mkdir -p keystore
+          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > keystore/brightmailbox.jks
+          # A missing or truncated secret would otherwise fall through to a debug-signed
+          # release that the fingerprint step rejects with a confusing message. Fail where
+          # the cause is.
+          test -s keystore/brightmailbox.jks || { echo '::error::KEYSTORE_B64 is empty'; exit 1; }
+
       - name: Build APKs
         env:
           MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
@@ -77,6 +88,7 @@ jobs:
           # light-common comes from GitHub Packages, which refuses anonymous reads even
           # for a public package. `packages: read` above plus this is what buys it.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
 
       - name: Collect APKs

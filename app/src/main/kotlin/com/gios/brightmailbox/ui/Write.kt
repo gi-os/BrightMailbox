@@ -227,14 +227,23 @@ fun WriteScreen(
     androidx.compose.runtime.LaunchedEffect(drafts.isNotEmpty()) {
         if (draftId != 0L) return@LaunchedEffect
         /*
-         * The named draft wins, then the newest one for this conversation.
+         * The named draft wins, then the newest one for this conversation — and a
+         * conversation is required, not just its absence.
          *
          * Without the first clause every standalone draft matched `inReplyTo == null` and
          * the same one was restored every time, so a second unsent message was kept and
          * never offered again. The drafts screen passes an id; this honours it.
+         *
+         * `replyTo != null` on the second clause matters just as much: without it, a
+         * brand-new "New" compose has no conversation either, so `it.inReplyTo == null`
+         * matched the first standalone draft in the table every time — writing one email,
+         * sending it, and starting a second kept reopening the one you had just sent.
+         * A fresh compose only ever gets a draft it was explicitly opened onto.
          */
         val saved = drafts.firstOrNull { openDraftId != 0L && it.id == openDraftId }
-            ?: drafts.firstOrNull { openDraftId == 0L && it.inReplyTo == replyTo?.messageId }
+            ?: drafts.firstOrNull {
+                openDraftId == 0L && replyTo != null && it.inReplyTo == replyTo.messageId
+            }
             ?: return@LaunchedEffect
         draftId = saved.id
         accountId = saved.accountId.ifBlank { accountId }

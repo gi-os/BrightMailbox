@@ -401,9 +401,11 @@ fun SentScreen(vm: MailboxViewModel) {
  * Messages you started and did not send.
  *
  * This screen exists because of a bug it fixes rather than a feature anybody asked for.
- * The compose screen restores "the newest draft with no reply target", so writing two
- * separate messages and leaving both saved the older one somewhere with no way back to
- * it. A draft the app has kept and will not show you is worse than one it threw away.
+ * The compose screen used to restore "the newest standalone draft" on every fresh
+ * compose, so writing two separate messages and leaving both saved the older one
+ * somewhere with no way back to it, and a third had no way off the phone at all. A draft
+ * the app has kept and will not show you, or will not let you throw away, is worse than
+ * one it never wrote.
  */
 @Composable
 fun DraftsScreen(vm: MailboxViewModel) {
@@ -441,61 +443,81 @@ fun DraftsScreen(vm: MailboxViewModel) {
             ) {
                 items(drafts.size, key = { i -> drafts[i].id }) { i ->
                     val d = drafts[i]
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .lightClickable {
-                                vm.go(Screen.Write(draftId = d.id, from = Screen.Drafts))
-                            },
-                    ) {
+                    // Confirming inline rather than with a dialog: a second tap on the
+                    // same word is the whole cost of a mistake, and a dialog is a second
+                    // screen for something that fits in one word changing to another.
+                    var confirmingDelete by remember(d.id) { mutableStateOf(false) }
+                    Column(Modifier.fillMaxWidth()) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .lightClickable {
+                                    vm.go(Screen.Write(draftId = d.id, from = Screen.Drafts))
+                                },
+                        ) {
+                            T(
+                                d.to.ifBlank { "(no recipient)" },
+                                t.copy,
+                                maxLines = 1,
+                            )
+                            Spacer(Modifier.height(g * 0.2f))
+                            T(
+                                d.subject.ifBlank { d.body.take(60).ifBlank { "(empty)" } },
+                                t.detail,
+                                Secondary,
+                                maxLines = 1,
+                            )
+                            /*
+                             * Where it came from, for the ones that did not start here.
+                             *
+                             * An imported draft behaves like any other — tap it, finish it,
+                             * send it — but it also still exists in the drafts folder of
+                             * whatever wrote it, and sending from here does not remove it
+                             * there. Saying so is cheaper than pretending the two are one
+                             * thing and letting somebody discover the duplicate later.
+                             */
+                            if (d.remoteId.isNotBlank()) {
+                                T("from your mailbox", t.superfine, Secondary, maxLines = 1)
+                            }
+                            /*
+                             * Where it is on its way out, in words.
+                             *
+                             * Four states a person can see and one line each. FAILED says
+                             * why, because "could not send" alone is a row nobody can act
+                             * on: the reason is the difference between fixing an address
+                             * and waiting for a signal.
+                             */
+                            val stateLine = when (com.gios.brightmailbox.data.SendState.of(d.state)) {
+                                com.gios.brightmailbox.data.SendState.QUEUED ->
+                                    if (d.tries == 0) "waiting to send"
+                                    else "waiting to send · ${d.tries} ${if (d.tries == 1) "try" else "tries"}"
+                                com.gios.brightmailbox.data.SendState.SENDING -> "sending…"
+                                com.gios.brightmailbox.data.SendState.FAILED ->
+                                    "could not send" + if (d.error.isBlank()) "" else " · ${d.error}"
+                                else -> null
+                            }
+                            if (stateLine != null) {
+                                T(stateLine, t.superfine, Secondary, maxLines = 2)
+                            }
+                            if (d.files.isNotBlank()) {
+                                val n = d.files.lineSequence().count { it.isNotBlank() }
+                                T("$n file${if (n == 1) "" else "s"} attached", t.superfine, Secondary, maxLines = 1)
+                            }
+                        }
+                        Spacer(Modifier.height(g * 0.3f))
                         T(
-                            d.to.ifBlank { "(no recipient)" },
-                            t.copy,
-                            maxLines = 1,
-                        )
-                        Spacer(Modifier.height(g * 0.2f))
-                        T(
-                            d.subject.ifBlank { d.body.take(60).ifBlank { "(empty)" } },
-                            t.detail,
+                            if (confirmingDelete) "SURE? DELETE" else "DELETE",
+                            t.superfine,
                             Secondary,
+                            Modifier.lightClickable {
+                                if (confirmingDelete) {
+                                    vm.dropDraft(d.id)
+                                } else {
+                                    confirmingDelete = true
+                                }
+                            },
                             maxLines = 1,
                         )
-                        /*
-                         * Where it came from, for the ones that did not start here.
-                         *
-                         * An imported draft behaves like any other — tap it, finish it,
-                         * send it — but it also still exists in the drafts folder of
-                         * whatever wrote it, and sending from here does not remove it
-                         * there. Saying so is cheaper than pretending the two are one
-                         * thing and letting somebody discover the duplicate later.
-                         */
-                        if (d.remoteId.isNotBlank()) {
-                            T("from your mailbox", t.superfine, Secondary, maxLines = 1)
-                        }
-                        /*
-                         * Where it is on its way out, in words.
-                         *
-                         * Four states a person can see and one line each. FAILED says
-                         * why, because "could not send" alone is a row nobody can act
-                         * on: the reason is the difference between fixing an address
-                         * and waiting for a signal.
-                         */
-                        val stateLine = when (com.gios.brightmailbox.data.SendState.of(d.state)) {
-                            com.gios.brightmailbox.data.SendState.QUEUED ->
-                                if (d.tries == 0) "waiting to send"
-                                else "waiting to send · ${d.tries} ${if (d.tries == 1) "try" else "tries"}"
-                            com.gios.brightmailbox.data.SendState.SENDING -> "sending…"
-                            com.gios.brightmailbox.data.SendState.FAILED ->
-                                "could not send" + if (d.error.isBlank()) "" else " · ${d.error}"
-                            else -> null
-                        }
-                        if (stateLine != null) {
-                            T(stateLine, t.superfine, Secondary, maxLines = 2)
-                        }
-                        if (d.files.isNotBlank()) {
-                            val n = d.files.lineSequence().count { it.isNotBlank() }
-                            T("$n file${if (n == 1) "" else "s"} attached", t.superfine, Secondary, maxLines = 1)
-                        }
                     }
                 }
             }

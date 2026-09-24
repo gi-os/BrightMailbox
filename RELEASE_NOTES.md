@@ -1,3 +1,17 @@
+## BrightMailbox v2.69 — a new email is a new email
+
+**Composing a fresh message could pull up an old draft you had already sent or never
+meant to reopen, with no way to clear it or start over** — reported by a user on Discord.
+The compose screen restored "the newest draft with no reply target" whenever it opened
+with nothing to reply to, which describes every ordinary New compose: it matched the
+first standalone draft in the table regardless of whether it had anything to do with what
+you were about to write. A reply still finds its own draft back by conversation; a fresh
+compose now only ever opens a draft it was explicitly pointed at from the Drafts list.
+
+The Drafts list also gained a way to throw one away — tap DELETE once to arm it, again to
+confirm, no dialog. A draft the app kept and would not show you was worse than one it
+never wrote; a draft it would not let go of was worse still.
+
 ## BrightMailbox v2.68 — mail that arrived while you were away, all of it
 
 **A refresh used to look at the twenty newest messages and stop, whatever had piled up

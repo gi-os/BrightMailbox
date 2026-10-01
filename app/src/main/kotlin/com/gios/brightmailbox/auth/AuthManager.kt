@@ -228,6 +228,9 @@ class AuthManager(context: Context) {
         /** What to call the provider, when the service is the generic one. */
         provider: String = "",
     ): Result<Account> {
+        // emailOf returns null for blank input the same as for a malformed address, so an
+        // empty field used to be told it did not look like an address (light-reports#572).
+        if (rawEmail.isBlank()) return Result.failure(IOException("Enter the address."))
         val email = Imap.emailOf(rawEmail)
             ?: return Result.failure(IOException("That does not look like an email address."))
         // Google prints app passwords in four groups of four. People paste them that

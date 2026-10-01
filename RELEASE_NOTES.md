@@ -1,3 +1,14 @@
+## BrightMailbox v2.70: a blank address gets a plain answer
+
+**Leaving the address empty no longer gets you told it is malformed.** A field report
+described tapping CONNECT on the generic IMAP screen with no address typed and getting
+"That does not look like an email address." The validator returns nothing for blank input
+the same way it does for an address it cannot read, and one message covered both. Sign-in
+now checks for an empty field first, so a blank address says "Enter the address.", in the
+same few words as the password and server fields beside it.
+
+Fixes light-reports#572: the Password screen said "That does not look like an email address" when the address field was empty.
+
 ## BrightMailbox v2.69 — a new email is a new email
 
 **Composing a fresh message could pull up an old draft you had already sent or never

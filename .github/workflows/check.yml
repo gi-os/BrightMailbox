@@ -47,6 +47,5 @@ jobs:
 
       - name: Compile
         env:
-          REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew :app:assembleDebug --stacktrace

@@ -84,7 +84,6 @@ jobs:
       - name: Build APKs
         env:
           MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
-          REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
           # light-common comes from GitHub Packages, which refuses anonymous reads even
           # for a public package. `packages: read` above plus this is what buys it.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

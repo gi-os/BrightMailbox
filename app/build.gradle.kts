@@ -87,45 +87,10 @@ android {
         buildConfigField("String", "REPORT_REPO", "\"gi-os/light-reports\"")
     }
 
-    // The release key used to live in this repository with its password written three lines
-    // under it, which meant anyone at all could build an APK that Android would accept as an
-    // update to this one. It is a CI secret now: build.yml decodes it to
-    // `keystore/brightmailbox.jks`, and that path is git-ignored so a local build cannot put
-    // one back by accident. Same key as before — Android identifies an app by its certificate,
-    // and a new key would have meant an uninstall for every phone that has Mailbox on it.
-    // The file sat in public history before this, so it is still public; what this buys is
-    // that a branch build no longer hands out an APK the phone takes as the real thing.
-    //
-    // A build without the secret still works and still installs — it is signed with the local
-    // debug key and will not update over a release. That is the right way round: a build that
-    // announces it is not the real one beats a build that silently signs itself with a key
-    // everybody has.
-    val keystoreFile = rootProject.file("keystore/brightmailbox.jks")
-    val keystorePassword: String = System.getenv("KEYSTORE_PASSWORD") ?: ""
-    val canSignRelease = keystoreFile.exists() && keystorePassword.isNotEmpty()
-
-    signingConfigs {
-        if (canSignRelease) {
-            create("release") {
-                storeFile = keystoreFile
-                storePassword = keystorePassword
-                keyAlias = "brightmailbox"
-                keyPassword = keystorePassword
-            }
-        }
-    }
-
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // The debug key, never null: `null` produces app-release-unsigned.apk, which the
-            // collect step then cannot find and Android cannot install.
-            signingConfig = if (canSignRelease) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
         }
     }
 

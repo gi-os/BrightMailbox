@@ -183,17 +183,104 @@ Register it as a **multi-tenant public client** with the redirect
 for Graph scopes is refused by the IMAP server with a bare AUTHENTICATE failure and no
 explanation, which is a long afternoon if you do not know it.
 
-The signing certificate is committed and pinned (`signing-fingerprint.txt`), so debug
-and release APKs upgrade over each other:
-
-```
-SHA1: F0:BD:D0:0C:DE:1B:A6:FD:0F:CD:93:C6:6F:9A:86:52:18:73:A9:D9
-```
-
 ### If the browser eats the redirect
 
 `scripts/authorize.py` runs consent on a computer and hands the phone a refresh token by
 QR. Gmail no longer needs it — an app password is typed straight in.
+
+## Giovanni: rotate BrightMailbox release signing
+
+`./gradlew :app:assembleRelease` builds an unsigned APK. Debug builds use the standard
+Android debug key, which varies across CI runners. Use a local build for repeat debug
+installs; a debug APK cannot update a production install. The **Check** workflow tests
+signing with disposable keys and never publishes.
+
+Before merging this change, disable [Build & Release APK](https://github.com/gi-os/BrightMailbox/actions/workflows/build.yml).
+Run `gh workflow disable build.yml --repo gi-os/BrightMailbox`.
+A push to `main` otherwise publishes. Keep it disabled until the rotation and distribution
+checks below are done and you intend to publish.
+
+In a private directory outside the checkout, use Android Build Tools 35.0.0. Use the
+original `keystore/brightmailbox.jks` from Git history before the key was removed and its existing
+passwords only for the offline rotation step. Use fresh passwords for the new key.
+
+The original SHA-256 pin is `ab866f2a03fcd4d8e88d2da1bb3e295d080ac28f46ae6c5bb8c9b9d9cc9e23c9`:
+it matches the historical keystore, the published v2.70.76 APK signer and the
+`com.gios.brightmailbox` signer in the [live BrightMarket catalog](https://brightmarket.gzl.dev/index-v1.json).
+
+```sh
+umask 077
+keytool -genkeypair -storetype JKS -keystore brightmailbox-new.jks -alias brightmailbox-release \
+  -keyalg RSA -keysize 3072 -validity 10000
+
+apksigner rotate --out brightmailbox.lineage \
+  --old-signer --ks /path/to/original/brightmailbox.jks --ks-key-alias brightmailbox \
+  --set-installed-data true --set-rollback false \
+  --new-signer --ks brightmailbox-new.jks --ks-key-alias brightmailbox-release
+
+apksigner lineage --in brightmailbox.lineage --print-certs
+```
+
+Verify signer #1's SHA-256 digest against `signing-lineage-root-fingerprint.txt` and
+replace `signing-fingerprint.txt` in this PR with signer #2's SHA-256 digest. Do not
+change the original pin. The release won't publish while the pins are still identical.
+
+In [BrightMailbox's environment settings](https://github.com/gi-os/BrightMailbox/settings/environments),
+create an environment named `release`. Under **Deployment branches and tags**, choose
+**Selected branches and tags** and add a single **Branch** rule for `main`, with no tag
+rules. Add the five secrets below to that environment only. Do not use repository-wide
+secrets or upload the original key or its passwords.
+
+| Secret | Value |
+| --- | --- |
+| `RELEASE_KEYSTORE_BASE64` | Base64-encoded `brightmailbox-new.jks` |
+| `SIGNING_LINEAGE_BASE64` | Base64-encoded `brightmailbox.lineage` |
+| `KEYSTORE_PASSWORD` | New keystore password |
+| `KEY_ALIAS` | `brightmailbox-release` |
+| `KEY_PASSWORD` | New key password |
+
+On Linux, stream the files and enter the passwords at the prompts:
+
+```sh
+base64 -w 0 brightmailbox-new.jks | gh secret set RELEASE_KEYSTORE_BASE64 --env release --repo gi-os/BrightMailbox
+base64 -w 0 brightmailbox.lineage | gh secret set SIGNING_LINEAGE_BASE64 --env release --repo gi-os/BrightMailbox
+gh secret set KEYSTORE_PASSWORD --env release --repo gi-os/BrightMailbox
+gh secret set KEY_ALIAS --env release --repo gi-os/BrightMailbox --body brightmailbox-release
+gh secret set KEY_PASSWORD --env release --repo gi-os/BrightMailbox
+```
+
+Delete old repository-level signing secrets in
+[Actions secrets](https://github.com/gi-os/BrightMailbox/settings/secrets/actions),
+including `KEYSTORE_B64`, `KEYSTORE_PASSWORD`, and any repository-level copies of the
+five names above. Do not delete unrelated application secrets.
+
+CI supplies only the new private key to `scripts/sign-release.sh` and checks that the APK's
+v3 lineage links both pins, preserves installed data, and disallows signer rollback. API 29+
+does not need v1/v2 signatures. Removing the old key from the branch does not remove it
+from Git history or protect installs that still trust it.
+
+Before re-enabling publishing, verify an in-place update from the last shipped build to a
+locally signed test APK with a greater `versionCode` on a device with no real bank data.
+Coordinate the BrightMarket migration: add the exact old-to-new `com.gios.brightmailbox`
+handover to [the index](https://github.com/gi-os/brightmarket-index/blob/HEAD/scripts/build_index.py)
+using this entry in `HANDOVERS` (replace the placeholder with the new lowercase,
+colon-free SHA-256; never commit the placeholder):
+
+```python
+(
+    "com.gios.brightmailbox",
+    "ab866f2a03fcd4d8e88d2da1bb3e295d080ac28f46ae6c5bb8c9b9d9cc9e23c9",
+    "<NEW_CERT_SHA256>",
+    "Rotate release signing key exposed with its password in Git history",
+),
+```
+
+Ensure [the updater](https://github.com/gi-os/BrightMarket) accepts the installed
+predecessor for this transition. The index otherwise keeps the old release, and changing
+the catalog pin alone makes the current updater classify old installs as foreign.
+
+Only after the pins, environment and distribution checks are complete, re-enable with
+`gh workflow enable build.yml --repo gi-os/BrightMailbox` when ready to publish.
 
 ## Testing
 

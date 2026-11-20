@@ -48,15 +48,6 @@ val microsoftClientId: String = run {
  * system sound at runtime.
  */
 
-/** Shake-to-report key. Never committed; CI passes it from a repository secret. */
-val reportToken: String = run {
-    System.getenv("REPORT_TOKEN")?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
-    val f = rootProject.file("local.properties")
-    if (!f.exists()) return@run ""
-    Properties().apply { f.inputStream().use { load(it) } }
-        .getProperty("reportToken")?.trim().orEmpty()
-}
-
 /*
  * The OAuth redirect. Google validates an Android client by package name and signing
  * certificate rather than by redirect URI and accepts a custom scheme matching the
@@ -83,7 +74,6 @@ android {
 
         buildConfigField("String", "MICROSOFT_CLIENT_ID", "\"$microsoftClientId\"")
         buildConfigField("String", "OAUTH_REDIRECT", "\"$redirectScheme:/oauth2redirect\"")
-        buildConfigField("String", "REPORT_TOKEN", "\"$reportToken\"")
         buildConfigField("String", "REPORT_REPO", "\"gi-os/light-reports\"")
     }
 
@@ -170,11 +160,9 @@ dependencies {
     implementation("jakarta.activation:jakarta.activation-api:2.1.3")
 
     /*
-     * Shake-to-report. The BuildConfig.REPORT_TOKEN field and the CI plumbing existed
-     * from v1, but nothing consumed them — the field was set and no reporter read it, so
-     * a shake did nothing. This is the missing half.
+     * Shake-to-report. Reports go through the relay in gi-os/BrightCommon; no key ships in the APK.
      */
-    implementation("com.gios:light-common:1.10.0")
+    implementation("com.gios:light-common:1.11.0")
 
     /*
      * QR scanning, so a sixteen-character app password is never typed on a 3.9" keyboard.

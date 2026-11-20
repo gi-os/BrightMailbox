@@ -162,7 +162,7 @@ dependencies {
     /*
      * Shake-to-report. Reports go through the relay in gi-os/BrightCommon; no key ships in the APK.
      */
-    implementation("com.gios:light-common:1.10.0")
+    implementation("com.gios:light-common:1.11.0")
 
     /*
      * QR scanning, so a sixteen-character app password is never typed on a 3.9" keyboard.
